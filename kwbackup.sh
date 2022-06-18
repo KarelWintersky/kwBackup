@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.0"
+VERSION="0.8.1"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -155,26 +155,28 @@ function actionBackupDatabase() {
 
     for DB in "${DATABASES[@]}"
     do
+        local MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
+        local RAR_OPTIONS="-inul -m5 -mde"
+
         #@todo: zip, rar, sql (сделать CASE)
-        # FILENAME_SQL=${DB}_${NOW}.sql
         if [[ ${USE_ARCHIVER:-rar} = "rar" ]]; then
             FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-            mysqldump -Q --single-transaction -h "${MYSQL_HOST}" "${DB}" | rar a -si${DB}_${NOW}.sql -m5 -mde ${TEMP_PATH}/${FILENAME_ARCHIVE}
+            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
         else
             FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
-            mysqldump -Q --single-transaction -h "${MYSQL_HOST}" "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
         fi
 
         if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
             rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
-            rclone copy --config ${RCLONE_CONFIG} -L -u -v "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
+            rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
         fi
 
         if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
             # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
             if [[ ${NOW_DOW} -eq 1 ]]; then
                 rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
-                rclone copy --config ${RCLONE_CONFIG} -L -u -v "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
+                rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
             fi
         fi
 
@@ -182,7 +184,7 @@ function actionBackupDatabase() {
         # backup for first day of month
             if [[ ${NOW_DAY} == 01 ]]; then
                 rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
-                rclone copy --config ${RCLONE_CONFIG} -L -u -v "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
+                rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
             fi
         fi
 
@@ -207,10 +209,11 @@ function actionBackupStorage() {
     if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
         for SOURCE in "${STORAGE_SOURCES[@]}"
         do
-            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -L --progress -u -v ${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
         done
     else
-        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -L --progress -u -v ${STORAGE_SOURCES} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+        SOURCE=
+        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${STORAGE_SOURCES} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
     fi
 }
 
@@ -225,7 +228,7 @@ function actionBackupArchive() {
     rar a -x@${RARFILES_EXCLUDE_LIST} -m5 -mde -s -r ${TEMP_PATH}/${FILENAME_RAR} @${RARFILES_INCLUDE_LIST}
 
     rclone delete --config ${RCLONE_CONFIG} --min-age 71d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
-    rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -L -u -v ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
+    rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
 
     rm ${TEMP_PATH}/${FILENAME_RAR}
 
