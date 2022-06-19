@@ -11,6 +11,8 @@ ACTION_BACKUP_STORAGE=n
 ACTION_BACKUP_ARCHIVE=n
 ACTION_FORCE=n
 
+VERBOSE_MODE=n
+
 CONFIG_FILE=-
 CONFIG_BASEDIR=-
 
@@ -29,6 +31,7 @@ Options:
   -a, --archive               Backup archive [OPTIONAL]
   -m, --sync-mode=copy|sync   Override upload mode [OPTIONAL]
   -f, --force                 Force backup section, overrides ENABLE_BACKUP_*
+  --verbose                   More messages (mainly for debug)
   --install                   Install prerequesites (RAR & PIGZ)
   -h, --help                  Print this help and exit
   -v, --version               Print version and exit
@@ -64,7 +67,7 @@ function parseArgs {
     ! getopt --test > /dev/null
     if [[ ${PIPESTATUS[0]} -ne 4 ]]; then echo "I’m sorry, `getopt --test` failed in this environment."; exit 1; fi
 
-    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install
+    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install,verbose
     local OPTIONS=c:hdsam:fv
     local PARSED=-
 
@@ -123,6 +126,10 @@ function parseArgs {
                 ACTION_FORCE=y;
                 shift;
             ;;
+            --verbose)
+                VERBOSE_MODE=y
+                shift;
+            ;;
             -v|--version)
                 echo "${__what_is_it}"
                 exit 0;
@@ -152,39 +159,62 @@ function displayConfigError() {
 }
 
 # Выполняет действие "Бэкап БД
-# Возможны два алгоритма сжатия - zip (нужен pigz) или rar
 function actionBackupDatabase() {
     if [[ ${ENABLE_BACKUP_DATABASE:-0} = 0 ]]; then
-        echo "Backup database disabled";
-        exit 0;
+        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
+            echo "Backup database disabled";
+            exit 0;
+        fi
     fi
 
+    local RAR_OPTIONS=""
     local FILENAME_ARCHIVE=
+    local MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
+
+    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+        RAR_OPTIONS="-m5 -mde"
+        RCLONE_OPTIONS="--copy-links --update --verbose --progress"  # -LPuv
+    else
+        RAR_OPTIONS="-m5 -mde -inul"
+        RCLONE_OPTIONS="--copy-links --update"
+    fi
 
     for DB in "${DATABASES[@]}"
     do
-        local MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
-        local RAR_OPTIONS="-inul -m5 -mde"
+        echo "-----===== Backupping ${DB} =====-----"
+        case "${USE_ARCHIVER}" in
+            "rar")
+                FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
+                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
+            ;;
+            "zip")
+                FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
+                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+            ;;
+            *)
+                FILENAME_ARCHIVE=${DB}_${NOW}.sql
+                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+            ;;
+        esac
 
-        #@todo: zip, rar, sql (сделать CASE)
-        if [[ ${USE_ARCHIVER:-rar} = "rar" ]]; then
-            FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
-        else
-            FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
-            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
-        fi
+#        if [[ ${USE_ARCHIVER:-rar} = "rar" ]]; then
+ #           FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
+  #          mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
+   #     else
+    #        FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
+     #       mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+      #  fi
 
         if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
             rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
-            rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
+            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
         fi
 
         if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
             # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
             if [[ ${NOW_DOW} -eq 1 ]]; then
                 rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
-                rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
+                rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
             fi
         fi
 
@@ -192,7 +222,7 @@ function actionBackupDatabase() {
         # backup for first day of month
             if [[ ${NOW_DAY} == 01 ]]; then
                 rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
-                rclone copy --config ${RCLONE_CONFIG} -Luv "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
+                rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
             fi
         fi
 
@@ -200,6 +230,7 @@ function actionBackupDatabase() {
     done
 }
 
+# скрипт бэкапа STORAGE
 function actionBackupStorage() {
     if [[ ${ENABLE_BACKUP_STORAGE:-0} = 0 ]]; then
         echo "Backup storage disabled";
@@ -225,6 +256,7 @@ function actionBackupStorage() {
     fi
 }
 
+# Скрипт бэкапа архива
 function actionBackupArchive() {
     if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
         echo "Backup archive disabled";
@@ -250,13 +282,17 @@ function main() {
   parseArgs "$@";
 
   if [ ${ACTION_DISPLAY_HELP} = "y" ]; then
-    displayHelp;
-    exit 1;
+      displayHelp;
+      exit 1;
   fi
 
   if [ ! -f "${CONFIG_FILE}" ]; then
-    displayConfigError;
-    exit 4;
+      displayConfigError;
+      exit 4;
+  fi
+
+  if [ "${VERBOSE_MODE}" = "y" ]; then
+      echo "${__what_is_it}";
   fi
 
   # Импортируем конфиг проекта
@@ -265,19 +301,19 @@ function main() {
 
   # проверяем существование глобального rclone.conf и говорим, что будем грузить его
   if [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
-    RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
+      RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
   fi
 
   if [ ${ACTION_BACKUP_DATABASE} = "y" ]; then
-    actionBackupDatabase;
+      actionBackupDatabase;
   fi
 
   if [ ${ACTION_BACKUP_STORAGE} = "y" ]; then
-    actionBackupStorage;
+      actionBackupStorage;
   fi
 
   if [ ${ACTION_BACKUP_ARCHIVE} = "y" ]; then
-    actionBackupArchive;
+      actionBackupArchive;
   fi
 }
 
