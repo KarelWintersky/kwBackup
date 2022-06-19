@@ -34,11 +34,24 @@ endpoint_type = public
 ...
 ```
 
-Значение в скобках - `RCLONE_PROVIDER`
+Значение в скобках = `RCLONE_PROVIDER`
 
 3. Написать файлы `rarfiles-include.conf` и `rarfiles-exclude.conf` - в которых перечислить включаемые и исключаемые пути/файлы для бэкапа типа ARCHIVE 
 
-4. Запустить скрипт, передав ему конфиг и команду бэкапа
+Например:
+```
+# cat rarfiles-include.conf
+
+/var/www/livemap/*
+
+# cat rarfiles-exclude.conf
+
+/var/www/livemap/cache
+/var/www/livemap/logs
+
+```
+
+5. Запустить скрипт, передав ему конфиг и команду бэкапа
 
 # Вызов скрипта бэкапа:
 
@@ -51,6 +64,7 @@ endpoint_type = public
 - `-m` или `--sync-mode=` - [ОПЦИОНАЛЬНО] - задает алгоритм заливки в облако. Перекрывает конфиг и значения по умолчанию. Используется для STORAGE и ARCHIVE
 - `-f` или `--force` - принудительно запускает процедуры бэкапа, вне зависимости от настроек в конфиге (`ENABLE_BACKUP_DATABASE`, `ENABLE_BACKUP_STORAGE`, `ENABLE_BACKUP_ARCHIVE`) (@TODO)
 - `-h` или `-help` - печатает помощь и выходит из скрипта
+- `--install` - устанавливает пререквезиты - RAR и PIGZ (потребует ввода пароля sudo)
 
 Обязателен ключ `--config` и хотя бы один из ключей `--database`, `--storage` или `--archive`
 

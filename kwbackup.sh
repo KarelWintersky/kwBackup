@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.1"
+VERSION="0.8.2"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -29,9 +29,12 @@ Options:
   -a, --archive               Backup archive [OPTIONAL]
   -m, --sync-mode=copy|sync   Override upload mode [OPTIONAL]
   -f, --force                 Force backup section, overrides ENABLE_BACKUP_*
+  --install                   Install prerequesites (RAR & PIGZ)
   -h, --help                  Print this help and exit
   -v, --version               Print version and exit
 "
+
+RAR_DEB_URI=http://ftp.de.debian.org/debian/pool/non-free/r/rar/rar_5.5.0-1_amd64.deb
 
 # Определяет цвета
 function defineColors() {
@@ -61,7 +64,7 @@ function parseArgs {
     ! getopt --test > /dev/null
     if [[ ${PIPESTATUS[0]} -ne 4 ]]; then echo "I’m sorry, `getopt --test` failed in this environment."; exit 1; fi
 
-    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version
+    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install
     local OPTIONS=c:hdsam:fv
     local PARSED=-
 
@@ -111,6 +114,11 @@ function parseArgs {
                 esac
                 shift 2;
             ;;
+            --install)
+                curl ${RAR_DEB_URI} -o /tmp/rar.deb && sudo dpkg -i /tmp/rar.deb && rm /tmp/rar.deb
+                sudo apt install pigz
+                exit 0;
+            ;;
             -f|--force)
                 ACTION_FORCE=y;
                 shift;
@@ -131,16 +139,16 @@ function parseArgs {
     done
 
     # путь (только путь) к файлу конфига, без финального /
-    CONFIG_BASEDIR="$(dirname ${CONFIG_FILE})"
+    export CONFIG_BASEDIR="$(dirname ${CONFIG_FILE})"
 }
 
 function displayHelp() {
-    echo "${__what_is_it}"
-    echo "${__usage}"
+    echo -e "${__what_is_it}"
+    echo -e "${__usage}"
 }
 
 function displayConfigError() {
-    echo "Config file ${CONFIG_FILE} ${RED}not found${RESET}";
+    echo -e "Config file ${CONFIG_FILE} ${ANSI_RED}not found${ANSI_RESET}";
 }
 
 # Выполняет действие "Бэкап БД
@@ -219,7 +227,7 @@ function actionBackupStorage() {
 
 function actionBackupArchive() {
     if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
-        echo "Backup file archives disabled";
+        echo "Backup archive disabled";
         exit 0;
     fi
 
