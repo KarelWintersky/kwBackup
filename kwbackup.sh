@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.3"
+VERSION="0.8.4"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -158,6 +158,55 @@ function displayConfigError() {
     echo -e "Config file ${CONFIG_FILE} ${ANSI_RED}not found${ANSI_RESET}";
 }
 
+# суб-функция, которая делает бэкап на самом деле. Принимает 2 параметра:
+# $1 - имя БД для бэкапа
+# $2 - суб-путь в целевом контейнере = (DB name для множественных БД в одной задаче ИЛИ '' для одной БД в задаче)
+# одна БД бэкапится в CONTAINER/(DAILY|WEEKLY|MONTHLY)/*
+# несколько БД бэкапятся в CONTAINER/DB/(DAILY|WEEKLY|MONTHLY)/*
+function sub_backupDatabase() {
+    local DB=$1
+    local CONTAINER_SUBPATH=$2
+
+    echo "-----===== Backupping ${DB} =====-----"
+    case "${USE_ARCHIVER}" in
+        "rar")
+            FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
+            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
+        ;;
+        "zip")
+            FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
+            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+        ;;
+        *)
+            FILENAME_ARCHIVE=${DB}_${NOW}.sql
+            mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" > ${TEMP_PATH}/${FILENAME_ARCHIVE}
+        ;;
+    esac
+
+    if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
+        rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/DAILY
+        rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/DAILY
+    fi
+
+    if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
+        # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
+        if [[ ${NOW_DOW} -eq 1 ]]; then
+            rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/WEEKLY
+            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/WEEKLY
+        fi
+    fi
+
+    if [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]]; then
+    # backup for first day of month
+        if [[ ${NOW_DAY} == 01 ]]; then
+            rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/MONTHLY
+            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/MONTHLY
+        fi
+    fi
+
+    rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
+}
+
 # Выполняет действие "Бэкап БД
 function actionBackupDatabase() {
     if [[ ${ENABLE_BACKUP_DATABASE:-0} = 0 ]]; then
@@ -167,9 +216,9 @@ function actionBackupDatabase() {
         fi
     fi
 
-    local RAR_OPTIONS=""
-    local FILENAME_ARCHIVE=
-    local MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
+    RAR_OPTIONS=""
+    FILENAME_ARCHIVE=
+    MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
 
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
         RAR_OPTIONS="-m5 -mde"
@@ -179,55 +228,17 @@ function actionBackupDatabase() {
         RCLONE_OPTIONS="--copy-links --update"
     fi
 
-    for DB in "${DATABASES[@]}"
-    do
-        echo "-----===== Backupping ${DB} =====-----"
-        case "${USE_ARCHIVER}" in
-            "rar")
-                FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
-            ;;
-            "zip")
-                FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
-                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
-            ;;
-            *)
-                FILENAME_ARCHIVE=${DB}_${NOW}.sql
-                mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" > ${TEMP_PATH}/${FILENAME_ARCHIVE}
-            ;;
-        esac
-
-#        if [[ ${USE_ARCHIVER:-rar} = "rar" ]]; then
- #           FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-  #          mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
-   #     else
-    #        FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
-     #       mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pigz -c > ${TEMP_PATH}/${FILENAME_ARCHIVE}
-      #  fi
-
-        if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
-            rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
-            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/DAILY
-        fi
-
-        if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
-            # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
-            if [[ ${NOW_DOW} -eq 1 ]]; then
-                rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
-                rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/WEEKLY
-            fi
-        fi
-
-        if [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]]; then
-        # backup for first day of month
-            if [[ ${NOW_DAY} == 01 ]]; then
-                rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
-                rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/MONTHLY
-            fi
-        fi
-
-        rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
-    done
+    if [[ "$(declare -p DATABASES)" =~ "declare -a" ]]; then
+        # бэкапим несколько БД
+        for DB in "${DATABASES[@]}"
+        do
+            sub_backupDatabase ${DB} ${DB};
+        done
+    else
+        # бэкапим одну БД
+        local DB=${DATABASES}
+        sub_backupDatabase ${DB} "";
+    fi
 }
 
 # скрипт бэкапа STORAGE
@@ -240,10 +251,7 @@ function actionBackupStorage() {
     # определяем реальный алгоритм заливки данных в хранилище: CLI>Config>'sync'
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${STORAGE_BACKUP_ALGO:-sync}}
 
-    # echo "Sync mode from cli: ${CLI_UPLOAD_MODE}"
-    # echo "Sync mode from config: ${STORAGE_BACKUP_ALGO}"
-    # echo "Final mode: ${UPLOAD_MODE}"
-    # exit 0;
+    # local SOURCE_ROOT=${STORAGE_SOURCES_ROOT:-}
 
     if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
         for SOURCE in "${STORAGE_SOURCES[@]}"
@@ -304,16 +312,28 @@ function main() {
       RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
   fi
 
+  local NO_ACTION=1
+
   if [ ${ACTION_BACKUP_DATABASE} = "y" ]; then
       actionBackupDatabase;
+      NO_ACTION=0;
   fi
 
   if [ ${ACTION_BACKUP_STORAGE} = "y" ]; then
       actionBackupStorage;
+      NO_ACTION=0;
   fi
 
   if [ ${ACTION_BACKUP_ARCHIVE} = "y" ]; then
       actionBackupArchive;
+      NO_ACTION=0;
+  fi
+
+  if [ ${NO_ACTION=0;} = 1 ]; then
+    echo -e "No one backup action(s) requested. Allowed: "
+    if [ ${ENABLE_BACKUP_DATABASE} = 1 ]; then echo -e "... database (use ${ANSI_YELLOW}--database${ANSI_RESET} option)"; fi
+    if [ ${ENABLE_BACKUP_STORAGE} = 1 ]; then echo -e  "... storage  (use ${ANSI_YELLOW}--storage${ANSI_RESET}  option)"; fi
+    if [ ${ENABLE_BACKUP_ARCHIVE} = 1 ]; then echo -e  "... archive  (use ${ANSI_YELLOW}--archive${ANSI_RESET}  option)"; fi
   fi
 }
 
