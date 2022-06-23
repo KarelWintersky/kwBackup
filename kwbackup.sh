@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.4"
+VERSION="0.8.5"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -183,6 +183,8 @@ function sub_backupDatabase() {
         ;;
     esac
 
+    #@todo: сделать глубину хранения копий все таки зависимой от параметров, но со значением по умолчанию
+
     if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
         rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/DAILY
         rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_DB}/${CONTAINER_SUBPATH}/DAILY
@@ -244,31 +246,35 @@ function actionBackupDatabase() {
 # скрипт бэкапа STORAGE
 function actionBackupStorage() {
     if [[ ${ENABLE_BACKUP_STORAGE:-0} = 0 ]]; then
-        echo "Backup storage disabled";
-        exit 0;
+        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
+            echo "Backup storage disabled";
+            exit 0;
+        fi
     fi
 
     # определяем реальный алгоритм заливки данных в хранилище: CLI>Config>'sync'
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${STORAGE_BACKUP_ALGO:-sync}}
 
-    # local SOURCE_ROOT=${STORAGE_SOURCES_ROOT:-}
+    local SOURCE_ROOT=${STORAGE_SOURCES_ROOT:-}
 
     if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
         for SOURCE in "${STORAGE_SOURCES[@]}"
         do
-            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
         done
     else
-        SOURCE=
-        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${STORAGE_SOURCES} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+        local SOURCE=${STORAGE_SOURCES}
+        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
     fi
 }
 
 # Скрипт бэкапа архива
 function actionBackupArchive() {
     if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
-        echo "Backup archive disabled";
-        exit 0;
+        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
+            echo "Backup archive disabled";
+            exit 0;
+        fi
     fi
 
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
