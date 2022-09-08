@@ -1,9 +1,11 @@
 #!/bin/bash
 
-VERSION="0.8.6"
+VERSION="0.8.7"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
+
+PROCESS_FLAG_FILE=""
 
 ACTION_DISPLAY_HELP=n
 ACTION_BACKUP_DATABASE=n
@@ -57,6 +59,21 @@ function checkUniqueProcess() {
     if pidof -o %PPID -x $(basename "$0") >/dev/null; then
         echo "$(date "+%d.%m.%Y %T") EXIT: The script is already running." | tee -a "${LOG_FILE:-/var/log/kwbackup.log}"
         exit 1
+    fi
+}
+
+# Улучшенная
+function checkUniqueProcessWithConfig() {
+    local CMD_LINE="$0 $@"
+    local ARGS_LINE="$@"
+    local CMD_LINE_HASH=$(echo -n ${CMD_LINE} | sha1sum -t | /bin/cut -f1 -d" ")
+    PROCESS_FLAG_FILE="/dev/shm/kwbackup_${CMD_LINE_HASH}.flag"
+
+    if [[ -f  ${PROCESS_FLAG_FILE} ]]; then
+        echo "$(date "+%d.%m.%Y %T") kwBackup already running with args '${ARGS_LINE}'"
+        exit 1
+    else
+        echo "$(date "+%d.%m.%Y %T") kwBackup started: '${ARGS_LINE}'" > "${PROCESS_FLAG_FILE}"
     fi
 }
 
@@ -180,7 +197,6 @@ function sub_backupDatabase() {
     else
         PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}/${2}
     fi
-    # ${PATH_INSIDE_CONTAINER}
 
     # Для verbose mode делать не пайп
     say "-----===== Backupping ${DB} =====-----"
@@ -239,20 +255,23 @@ function actionBackupDatabase() {
     FILENAME_ARCHIVE=
     MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
 
+    RAR_OPTIONS="${DATABASE_RAR_OPTIONS:--m3 -mdc}"
+
     # Опции брать из конфига.
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
-        RAR_OPTIONS="-m3 -mdc"
-        RCLONE_OPTIONS="--copy-links --update --verbose --progress" # -LPuv
+        RCLONE_OPTIONS="--copy-links --update --verbose --progress" # эквивалентно -LPuv
     else
-        RAR_OPTIONS="-m3 -mdc -inul"
+        RAR_OPTIONS="${RAR_OPTIONS} -inul"
         RCLONE_OPTIONS="--copy-links --update"
     fi
 
     if [[ "$(declare -p DATABASES)" =~ "declare -a" ]]; then
+        # если в массиве перечислена 1 БД, то subpath пустой, экспортируем её как одну базу
         if [[ "${#DATABASES[@]}" == "1" ]]; then
             local DB=${DATABASES[0]}
             sub_backupDatabase ${DB} ""
         else
+            # иначе - перебираем массив баз
             for DB in "${DATABASES[@]}"; do
                 sub_backupDatabase ${DB} ${DB}
             done
@@ -278,13 +297,19 @@ function actionBackupStorage() {
 
     local SOURCE_ROOT=${STORAGE_SOURCES_ROOT:-}
 
+    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+        RCLONE_OPTIONS="--copy-links --update --verbose --progress" # эквивалентно -LPuv
+    else
+        RCLONE_OPTIONS="--copy-links --update"
+    fi
+
     if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
         for SOURCE in "${STORAGE_SOURCES[@]}"; do
-            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
         done
     else
         local SOURCE=${STORAGE_SOURCES}
-        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
+        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
     fi
 }
 
@@ -299,10 +324,19 @@ function actionBackupArchive() {
 
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
 
-    rar a -x@${RARFILES_EXCLUDE_LIST} -m3 -mdc -s -r ${TEMP_PATH}/${FILENAME_RAR} @${RARFILES_INCLUDE_LIST}
+    local RAR_OPTIONS="${ARCHIVE_RAR_OPTIONS:--m3 -mdc -r -s}"
+    local RCLONE_OPTIONS="--copy-links --update"
+
+    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+        RCLONE_OPTIONS="${RCLONE_OPTIONS} --verbose --progress"
+    else
+        RAR_OPTIONS="${RAR_OPTIONS} -inul"
+    fi
+
+    rar a -x@${RARFILES_EXCLUDE_LIST} ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_RAR} @${RARFILES_INCLUDE_LIST}
 
     rclone delete --config ${RCLONE_CONFIG} --min-age 71d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
-    rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} -Luv ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
+    rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
 
     rm ${TEMP_PATH}/${FILENAME_RAR}
 
@@ -365,3 +399,5 @@ function main() {
 # ---------------- Main ----------------
 
 main "$@"
+
+rm -f ${PROCESS_FLAG_FILE}

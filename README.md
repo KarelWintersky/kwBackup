@@ -207,5 +207,6 @@ sudo dpkg -i rar_5.5.0-1_amd64.deb
 # TODO
 
 - Добавить в файл конфига проекта опциональные параметры доступа к БД
-- Добавить в файл конфига проекта опции MySQL и RAR, опциональные параметры
 - Добавить поддержку PostgreSQL
+
+О вычислении хэша: https://stackoverflow.com/questions/1602378/how-to-calculate-a-hash-for-a-string-url-in-bash-for-wget-caching
