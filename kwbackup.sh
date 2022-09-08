@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.7"
+VERSION="0.8.8"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -62,7 +62,8 @@ function checkUniqueProcess() {
     fi
 }
 
-# Улучшенная
+# Улучшенная версия отслеживания уникальности запущенного процесса
+# создается pid-файл с именем = хэшу командной строки. По окончанию работы файл удаляется.
 function checkUniqueProcessWithConfig() {
     local CMD_LINE="$0 $@"
     local ARGS_LINE="$@"
@@ -73,8 +74,13 @@ function checkUniqueProcessWithConfig() {
         echo "$(date "+%d.%m.%Y %T") kwBackup already running with args '${ARGS_LINE}'"
         exit 1
     else
-        echo "$(date "+%d.%m.%Y %T") kwBackup started: '${ARGS_LINE}'" > "${PROCESS_FLAG_FILE}"
+        echo "$(date "+%d.%m.%Y %T") kwBackup started with args: '${ARGS_LINE}'" > "${PROCESS_FLAG_FILE}"
     fi
+}
+
+# функция, выполняющаяся перед завершением скрипта. Она же ловит CTRL-C
+function before_exit_script() {
+    rm -f "${PROCESS_FLAG_FILE}"
 }
 
 # Парсит аргументы командной строки
@@ -250,6 +256,7 @@ function actionBackupDatabase() {
             exit 0
         fi
     fi
+    echo "$(date "+%d.%m.%Y %T %N") : started task DATABASE" >> "${PROCESS_FLAG_FILE}"
 
     RAR_OPTIONS=""
     FILENAME_ARCHIVE=
@@ -281,6 +288,8 @@ function actionBackupDatabase() {
         local DB=${DATABASES}
         sub_backupDatabase ${DB} ""
     fi
+
+    echo "$(date "+%d.%m.%Y %T %N") : finished task DATABASE" >> "${PROCESS_FLAG_FILE}"
 }
 
 # скрипт бэкапа STORAGE
@@ -291,6 +300,7 @@ function actionBackupStorage() {
             exit 0
         fi
     fi
+    echo "$(date "+%d.%m.%Y %T %N") : started task STORAGE" >> "${PROCESS_FLAG_FILE}"
 
     # определяем реальный алгоритм заливки данных в хранилище: CLI>Config>'sync'
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${STORAGE_BACKUP_ALGO:-sync}}
@@ -311,6 +321,8 @@ function actionBackupStorage() {
         local SOURCE=${STORAGE_SOURCES}
         rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
     fi
+
+    echo "$(date "+%d.%m.%Y %T %N") : finished task STORAGE" >> "${PROCESS_FLAG_FILE}"
 }
 
 # Скрипт бэкапа архива
@@ -321,6 +333,7 @@ function actionBackupArchive() {
             exit 0
         fi
     fi
+    echo "$(date "+%d.%m.%Y %T %N") : started task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
 
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
 
@@ -340,12 +353,12 @@ function actionBackupArchive() {
 
     rm ${TEMP_PATH}/${FILENAME_RAR}
 
-    exit
+    echo "$(date "+%d.%m.%Y %T %N") : finished task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
 }
 
 function main() {
     defineColors
-    checkUniqueProcess "$@"
+    checkUniqueProcessWithConfig "$@"
     parseArgs "$@"
 
     if [ ${ACTION_DISPLAY_HELP} = "y" ]; then
@@ -363,8 +376,10 @@ function main() {
     fi
 
     # Импортируем конфиг проекта
-
     . ${CONFIG_FILE}
+
+    # Trap for CTRL-C
+    trap before_exit_script INT
 
     # проверяем существование глобального rclone.conf и говорим, что будем грузить его
     if [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
@@ -400,4 +415,4 @@ function main() {
 
 main "$@"
 
-rm -f ${PROCESS_FLAG_FILE}
+before_exit_script
