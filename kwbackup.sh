@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.8"
+VERSION="0.8.10"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -34,7 +34,8 @@ Options:
   -m, --sync-mode=copy|sync   Override upload mode [OPTIONAL]
   -f, --force                 Force backup section, overrides ENABLE_BACKUP_*
   --verbose                   More messages (mainly for debug)
-  --install                   Install prerequisites (PV, RAR & PIGZ )
+  --reset                     Reset all 'already-running-script' flags
+  --install                   Install prerequisites (PV, RAR & PIGZ)
   -h, --help                  Print this help and exit
   -v, --version               Print version and exit
 "
@@ -147,6 +148,10 @@ function parseArgs {
             curl ${RAR_DEB_URI} -o /tmp/rar.deb && sudo dpkg -i /tmp/rar.deb && rm /tmp/rar.deb
             sudo apt install pigz pv
             exit 0
+            ;;
+        --reset)
+            ACTION_RESET_FLAGS=y
+            shift
             ;;
         -f | --force)
             ACTION_FORCE=y
@@ -351,14 +356,13 @@ function actionBackupArchive() {
     rclone delete --config ${RCLONE_CONFIG} --min-age 71d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
     rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
 
-    rm ${TEMP_PATH}/${FILENAME_RAR}
+    rm -f ${TEMP_PATH}/${FILENAME_RAR}
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
 }
 
 function main() {
     defineColors
-    checkUniqueProcessWithConfig "$@"
     parseArgs "$@"
 
     if [ ${ACTION_DISPLAY_HELP} = "y" ]; then
@@ -384,6 +388,12 @@ function main() {
     # проверяем существование глобального rclone.conf и говорим, что будем грузить его
     if [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
         RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
+    fi
+
+    checkUniqueProcessWithConfig "$@"
+
+    if [ ${ACTION_RESET_FLAGS} = "y" ]; then
+        rm -f /dev/shm/kwbackup*
     fi
 
     local NO_ACTION=1
