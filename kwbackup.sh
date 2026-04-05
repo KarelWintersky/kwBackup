@@ -139,9 +139,6 @@ function parseArgs {
             "sync")
                 CLI_UPLOAD_MODE="sync"
                 ;;
-            #"sql")
-            #    CLI_UPLOAD_MODE="sql";
-            #;;
             *)
                 echo "Invalid sync algorithm, must be 'copy' or 'sync'"
                 exit 5
@@ -223,12 +220,18 @@ function sub_backupDatabase() {
         PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}/${2}
     fi
 
+    ZSTD_OPTIONS=""
+
     # Для verbose mode делать не пайп
     say "-----===== Backupping ${DB} =====-----"
     case "${USE_ARCHIVER}" in
     "rar")
         FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-        mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pv | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
+        mysqldump "${MYSQL_OPTIONS}" -h "${MYSQL_HOST}" "${DB}" | pv | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
+        ;;
+    "zstd")
+        FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
+        mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pv | zstd ${ZSTD_OPTIONS} -o ${TEMP_PATH}/${FILENAME_ARCHIVE}
         ;;
     "zip")
         FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
@@ -244,11 +247,11 @@ function sub_backupDatabase() {
     # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
 
     if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
-	say "rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
-        rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
+      say "rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
+      rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
 
-	say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
-        rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
+      say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
+      rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
     fi
 
     if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
@@ -295,7 +298,7 @@ function actionBackupDatabase() {
 
     # Опции брать из конфига.
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
-        RCLONE_OPTIONS="--copy-links --update --verbose --progress" # эквивалентно -LPuv
+        RCLONE_OPTIONS="--copy-links --update --verbose --progress"
     else
         RAR_OPTIONS="${RAR_OPTIONS} -inul"
         RCLONE_OPTIONS="--copy-links --update"
