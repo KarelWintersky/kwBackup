@@ -220,7 +220,7 @@ function sub_backupDatabase() {
     local FILENAME_ARCHIVE
 
     dump_cmd() {
-        mysqldump "${MYSQL_OPTIONS[@]:-}" -h "${MYSQL_HOST}" "${DB}"
+        mysqldump "${MYSQL_OPTIONS[@]:-}" --host "${MYSQL_HOST}" "${DB}"
     }
 
     say "-----===== Backupping ${DB} =====-----"
@@ -286,25 +286,27 @@ function sub_backupDatabase() {
 # Выполняет действие "Бэкап БД
 function actionBackupDatabase() {
     if [[ ${ENABLE_BACKUP_DATABASE:-0} = 0 ]]; then
-        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
-            echo "Backup database disabled"
-            exit 0
-        fi
+        [[ "${ACTION_FORCE:-n}" != "y" ]] && { echo "Backup database disabled"; exit 0; }
     fi
+
     echo "$(date "+%d.%m.%Y %T %N") : started task DATABASE" >> "${PROCESS_FLAG_FILE}"
 
-    RAR_OPTIONS=""
-    FILENAME_ARCHIVE=
-    MYSQL_OPTIONS="-Q --no-tablespaces --extended-insert=false --single-transaction"
+    # Берем опции ИЗ КОНФИГА (или дефолт)
+    : "${DATABASE_RAR_OPTIONS:=-m3 -mdc}"
+    : "${DATABASE_ZSTD_OPTIONS:=-5}"
+    : "${DATABASE_MYSQL_OPTIONS:=-Q --single-transaction --no-tablespaces --extended-insert=false}"
 
-    RAR_OPTIONS="${DATABASE_RAR_OPTIONS:--m3 -mdc}"
+    # Парсим строки в массивы
+    read -ra RAR_OPTIONS <<< "${DATABASE_RAR_OPTIONS}"
+    read -ra ZSTD_OPTIONS <<< "${DATABASE_ZSTD_OPTIONS}"
+    read -ra MYSQL_OPTIONS <<< "${DATABASE_MYSQL_OPTIONS}"
 
-    # Опции брать из конфига.
+    # Опции RCLONE в зависимости от режима
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
-        RCLONE_OPTIONS="--copy-links --update --verbose --progress"
+        read -ra RCLONE_OPTIONS <<< "--copy-links --update --verbose --progress"
     else
-        RAR_OPTIONS="${RAR_OPTIONS} -inul"
-        RCLONE_OPTIONS="--copy-links --update"
+        RAR_OPTIONS+=("-inul")  # добавляем к массиву
+        read -ra RCLONE_OPTIONS <<< "--copy-links --update"
     fi
 
     if [[ "$(declare -p DATABASES)" =~ "declare -a" ]]; then
