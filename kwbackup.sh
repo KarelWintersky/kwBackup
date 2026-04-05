@@ -200,11 +200,51 @@ function displayConfigError() {
     echo -e "Config file ${CONFIG_FILE} ${ANSI_RED}not found${ANSI_RESET}"
 }
 
+# Выводит сообщение с учетом VERBOSE MODE
 function say() {
     local MESSAGE=$1
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
         echo -e ${MESSAGE}
     fi
+}
+
+# Вычисляет порт для используемой БД (мультиподдержка баз)
+function get_db_port() {
+    local db_type=${1:-mysql}
+    case "${db_type}" in
+        mysql|mariadb) echo "3306" ;;
+        pgsql|postgres) echo "5432" ;;
+        sqlite) echo "" ;;
+        *) echo "3306" ;;
+    esac
+}
+
+# Добавляет флаг блокировки
+function check_action_lock() {
+    local action=$1
+    local action_hash=$(echo -n "${action}_${CONFIG_FILE}_${DB:-_}" | sha1sum | cut -d' ' -f1)
+    PROCESS_FLAG_FILE="/dev/shm/kwbackup_${action}_${action_hash}.flag"
+
+    if [[ -f "${PROCESS_FLAG_FILE}" ]]; then
+        say "ERROR: ${action^^} backup already running (config: ${CONFIG_FILE}, DB: ${DB:-all})"
+        return 1
+    fi
+
+    echo "$(date "+%d.%m.%Y %T") ${action^^} started (config: ${CONFIG_FILE}, DB: ${DB:-all})" > "${PROCESS_FLAG_FILE}"
+    trap 'rm -f "${PROCESS_FLAG_FILE}" 2>/dev/null || true' EXIT INT TERM  # cleanup на выход
+}
+
+# Удаляет флаг блокировки
+function cleanup_action_lock() {
+    local action=$1
+    local action_hash=$(echo -n "${action}_${DB:-}_${CONFIG_FILE}" | sha1sum | cut -d' ' -f1)
+    local ACTION_FLAG_FILE="/dev/shm/kwbackup_${action}_${action_hash}.flag"
+    rm -f "${ACTION_FLAG_FILE}" 2>/dev/null || true
+}
+
+# Реальная команда дампа БД
+function database_dump_command() {
+    mysqldump "${MYSQL_OPTIONS[@]:-}" --host "${MYSQL_HOST}" "${DB}"
 }
 
 # суб-функция, которая делает бэкап на самом деле. Принимает 2 параметра:
@@ -219,10 +259,6 @@ function sub_backupDatabase() {
 
     local FILENAME_ARCHIVE
 
-    dump_cmd() {
-        mysqldump "${MYSQL_OPTIONS[@]:-}" --host "${MYSQL_HOST}" "${DB}"
-    }
-
     say "-----===== Backupping ${DB} =====-----"
 
     local use_pipe_view=false
@@ -232,33 +268,33 @@ function sub_backupDatabase() {
       "rar")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.rar"
           if ${use_pipe_view}; then
-              dump_cmd | pv | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | pv | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              dump_cmd | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       "zstd")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.zstd"
           if ${use_pipe_view}; then
-              dump_cmd | pv | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | pv | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              dump_cmd | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       "zip")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.gz"
           if ${use_pipe_view}; then
-              dump_cmd | pv | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | pv | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              dump_cmd | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       *)
           FILENAME_ARCHIVE="${DB}_${NOW}.sql"
           if ${use_pipe_view}; then
-              dump_cmd | pv > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command | pv > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              dump_cmd > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              database_dump_command > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
     esac
@@ -289,8 +325,6 @@ function actionBackupDatabase() {
         [[ "${ACTION_FORCE:-n}" != "y" ]] && { echo "Backup database disabled"; exit 0; }
     fi
 
-    echo "$(date "+%d.%m.%Y %T %N") : started task DATABASE" >> "${PROCESS_FLAG_FILE}"
-
     # Берем опции ИЗ КОНФИГА (или дефолт)
     : "${DATABASE_RAR_OPTIONS:=-m3 -mdc}"
     : "${DATABASE_ZSTD_OPTIONS:=-5}"
@@ -309,24 +343,19 @@ function actionBackupDatabase() {
         read -ra RCLONE_OPTIONS <<< "--copy-links --update"
     fi
 
-    if [[ "$(declare -p DATABASES)" =~ "declare -a" ]]; then
-        # если в массиве перечислена 1 БД, то subpath пустой, экспортируем её как одну базу
-        if [[ "${#DATABASES[@]}" == "1" ]]; then
-            local DB=${DATABASES[0]}
-            sub_backupDatabase ${DB} ""
-        else
-            # иначе - перебираем массив баз
-            for DB in "${DATABASES[@]}"; do
-                sub_backupDatabase ${DB} ${DB}
-            done
-        fi
+    if [[ "$(declare -p DATABASES 2>/dev/null)" =~ "declare -a" ]]; then
+        for DB in "${DATABASES[@]}"; do
+            check_action_lock "database_${DB}" || return 1  # уникальный флаг на БД!
+            sub_backupDatabase "${DB}" "${DB}"
+            # trap автоматически очистит PROCESS_FLAG_FILE
+        done
     else
-        # бэкапим одну БД
-        local DB=${DATABASES}
-        sub_backupDatabase ${DB} ""
+        check_action_lock "database_${DATABASES}" || return 1
+        sub_backupDatabase "${DATABASES}" ""
     fi
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task DATABASE" >> "${PROCESS_FLAG_FILE}"
+    cleanup_action_lock "database"  # явный cleanup
 }
 
 # скрипт бэкапа STORAGE
@@ -399,59 +428,64 @@ function main() {
     defineColors
     parseArgs "$@"
 
-    if [ ${ACTION_DISPLAY_HELP} = "y" ]; then
-        displayHelp
-        exit 1
-    fi
+    [[ ${ACTION_DISPLAY_HELP} = "y" ]] && { displayHelp; exit 1; }
 
-    if [ ! -f "${CONFIG_FILE}" ]; then
-        displayConfigError
-        exit 4
-    fi
+    [[ ! -f "${CONFIG_FILE}" ]] && { displayConfigError; exit 4; }
 
-    if [ "${VERBOSE_MODE}" = "y" ]; then
-        echo "${__what_is_it}"
-    fi
+#    if [ "${VERBOSE_MODE}" = "y" ]; then
+#        echo "${__what_is_it}"
+#    fi
 
     # Импортируем конфиг проекта
     . ${CONFIG_FILE}
 
     # Trap for CTRL-C
-    trap before_exit_script INT
+#    trap before_exit_script INT
 
     if { [ -z "${RCLONE_CONFIG}" ] || [ ! -f "${RCLONE_CONFIG}" ]; } && [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
          RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
     fi
 
-    checkUniqueProcessWithConfig "$@"
+#    checkUniqueProcessWithConfig "$@"
 
     if [ ${ACTION_RESET_FLAGS} = "y" ]; then
         rm -f /dev/shm/kwbackup*
     fi
 
-    local NO_ACTION=1
+    local ACTUAL_ACTIONS=0
 
-    if [ ${ACTION_BACKUP_DATABASE} = "y" ]; then
-        actionBackupDatabase
-        NO_ACTION=0
-    fi
+    [[ ${ACTION_BACKUP_DATABASE} = "y" ]] && { actionBackupDatabase; ((ACTUAL_ACTIONS++)); }
+    [[ ${ACTION_BACKUP_STORAGE} = "y" ]] && { actionBackupStorage; ((ACTUAL_ACTIONS++)); }
+    [[ ${ACTION_BACKUP_ARCHIVE} = "y" ]] && { actionBackupArchive; ((ACTUAL_ACTIONS++)); }
 
-    if [ ${ACTION_BACKUP_STORAGE} = "y" ]; then
-        actionBackupStorage
-        NO_ACTION=0
-    fi
+    [[ ${ACTUAL_ACTIONS} -eq 0 ]] && show_available_actions
 
-    if [ ${ACTION_BACKUP_ARCHIVE} = "y" ]; then
-        actionBackupArchive
-        NO_ACTION=0
-    fi
+#    local NO_ACTION=1
+#    if [ ${ACTION_BACKUP_DATABASE} = "y" ]; then
+#       actionBackupDatabase
+#        NO_ACTION=0
+#    fi
+#    if [ ${ACTION_BACKUP_STORAGE} = "y" ]; then
+#        actionBackupStorage
+#        NO_ACTION=0
+#    fi
+#    if [ ${ACTION_BACKUP_ARCHIVE} = "y" ]; then
+#        actionBackupArchive
+#        NO_ACTION=0
+#    fi
+#    if [ ${NO_ACTION=0;} = 1 ]; then
+#      echo -e "No one backup action(s) requested. Allowed: "
+#      { declare -p ENABLE_BACKUP_DATABASE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_DATABASE:-0} = 1 ]]; } && echo -e "... database (use ${ANSI_YELLOW}--database${ANSI_RESET} option)"
+#      { declare -p ENABLE_BACKUP_STORAGE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_STORAGE:-0} = 1 ]]; } && echo -e "... storage  (use ${ANSI_YELLOW}--storage${ANSI_RESET}  option)"
+#      { declare -p ENABLE_BACKUP_ARCHIVE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 1 ]]; } && echo -e "... archive (use ${ANSI_YELLOW}--archive${ANSI_RESET}  option)"
+#    fi
+}
 
-    if [ ${NO_ACTION=0;} = 1 ]; then
-        echo -e "No one backup action(s) requested. Allowed: "
-        if [ ${ENABLE_BACKUP_DATABASE} = 1 ]; then echo -e "... database (use ${ANSI_YELLOW}--database${ANSI_RESET} option)"; fi
-        if [ ${ENABLE_BACKUP_STORAGE} = 1 ]; then echo -e "... storage  (use ${ANSI_YELLOW}--storage${ANSI_RESET}  option)"; fi
-        if [ ${ENABLE_BACKUP_ARCHIVE} = 1 ]; then echo -e "... archive  (use ${ANSI_YELLOW}--archive${ANSI_RESET}  option)"; fi
-    fi
+function show_available_actions() {
+      echo -e "No one backup action(s) requested. Allowed: "
+      { declare -p ENABLE_BACKUP_DATABASE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_DATABASE:-0} = 1 ]]; } && echo -e "... database (use ${ANSI_YELLOW}--database${ANSI_RESET} option)"
+      { declare -p ENABLE_BACKUP_STORAGE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_STORAGE:-0} = 1 ]]; } && echo -e "... storage  (use ${ANSI_YELLOW}--storage${ANSI_RESET}  option)"
+      { declare -p ENABLE_BACKUP_ARCHIVE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 1 ]]; } && echo -e "... archive (use ${ANSI_YELLOW}--archive${ANSI_RESET}  option)"
 }
 
 # ---------------- Main ----------------
