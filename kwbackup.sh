@@ -214,67 +214,70 @@ function say() {
 # несколько БД бэкапятся в CONTAINER/DB/(DAILY|WEEKLY|MONTHLY)/*
 function sub_backupDatabase() {
     local DB=$1
-    if [[ ${2} == "" ]]; then
-        PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}
-    else
-        PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}/${2}
-    fi
+    local PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}
+    [[ -n "${2}" ]] && PATH_INSIDE_CONTAINER+="/${2}"
 
-    ZSTD_OPTIONS=""
+    local FILENAME_ARCHIVE
 
-    # Для verbose mode делать не пайп
+    dump_cmd() {
+        mysqldump "${MYSQL_OPTIONS[@]:-}" -h "${MYSQL_HOST}" "${DB}"
+    }
+
     say "-----===== Backupping ${DB} =====-----"
+
+    local use_pipe_view=false
+    [[ "${VERBOSE_MODE}" = "y" ]] && use_pipe_view=true
+
     case "${USE_ARCHIVER}" in
-    "rar")
-        FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-        mysqldump "${MYSQL_OPTIONS}" -h "${MYSQL_HOST}" "${DB}" | pv | rar a -si${DB}_${NOW}.sql ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_ARCHIVE}
-        ;;
-    "zstd")
-        FILENAME_ARCHIVE=${DB}_${NOW}.sql.rar
-        mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pv | zstd ${ZSTD_OPTIONS} -o ${TEMP_PATH}/${FILENAME_ARCHIVE}
-        ;;
-    "zip")
-        FILENAME_ARCHIVE=${DB}_${NOW}.sql.gz
-        mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pv | pigz -c >${TEMP_PATH}/${FILENAME_ARCHIVE}
-        ;;
-    *)
-        FILENAME_ARCHIVE=${DB}_${NOW}.sql
-        mysqldump ${MYSQL_OPTIONS} -h ${MYSQL_HOST} "${DB}" | pv > ${TEMP_PATH}/${FILENAME_ARCHIVE}
-        ;;
+      "rar")
+          FILENAME_ARCHIVE="${DB}_${NOW}.sql.rar"
+          if ${use_pipe_view}; then
+              dump_cmd | pv | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          else
+              dump_cmd | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          fi
+          ;;
+      "zstd")
+          FILENAME_ARCHIVE="${DB}_${NOW}.sql.zstd"
+          if ${use_pipe_view}; then
+              dump_cmd | pv | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          else
+              dump_cmd | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          fi
+          ;;
+      "zip")
+          FILENAME_ARCHIVE="${DB}_${NOW}.sql.gz"
+          if ${use_pipe_view}; then
+              dump_cmd | pv | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          else
+              dump_cmd | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          fi
+          ;;
+      *)
+          FILENAME_ARCHIVE="${DB}_${NOW}.sql"
+          if ${use_pipe_view}; then
+              dump_cmd | pv > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          else
+              dump_cmd > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+          fi
+          ;;
     esac
+
+    _rclone_backup() {
+        local TYPE=$1 AGE=$2
+        say "rclone delete --config ${RCLONE_CONFIG} --min-age ${AGE} ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+        rclone delete --config ${RCLONE_CONFIG} --min-age ${AGE} ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}
+
+        say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} \"${TEMP_PATH}/${FILENAME_ARCHIVE}\" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+        rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}/${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}
+    }
 
     #@todo: сделать глубину хранения копий все таки зависимой от параметров, но со значением по умолчанию
     # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
 
-    if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
-      say "rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
-      rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
-
-      say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
-      rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
-    fi
-
-    if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
-        # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
-        if [[ ${NOW_DOW} -eq 1 ]]; then
-            say "rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY"
-            rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY
-
-            say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY"
-            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY
-        fi
-    fi
-
-    if [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]]; then
-        # backup for first day of month
-        if [[ ${NOW_DAY} == 01 ]]; then
-            say "rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY"
-            rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY
-
-            say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY"
-            rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY
-        fi
-    fi
+    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && _rclone_backup "DAILY" "7d"
+    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && _rclone_backup "WEEKLY" "43d"
+    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && _rclone_backup "MONTHLY" "360d"
 
     say "rm ${TEMP_PATH}/${FILENAME_ARCHIVE}"
     rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
@@ -414,10 +417,6 @@ function main() {
     # Trap for CTRL-C
     trap before_exit_script INT
 
-    # проверяем существование глобального rclone_config_example.conf и говорим, что будем грузить его
-#    if [ -f "${THIS_SCRIPT_BASEDIR}/rclone_config_example.conf" ]; then
-#        RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone_config_example.conf"
-#    fi
     if { [ -z "${RCLONE_CONFIG}" ] || [ ! -f "${RCLONE_CONFIG}" ]; } && [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
          RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
     fi
