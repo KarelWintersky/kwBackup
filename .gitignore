@@ -1,1 +1,4 @@
-rclone.conf
+.idea
+backup.log
+credentials*.*
+

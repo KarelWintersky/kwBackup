@@ -1,6 +1,9 @@
 #!/bin/bash
 
-VERSION="0.8.10"
+# sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh
+# sudo chmod +x /usr/local/bin/kwbackup.sh
+
+VERSION="0.8.11"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -12,6 +15,7 @@ ACTION_BACKUP_DATABASE=n
 ACTION_BACKUP_STORAGE=n
 ACTION_BACKUP_ARCHIVE=n
 ACTION_FORCE=n
+ACTION_RESET_FLAGS=n
 
 VERBOSE_MODE=n
 
@@ -41,6 +45,7 @@ Options:
 "
 
 RAR_DEB_URI=http://ftp.de.debian.org/debian/pool/non-free/r/rar/rar_5.5.0-1_amd64.deb
+URI_SCRIPT_GITHUB=https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh
 
 # Определяет цвета
 function defineColors() {
@@ -94,7 +99,7 @@ function parseArgs {
         exit 1
     fi
 
-    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install,verbose
+    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install,self-update,reset,verbose
     local OPTIONS=c:hdsam:fv
     local PARSED=-
 
@@ -146,7 +151,16 @@ function parseArgs {
             ;;
         --install)
             curl ${RAR_DEB_URI} -o /tmp/rar.deb && sudo dpkg -i /tmp/rar.deb && rm /tmp/rar.deb
-            sudo apt install pigz pv
+            sudo apt install pigz pv zstd
+            exit 0
+            ;;
+        --self-update)
+            if [[ "${PWD}" == "/usr/local/bin" ]]; then
+                sudo wget ${URI_SCRIPT_GITHUB} -nv -O ${PWD}/$0
+                sudo chmod +x ${PWD}/$0
+            else
+                echo "Can't update local version. Script must be installed to /usr/local/bin/kwbackup.sh"
+            fi
             exit 0
             ;;
         --reset)
@@ -230,14 +244,20 @@ function sub_backupDatabase() {
     # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
 
     if [[ ${DB_BACKUP_DAILY:-0} = 1 ]]; then
+	say "rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
         rclone delete --config ${RCLONE_CONFIG} --min-age 7d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
+
+	say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY"
         rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/DAILY
     fi
 
     if [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]]; then
         # if it is a sunday (7th day of week) - make store weekly backup (42 days = 7*6 + 1, so we storing last six weeks)
         if [[ ${NOW_DOW} -eq 1 ]]; then
+            say "rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY"
             rclone delete --config ${RCLONE_CONFIG} --min-age 43d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY
+
+            say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY"
             rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/WEEKLY
         fi
     fi
@@ -245,11 +265,15 @@ function sub_backupDatabase() {
     if [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]]; then
         # backup for first day of month
         if [[ ${NOW_DAY} == 01 ]]; then
+            say "rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY"
             rclone delete --config ${RCLONE_CONFIG} --min-age 360d ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY
+
+            say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY"
             rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}"/"${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/MONTHLY
         fi
     fi
 
+    say "rm ${TEMP_PATH}/${FILENAME_ARCHIVE}"
     rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
 }
 
@@ -320,10 +344,12 @@ function actionBackupStorage() {
 
     if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
         for SOURCE in "${STORAGE_SOURCES[@]}"; do
+            say "rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
             rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
         done
     else
         local SOURCE=${STORAGE_SOURCES}
+        say "rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
         rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
     fi
 
@@ -385,9 +411,12 @@ function main() {
     # Trap for CTRL-C
     trap before_exit_script INT
 
-    # проверяем существование глобального rclone.conf и говорим, что будем грузить его
-    if [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
-        RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
+    # проверяем существование глобального rclone_config_example.conf и говорим, что будем грузить его
+#    if [ -f "${THIS_SCRIPT_BASEDIR}/rclone_config_example.conf" ]; then
+#        RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone_config_example.conf"
+#    fi
+    if { [ -z "${RCLONE_CONFIG}" ] || [ ! -f "${RCLONE_CONFIG}" ]; } && [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
+         RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
     fi
 
     checkUniqueProcessWithConfig "$@"
