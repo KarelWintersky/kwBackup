@@ -2,7 +2,7 @@
 
 # sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh && sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.18"
+VERSION="0.8.19"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -16,7 +16,7 @@ ACTION_BACKUP_ARCHIVE=n
 ACTION_FORCE=n
 ACTION_RESET_FLAGS=n
 
-VERBOSE_MODE=n
+MODE_VERBOSE=n
 MODE_DEBUG=n
 
 CONFIG_FILE=-
@@ -141,7 +141,7 @@ function parseArgs {
             shift
             ;;
         --verbose)
-            VERBOSE_MODE=y
+            MODE_VERBOSE=y
             shift
             ;;
         --debug)
@@ -318,7 +318,7 @@ function sub_backupDatabase() {
     say "-----===== Backupping ${DB} =====-----"
 
     local use_pipe_view=false
-    [[ "${VERBOSE_MODE}" = "y" ]] && use_pipe_view=true
+    [[ "${MODE_VERBOSE}" = "y" ]] && use_pipe_view=true
 
     case "${USE_ARCHIVER}" in
       "rar")
@@ -388,7 +388,7 @@ function actionBackupDatabase() {
     read -ra DATABASE_SQLITE_OPTIONS <<< "${DATABASE_SQLITE_OPTIONS}"
 
     # Правим опции в зависимости от режима
-    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+    if [[ "${MODE_VERBOSE}" = "y" ]]; then
         read -ra RCLONE_OPTIONS <<< "--copy-links --update --verbose --progress"
         DATABASE_PGSQL_OPTIONS+=("--verbose")
     else
@@ -429,7 +429,7 @@ function actionBackupStorage() {
 
     # RCLONE_OPTIONS массивом
     local rclone_opts=()
-    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+    if [[ "${MODE_VERBOSE}" = "y" ]]; then
         read -ra rclone_opts <<< "--copy-links --update --verbose --progress"
     else
         read -ra rclone_opts <<< "--copy-links --update"
@@ -458,8 +458,121 @@ function actionBackupStorage() {
     cleanup_action_lock "storage"
 }
 
-# Скрипт бэкапа архива
 function actionBackupArchive() {
+    if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
+        [[ "${ACTION_FORCE:-n}" != "y" ]] && { say "Backup archive disabled"; return 0; }
+    fi
+
+    local use_archiver=${ARCHIVE_USE_COMPRESSOR:-${USE_ARCHIVER:-gzip}}
+
+    # Берем опции ИЗ КОНФИГА (или дефолт)
+    : "${ARCHIVE_RAR_OPTIONS:=-m3}"
+    : "${ARCHIVE_ZSTD_OPTIONS:=-9}"
+    : "${ARCHIVE_PIGZ_OPTIONS:=}"
+
+    # Парсим строки в массивы
+    read -ra ARCHIVE_RAR_OPTIONS <<< "${ARCHIVE_RAR_OPTIONS}"
+    read -ra ARCHIVE_ZSTD_OPTIONS <<< "${ARCHIVE_ZSTD_OPTIONS}"
+    read -ra ARCHIVE_PIGZ_OPTIONS <<< "${ARCHIVE_PIGZ_OPTIONS}"
+
+     # ✅ ПРОВЕРКИ ОБЯЗАТЕЛЬНЫХ ПАРАМЕТРОВ
+    [[ -z "${ARCHIVE_FILENAME:-}" ]] && {
+        say "ERROR: ARCHIVE_FILENAME not set in config!"
+        return 1
+    }
+    [[ ! -f "${FILES_INCLUDE_LIST}" ]] && {
+        say "ERROR: FILES_INCLUDE_LIST not found: ${FILES_INCLUDE_LIST}"
+        return 1
+    }
+    [[ -n "${FILES_EXCLUDE_LIST:-}" && ! -f "${FILES_EXCLUDE_LIST}" ]] && {
+        FILES_EXCLUDE_LIST=""
+    }
+
+    local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
+
+    # RCLONE опции
+    local rclone_opts=()
+    if [[ "${MODE_VERBOSE}" = "y" ]]; then
+        read -ra rclone_opts <<< "--copy-links --update --verbose --progress"
+    else
+        read -ra rclone_opts <<< "--copy-links --update"
+    fi
+
+    # Архиватор и имя файла
+    local archiver_opts=()
+
+    [[ -z "${ARCHIVE_FILENAME:-}" ]] && {
+        say "ERROR: ARCHIVE_FILENAME not set in config!"
+        return 1
+    }
+    local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}"
+    [[ "${MODE_VERBOSE}" = "y" ]] && use_pv=true
+
+    check_action_lock "archive" || return 1
+
+    echo "$(date "+%d.%m.%Y %T %N") : started task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
+
+    case "${use_archiver}" in
+        rar)
+            ARCHIVE_FILENAME+=".rar"
+            read -ra archiver_opts <<< "${ARCHIVE_RAR_OPTIONS:--r -s -m5}"
+            [[ "${MODE_VERBOSE}" != "y" ]] && archiver_opts+=("-inul")
+            rar a -x@${FILES_EXCLUDE_LIST} "${archiver_opts[@]}" \
+                "${TEMP_PATH}/${ARCHIVE_FILENAME}" @${FILES_INCLUDE_LIST}
+            ;;
+        zstd)
+            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.zstd"
+            if ${use_pv}; then
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]:--9}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            else
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | zstd "${ARCHIVE_ZSTD_OPTIONS[@]:--9}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            fi
+            ;;
+        pigz)
+            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
+            if ${use_pv}; then
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | pv | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            else
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            fi
+            ;;
+        gzip)
+            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
+            if ${use_pv}; then
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | pv | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            else
+                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            fi
+            ;;
+        *)
+            say "ERROR: Unknown USE_ARCHIVER: ${USE_ARCHIVER}"
+            return 1
+            ;;
+    esac
+
+    # Удаляем старые файлы
+    command_rclone "delete" --min-age 71d "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/"
+
+    # Загружаем архив
+    command_rclone "${UPLOAD_MODE}" "${rclone_opts[@]}" \
+        "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
+        "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/"
+
+    # Очистка
+    rm -f "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+
+    echo "$(date "+%d.%m.%Y %T %N") : finished task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
+    cleanup_action_lock "archive"
+}
+
+# Скрипт бэкапа архива
+function actionBackupArchive_() {
     if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
         if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
             echo "Backup archive disabled"
@@ -473,7 +586,7 @@ function actionBackupArchive() {
     local RAR_OPTIONS="${ARCHIVE_RAR_OPTIONS:--m3 -r -s}"
     local RCLONE_OPTIONS="--copy-links --update"
 
-    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+    if [[ "${MODE_VERBOSE}" = "y" ]]; then
         RCLONE_OPTIONS="${RCLONE_OPTIONS} --verbose --progress"
     else
         RAR_OPTIONS="${RAR_OPTIONS} -inul"
