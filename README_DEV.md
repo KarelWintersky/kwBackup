@@ -109,3 +109,80 @@ no_check_bucket = true
 
 или --s3-no-check-bucket=1 ключиком
 
+# Сборка TAR-архива
+
+```bash
+
+ARCHIVE_ROOT="/mnt/BLACK_PUBLIC/PHOTOS/"
+ARCHIVE_INCLUDE_LIST=("*")
+ARCHIVE_EXCLUDE_LIST=("*.mp4")
+
+backup_create_tar() {
+    local root="${ARCHIVE_ROOT%/}"  # без завершающего слеша
+    local -a include=("${ARCHIVE_INCLUDE_LIST[@]}")
+    local -a exclude=("${ARCHIVE_EXCLUDE_LIST[@]}")
+    local archive_file="/tmp/backup_$(date +%s).tar"
+
+    local exclude_args=()
+    for pat in "${ARCHIVE_EXCLUDE_LIST[@]}"; do
+        if [ -n "$pat" ]; then
+            exclude_args+=("--exclude=$root/$pat")
+        fi
+    done
+
+    # Формируем включения — только если есть что раскрывать
+    local include_expanded=()
+
+    if [ ${#ARCHIVE_INCLUDE_LIST[@]} -eq 0 ]; then
+        # если включений нет — весь корень
+        include_expanded=("$root"/*)
+    else
+        for pat in "${ARCHIVE_INCLUDE_LIST[@]}"; do
+            if [ -n "$pat" ]; then
+                # здесь bash сам раскроет * в реальные файлы
+                local globbed=("$root"/$pat)
+                # globbed содержит список файлов или ["$root/HiSummer19/*"] если ничего нет
+                if [ -e "${globbed[0]}" ]; then
+                    include_expanded+=("${globbed[@]}")
+                fi
+            fi
+        done
+    fi
+
+    # Проверка
+    if [ ${#include_expanded[@]} -eq 0 ]; then
+        echo "Нет подходящих файлов для включения" >&2
+        return 1
+    fi
+
+    archive_file="/tmp/backup_$(date +%s).tar"
+
+    tar --absolute-names "${exclude_args[@]}" -cf "$archive_file" "${include_expanded[@]}"
+
+
+    echo "Архив создан: $archive_file"
+}
+
+backup_create_tar
+```
+
+# Clone config variants
+
+```ini
+
+# SFTP configuration
+[sftp]
+type = sftp
+host = example.com
+user = backup_user
+port = 22
+key_file = /home/user/.ssh/id_rsa
+
+# Local filesystem (for testing)
+[local]
+type = local
+nounc = true
+
+
+
+```

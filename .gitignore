@@ -1,4 +1,5 @@
 .idea
 backup.log
 credentials*.*
+configs
 
