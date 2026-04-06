@@ -2,7 +2,7 @@
 
 # sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh && sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.19"
+VERSION="0.8.22"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -458,6 +458,56 @@ function actionBackupStorage() {
     cleanup_action_lock "storage"
 }
 
+#
+# Вызывать: archiveCreateTAR | zstd -T0 -o /tmp/backup_$(date +%s).tar.zst
+#
+function archiveCreateTAR() {
+    local root="${ARCHIVE_ROOT%/}"  # без завершающего слеша
+    local -a include=("${ARCHIVE_INCLUDE_LIST[@]}")
+    local -a exclude=("${ARCHIVE_EXCLUDE_LIST[@]}")
+
+    # Если нет такого каталога
+    [[ ! -d "${root}" ]] && {
+        say "ERROR: ARCHIVE_ROOT '${root}' does not exist or is not a directory"
+        return 1
+    }
+
+    local exclude_args=()
+    for pat in "${ARCHIVE_EXCLUDE_LIST[@]}"; do
+        if [ -n "$pat" ]; then
+            exclude_args+=("--exclude=$root/$pat")
+        fi
+    done
+
+    # Формируем включения — только если есть что раскрывать
+    local include_expanded=()
+
+    if [ ${#ARCHIVE_INCLUDE_LIST[@]} -eq 0 ]; then
+        # если включений нет — весь корень
+        include_expanded=("$root"/*)
+    else
+        for pat in "${ARCHIVE_INCLUDE_LIST[@]}"; do
+            if [ -n "$pat" ]; then
+                # здесь bash сам раскроет * в реальные файлы
+                local globbed=("$root"/$pat)
+                # globbed содержит список файлов или ["$root/HiSummer19/*"] если ничего нет
+                if [ -e "${globbed[0]}" ]; then
+                    include_expanded+=("${globbed[@]}")
+                fi
+            fi
+        done
+    fi
+
+    # Проверка
+    if [ ${#include_expanded[@]} -eq 0 ]; then
+        say "Нет подходящих файлов для включения"
+        return 1
+    fi
+
+    tar --absolute-names "${exclude_args[@]}" -c "${include_expanded[@]}"
+}
+
+# Скрипт бэкапа архива. Проверено zstd
 function actionBackupArchive() {
     if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
         [[ "${ACTION_FORCE:-n}" != "y" ]] && { say "Backup archive disabled"; return 0; }
@@ -465,176 +515,100 @@ function actionBackupArchive() {
 
     local use_archiver=${ARCHIVE_USE_COMPRESSOR:-${USE_ARCHIVER:-gzip}}
 
-    # Берем опции ИЗ КОНФИГА (или дефолт)
+    # Опции архиваторов из конфига (или дефолт)
     : "${ARCHIVE_RAR_OPTIONS:=-m3}"
     : "${ARCHIVE_ZSTD_OPTIONS:=-9}"
-    : "${ARCHIVE_PIGZ_OPTIONS:=}"
+    : "${ARCHIVE_GZIP_OPTIONS:=-9}"
+    : "${ARCHIVE_ROTATION_PERIOD:=71d}"
 
-    # Парсим строки в массивы
-    read -ra ARCHIVE_RAR_OPTIONS <<< "${ARCHIVE_RAR_OPTIONS}"
+    read -ra ARCHIVE_RAR_OPTIONS  <<< "${ARCHIVE_RAR_OPTIONS}"
     read -ra ARCHIVE_ZSTD_OPTIONS <<< "${ARCHIVE_ZSTD_OPTIONS}"
-    read -ra ARCHIVE_PIGZ_OPTIONS <<< "${ARCHIVE_PIGZ_OPTIONS}"
+    read -ra ARCHIVE_GZIP_OPTIONS <<< "${ARCHIVE_GZIP_OPTIONS}"
 
-     # ✅ ПРОВЕРКИ ОБЯЗАТЕЛЬНЫХ ПАРАМЕТРОВ
-    [[ -z "${ARCHIVE_FILENAME:-}" ]] && {
-        say "ERROR: ARCHIVE_FILENAME not set in config!"
-        return 1
-    }
-    [[ ! -f "${FILES_INCLUDE_LIST}" ]] && {
-        say "ERROR: FILES_INCLUDE_LIST not found: ${FILES_INCLUDE_LIST}"
-        return 1
-    }
-    [[ -n "${FILES_EXCLUDE_LIST:-}" && ! -f "${FILES_EXCLUDE_LIST}" ]] && {
-        FILES_EXCLUDE_LIST=""
-    }
-
-    local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
-
-    # RCLONE опции
-    local rclone_opts=()
-    if [[ "${MODE_VERBOSE}" = "y" ]]; then
-        read -ra rclone_opts <<< "--copy-links --update --verbose --progress"
-    else
-        read -ra rclone_opts <<< "--copy-links --update"
-    fi
-
-    # Архиватор и имя файла
-    local archiver_opts=()
-
-    [[ -z "${ARCHIVE_FILENAME:-}" ]] && {
-        say "ERROR: ARCHIVE_FILENAME not set in config!"
-        return 1
-    }
     local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}"
+
+    local use_pv=false
     [[ "${MODE_VERBOSE}" = "y" ]] && use_pv=true
 
-    check_action_lock "archive" || return 1
+    # Правим опции в зависимости от режима
+    if [[ "${MODE_VERBOSE}" = "y" ]]; then
+        read -ra RCLONE_OPTIONS <<< "--copy-links --update --verbose --progress"
+    else
+        ARCHIVE_RAR_OPTIONS+=("-inul")
+        ARCHIVE_ZSTD_OPTIONS+=("--quiet")
 
+        read -ra RCLONE_OPTIONS <<< "--copy-links --update"
+    fi
+
+    check_action_lock "archive" || return 1
     echo "$(date "+%d.%m.%Y %T %N") : started task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
 
     case "${use_archiver}" in
         rar)
             ARCHIVE_FILENAME+=".rar"
-            read -ra archiver_opts <<< "${ARCHIVE_RAR_OPTIONS:--r -s -m5}"
-            [[ "${MODE_VERBOSE}" != "y" ]] && archiver_opts+=("-inul")
-            rar a -x@${FILES_EXCLUDE_LIST} "${archiver_opts[@]}" \
-                "${TEMP_PATH}/${ARCHIVE_FILENAME}" @${FILES_INCLUDE_LIST}
-            ;;
+            local rar_opts=("${ARCHIVE_RAR_OPTIONS[@]:--r -s -m5}")
+            [[ "${MODE_VERBOSE}" != "y" ]] && rar_opts+=("-inul")
+
+            # RAR имеет собственный механизм include/exclude через @listfile и -x@listfile
+            # Если ARCHIVE_ROOT задан — меняем рабочий каталог
+            local rar_cd_cmd=""
+            [[ -n "${ARCHIVE_ROOT}" ]] && rar_cd_cmd="cd '${ARCHIVE_ROOT}' &&"
+
+            if [[ -n "${exclude_file}" ]]; then
+                eval "${rar_cd_cmd}" rar a \
+                    -x@"${exclude_file}" \
+                    "${rar_opts[@]}" \
+                    "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
+                    @"${include_file}"
+            else
+                # exclude как отдельные -x:pattern
+                local rar_excl=()
+                for p in "${exclude_paths[@]}"; do rar_excl+=("-x:${p}"); done
+                eval "${rar_cd_cmd}" rar a \
+                    "${rar_excl[@]}" \
+                    "${rar_opts[@]}" \
+                    "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
+                    @"${include_file}"
+            fi
+        ;;
         zstd)
-            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.zstd"
+            ARCHIVE_FILENAME+=".zstd"
 
-            # Проверяем ARCHIVE_ROOT в конфиге
-            if [[ -n "${ARCHIVE_ROOT:-}" ]]; then
-                local archive_root="${ARCHIVE_ROOT}"
-                say "DEBUG: Using ARCHIVE_ROOT='${archive_root}' from config"
-            else
-                local archive_root=$(head -n1 "${FILES_INCLUDE_LIST}" | sed 's|/*\*\.\**$||')
-                say "DEBUG: Computed archive_root='${archive_root}' from FILES_INCLUDE_LIST"
-            fi
-
-            # Проверяем существование директории
-            [[ ! -d "$archive_root" ]] && {
-                say "ERROR: archive_root '$archive_root' does not exist or not a directory"
-                return 1
-            }
-
-            find "$archive_root" -maxdepth 1 -type f -print0 | \
-            xargs -0 tar -cf - --no-recursion --null -C "$archive_root" | \
-            (${use_pv} && pv || cat) | \
-            zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
-            ;;
-
-#            if ${use_pv}; then
- #               say "tar -cf - --files-from=${temp_include} . | pv | zstd ${ARCHIVE_ZSTD_OPTIONS[@]} -o ${TEMP_PATH}/${ARCHIVE_FILENAME}"
-  #              tar -cf - --files-from="${temp_include}" . | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
-   #         else
-    #            say "tar -cf - --files-from=${temp_include} . | zstd ${ARCHIVE_ZSTD_OPTIONS[@]} -o ${TEMP_PATH}/${ARCHIVE_FILENAME}"
-     #           tar -cf - --files-from="${temp_include}" . | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
-      #      fi
-
-#      exit
-
- #           rm -f "${temp_include}"
-#            ;;
-        pigz)
-            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
             if ${use_pv}; then
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | pv | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
-            ;;
-        gzip)
-            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
+        ;;
+        pigz|gzip)
+            ARCHIVE_FILENAME+=".tar.gz"
+
             if ${use_pv}; then
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | pv | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR | pv | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
-            ;;
+        ;;
         *)
-            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.tar"
+            ARCHIVE_FILENAME+=".tar"
+
             if ${use_pv}; then
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | pv  > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR | pv > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archiveCreateTAR > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
-            ;;
+        ;;
     esac
 
-    exit
+    command_rclone delete "${RCLONE_OPTIONS[@]:-}" --min-age "${ARCHIVE_ROTATION_PERIOD}" "${RCLONE_PROVIDER}:${ARCHIVE_CLOUD_CONTAINER}"
+    command_rclone copy "${RCLONE_OPTIONS[@]:-}" "${TEMP_PATH}/${ARCHIVE_FILENAME}" "${RCLONE_PROVIDER}:${ARCHIVE_CLOUD_CONTAINER}"
 
-    # Удаляем старые файлы
-    command_rclone "delete" --min-age 71d "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/"
-
-    # Загружаем архив
-    command_rclone "${UPLOAD_MODE}" "${rclone_opts[@]}" \
-        "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
-        "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/"
-
-    # Очистка
     rm -f "${TEMP_PATH}/${ARCHIVE_FILENAME}"
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
     cleanup_action_lock "archive"
 }
 
-# Скрипт бэкапа архива
-function actionBackupArchive_() {
-    if [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 0 ]]; then
-        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
-            echo "Backup archive disabled"
-            exit 0
-        fi
-    fi
-    echo "$(date "+%d.%m.%Y %T %N") : started task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
-
-    local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
-
-    local RAR_OPTIONS="${ARCHIVE_RAR_OPTIONS:--m3 -r -s}"
-    local RCLONE_OPTIONS="--copy-links --update"
-
-    if [[ "${MODE_VERBOSE}" = "y" ]]; then
-        RCLONE_OPTIONS="${RCLONE_OPTIONS} --verbose --progress"
-    else
-        RAR_OPTIONS="${RAR_OPTIONS} -inul"
-    fi
-
-    rar a -x@${RARFILES_EXCLUDE_LIST} ${RAR_OPTIONS} ${TEMP_PATH}/${FILENAME_RAR} @${RARFILES_INCLUDE_LIST}
-
-    rclone delete --config ${RCLONE_CONFIG} --min-age 71d ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
-    rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${TEMP_PATH}/${FILENAME_RAR} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/
-
-    rm -f ${TEMP_PATH}/${FILENAME_RAR}
-
-    echo "$(date "+%d.%m.%Y %T %N") : finished task ARCHIVE" >> "${PROCESS_FLAG_FILE}"
-}
 
 function main() {
     defineColors
