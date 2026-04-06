@@ -247,6 +247,30 @@ function database_dump_command() {
     mysqldump "${MYSQL_OPTIONS[@]:-}" --host "${MYSQL_HOST}" "${DB}"
 }
 
+# Собирает команду RCLONE из аргументов с учетом кастомных команд из конфига
+function rclone_command() {
+    local cmd_type=$1; shift  # delete/copy/sync
+    local custom_cmds=()
+
+    # Парсим кастомные команды
+    local custom_cmds=("${RCLONE_CUSTOM_OPTIONS[@]:-}")
+
+    # Собираем аргументы
+    local args=("${cmd_type}" "--config" "${RCLONE_CONFIG}" "${custom_cmds[@]}")
+    args+=("$@")  # остальные аргументы
+
+    say "rclone ${args[*]}"
+    rclone "${args[@]}"
+}
+
+# Реальная команда копирования данных в облако
+function database_upload_command() {
+    local TYPE=$1 AGE=$2
+
+    rclone_command delete "${RCLONE_OPTIONS[@]:-}" --min-age "${AGE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+    rclone_command copy "${RCLONE_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+}
+
 # суб-функция, которая делает бэкап на самом деле. Принимает 2 параметра:
 # $1 - имя БД для бэкапа
 # $2 - суб-путь в целевом контейнере = (DB name для множественных БД в одной задаче ИЛИ '' для одной БД в задаче)
@@ -299,21 +323,13 @@ function sub_backupDatabase() {
           ;;
     esac
 
-    _rclone_backup() {
-        local TYPE=$1 AGE=$2
-        say "rclone delete --config ${RCLONE_CONFIG} --min-age ${AGE} ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
-        rclone delete --config ${RCLONE_CONFIG} --min-age ${AGE} ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}
-
-        say "rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} \"${TEMP_PATH}/${FILENAME_ARCHIVE}\" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
-        rclone copy --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} "${TEMP_PATH}/${FILENAME_ARCHIVE}" ${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}
-    }
 
     #@todo: сделать глубину хранения копий все таки зависимой от параметров, но со значением по умолчанию
     # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
 
-    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && _rclone_backup "DAILY" "7d"
-    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && _rclone_backup "WEEKLY" "43d"
-    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && _rclone_backup "MONTHLY" "360d"
+    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && database_upload_command "DAILY" "7d"
+    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && database_upload_command "WEEKLY" "43d"
+    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && database_upload_command "MONTHLY" "360d"
 
     say "rm ${TEMP_PATH}/${FILENAME_ARCHIVE}"
     rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
