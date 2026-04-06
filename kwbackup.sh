@@ -523,14 +523,26 @@ function actionBackupArchive() {
         zstd)
             local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.zstd"
 
-            local archive_root=$(head -n1 "${FILES_INCLUDE_LIST}" | sed 's|/*\*\.\**$||')
-            say "DEBUG: archive_root='${archive_root}'"
+            # Проверяем ARCHIVE_ROOT в конфиге
+            if [[ -n "${ARCHIVE_ROOT:-}" ]]; then
+                local archive_root="${ARCHIVE_ROOT}"
+                say "DEBUG: Using ARCHIVE_ROOT='${archive_root}' from config"
+            else
+                local archive_root=$(head -n1 "${FILES_INCLUDE_LIST}" | sed 's|/*\*\.\**$||')
+                say "DEBUG: Computed archive_root='${archive_root}' from FILES_INCLUDE_LIST"
+            fi
 
-            # Прямой find без списка — берем корень из конфига
-    find "$archive_root" -maxdepth 1 -type f -print0 | \
-    xargs -0 tar -cf - --no-recursion --null -C "$archive_root" | \
-    (${use_pv} && pv || cat) | \
-    zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            # Проверяем существование директории
+            [[ ! -d "$archive_root" ]] && {
+                say "ERROR: archive_root '$archive_root' does not exist or not a directory"
+                return 1
+            }
+
+            find "$archive_root" -maxdepth 1 -type f -print0 | \
+            xargs -0 tar -cf - --no-recursion --null -C "$archive_root" | \
+            (${use_pv} && pv || cat) | \
+            zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            ;;
 
 #            if ${use_pv}; then
  #               say "tar -cf - --files-from=${temp_include} . | pv | zstd ${ARCHIVE_ZSTD_OPTIONS[@]} -o ${TEMP_PATH}/${ARCHIVE_FILENAME}"
@@ -543,7 +555,7 @@ function actionBackupArchive() {
 #      exit
 
  #           rm -f "${temp_include}"
-            ;;
+#            ;;
         pigz)
             local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
             if ${use_pv}; then
