@@ -1,4 +1,5 @@
-# kwBackup
+# kwBackup - WARNING, outdated version
+
 KW Backup scripts with sync to Selectel Cloud Storage
 
 # Как это использовать "с нуля"? 

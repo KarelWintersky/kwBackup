@@ -2,7 +2,7 @@
 
 # sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh && sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.22"
+VERSION="0.8.23"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -223,7 +223,14 @@ function detectDBType() {
 
 function get_lock_filename() {
     local action=$1
-    local action_hash=$(echo -n "${action}_${CONFIG_FILE}_${DB:-_}" | sha1sum | cut -d' ' -f1)
+
+    # собираем полную командную строку как $0 "$@"
+    local full_cmd="$0"
+    for arg in "$@"; do
+        full_cmd="$full_cmd \"$arg\""
+    done
+    local action_hash=$(echo -n "$full_cmd" | sha1sum | cut -d' ' -f1)
+
     echo "/dev/shm/kwbackup_${action}_${action_hash}.flag"
 }
 
@@ -235,6 +242,8 @@ function check_action_lock() {
     if [[ -f "${PROCESS_FLAG_FILE}" ]]; then
         say "ERROR: ${action^^} backup already running (config: ${CONFIG_FILE}, DB: ${DB:-all})"
         return 1
+    else
+        say "Setting up process flag: ${PROCESS_FLAG_FILE}"
     fi
 
     echo "$(date "+%d.%m.%Y %T") ${action^^} started (config: ${CONFIG_FILE}, DB: ${DB:-all})" > "${PROCESS_FLAG_FILE}"
@@ -266,7 +275,7 @@ function command_database_dump() {
             ;;
         postgres|pgsql)
             # pg_dump требует PGPASSWORD или .pgpass
-            pg_dump "${DATABASE_PGSQL_OPTIONS[@]:-}" --host="${DB_HOST}" "${db_port:+-p ${db_port}}" --dbname="${DB}" --username="${PGUSER:-postgres}"
+            pg_dump "${DATABASE_PGSQL_OPTIONS[@]:-}" --host="${DB_HOST}" "${db_port:+-p ${db_port}}" --dbname="${DB}" --username="${DB_USER:-postgres}"
             ;;
         sqlite)
             # DB_HOST содержит путь к .db файлу
@@ -356,12 +365,18 @@ function sub_backupDatabase() {
     esac
 
 
-    #@todo: сделать глубину хранения копий все таки зависимой от параметров, но со значением по умолчанию
-    # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
+    # Глубина хранения копий задается в конфиге
+    : "${DB_MIN_AGE_DAILY:=7d}"
+    : "${DB_MIN_AGE_WEEKLY:=43d}"
+    : "${DB_MIN_AGE_MONTHLY:=360d}"
 
-    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && command_upload_database "DAILY" "7d"
-    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && command_upload_database "WEEKLY" "43d"
-    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && command_upload_database "MONTHLY" "360d"
+    # [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && command_upload_database "DAILY" "7d"
+    # [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && command_upload_database "WEEKLY" "43d"
+    # [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && command_upload_database "MONTHLY" "360d"
+
+    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && command_upload_database "DAILY" "${DB_MIN_AGE_DAILY}"
+    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && command_upload_database "WEEKLY" "${DB_MIN_AGE_WEEKLY}"
+    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && command_upload_database "MONTHLY" "${DB_MIN_AGE_MONTHLY}"
 
     say "rm ${TEMP_PATH}/${FILENAME_ARCHIVE}"
     rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
@@ -402,15 +417,17 @@ function actionBackupDatabase() {
         for DB in "${DATABASES[@]}"; do
             check_action_lock "database_${DB}" || return 1  # уникальный флаг на БД!
             sub_backupDatabase "${DB}" "${DB}"
+            cleanup_action_lock "database_${DB}"
             # trap автоматически очистит PROCESS_FLAG_FILE
         done
     else
         check_action_lock "database_${DATABASES}" || return 1
         sub_backupDatabase "${DATABASES}" ""
+        cleanup_action_lock "database_${DATABASES}"
     fi
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task DATABASE" >> "${PROCESS_FLAG_FILE}"
-    cleanup_action_lock "database"  # явный cleanup
+    # cleanup_action_lock "database"  # явный cleanup
 }
 
 # скрипт бэкапа STORAGE
@@ -545,30 +562,23 @@ function actionBackupArchive() {
 
     case "${use_archiver}" in
         rar)
+            #
+            # Для RAR используются другие параметры include/exclude списков
+            # Через параметры
+            # export ARCHIVE_RAR_INCLUDE_LIST="${CONFIG_BASEDIR}/files-include.conf"
+            # export ARCHIVE_RAR_EXCLUDE_LIST="${CONFIG_BASEDIR}/files-exclude.conf"
+            # иначе эти списки не передать (если только писать временные файлы в /TMP/
+            #
             ARCHIVE_FILENAME+=".rar"
             local rar_opts=("${ARCHIVE_RAR_OPTIONS[@]:--r -s -m5}")
             [[ "${MODE_VERBOSE}" != "y" ]] && rar_opts+=("-inul")
 
-            # RAR имеет собственный механизм include/exclude через @listfile и -x@listfile
-            # Если ARCHIVE_ROOT задан — меняем рабочий каталог
-            local rar_cd_cmd=""
-            [[ -n "${ARCHIVE_ROOT}" ]] && rar_cd_cmd="cd '${ARCHIVE_ROOT}' &&"
-
-            if [[ -n "${exclude_file}" ]]; then
-                eval "${rar_cd_cmd}" rar a \
-                    -x@"${exclude_file}" \
-                    "${rar_opts[@]}" \
-                    "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
-                    @"${include_file}"
+            if [[ -n "${ARCHIVE_RAR_EXCLUDE_LIST}" ]]; then
+                say "rar a -x@${ARCHIVE_RAR_EXCLUDE_LIST} ${rar_opts[@]} ${TEMP_PATH}/${ARCHIVE_FILENAME} @${ARCHIVE_RAR_INCLUDE_LIST}"
+                rar a -x@"${ARCHIVE_RAR_EXCLUDE_LIST}" "${rar_opts[@]}" "${TEMP_PATH}/${ARCHIVE_FILENAME}" @"${ARCHIVE_RAR_INCLUDE_LIST}"
             else
-                # exclude как отдельные -x:pattern
-                local rar_excl=()
-                for p in "${exclude_paths[@]}"; do rar_excl+=("-x:${p}"); done
-                eval "${rar_cd_cmd}" rar a \
-                    "${rar_excl[@]}" \
-                    "${rar_opts[@]}" \
-                    "${TEMP_PATH}/${ARCHIVE_FILENAME}" \
-                    @"${include_file}"
+                say "rar a ${rar_opts[@]} ${TEMP_PATH}/${ARCHIVE_FILENAME} @${ARCHIVE_RAR_INCLUDE_LIST}"
+                rar a "${rar_opts[@]}" "${TEMP_PATH}/${ARCHIVE_FILENAME}" @"${ARCHIVE_RAR_INCLUDE_LIST}"
             fi
         ;;
         zstd)
