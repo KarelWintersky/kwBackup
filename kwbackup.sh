@@ -2,7 +2,7 @@
 
 # sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh && sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.23"
+VERSION="0.9.0"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -196,7 +196,7 @@ function get_db_port() {
 }
 
 # Вычисляет реальный бинарник для DB_TYPE = mysql
-function detectDBType() {
+function detect_database_binary() {
     local mysql_bin=$(command -v mysql 2>/dev/null)
 
     if [[ -z "$mysql_bin" ]]; then
@@ -262,7 +262,7 @@ function cleanup_action_lock() {
 
 # Реальная команда дампа БД
 function command_database_dump() {
-    [[ "${DB_TYPE}" == "mysql" ]] && DB_TYPE=$(detectDBType)
+    [[ "${DB_TYPE}" == "mysql" ]] && DB_TYPE=$(detect_database_binary)
 
     local db_port=${DB_PORT:-$(get_db_port "${DB_TYPE}")}
 
@@ -317,9 +317,9 @@ function command_upload_database() {
 # $2 - суб-путь в целевом контейнере = (DB name для множественных БД в одной задаче ИЛИ '' для одной БД в задаче)
 # одна БД бэкапится в CONTAINER/(DAILY|WEEKLY|MONTHLY)/*
 # несколько БД бэкапятся в CONTAINER/DB/(DAILY|WEEKLY|MONTHLY)/*
-function sub_backupDatabase() {
+function task_backup_database() {
     local DB=$1
-    local PATH_INSIDE_CONTAINER=${CLOUD_CONTAINER_DB}
+    local PATH_INSIDE_CONTAINER=${DATABASE_CLOUD_CONTAINER}
     [[ -n "${2}" ]] && PATH_INSIDE_CONTAINER+="/${2}"
 
     local FILENAME_ARCHIVE
@@ -416,13 +416,13 @@ function actionBackupDatabase() {
     if [[ "$(declare -p DATABASES 2>/dev/null)" =~ "declare -a" ]]; then
         for DB in "${DATABASES[@]}"; do
             check_action_lock "database_${DB}" || return 1  # уникальный флаг на БД!
-            sub_backupDatabase "${DB}" "${DB}"
+            task_backup_database "${DB}" "${DB}"
             cleanup_action_lock "database_${DB}"
             # trap автоматически очистит PROCESS_FLAG_FILE
         done
     else
         check_action_lock "database_${DATABASES}" || return 1
-        sub_backupDatabase "${DATABASES}" ""
+        task_backup_database "${DATABASES}" ""
         cleanup_action_lock "database_${DATABASES}"
     fi
 
@@ -468,7 +468,7 @@ function actionBackupStorage() {
 
     # Бэкап каждого источника
     for SOURCE in "${sources[@]}"; do
-        command_rclone "${UPLOAD_MODE}" "${rclone_opts[@]}" "${SOURCE_ROOT}${SOURCE}" "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
+        command_rclone "${UPLOAD_MODE}" "${rclone_opts[@]}" "${SOURCE_ROOT}${SOURCE}" "${RCLONE_PROVIDER}:${STORAGE_CLOUD_CONTAINER}/${SOURCE}"
     done
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task STORAGE" >> "${PROCESS_FLAG_FILE}"
@@ -476,9 +476,9 @@ function actionBackupStorage() {
 }
 
 #
-# Вызывать: archiveCreateTAR | zstd -T0 -o /tmp/backup_$(date +%s).tar.zst
+# Вызывать: archive_create_tar | zstd -T0 -o /tmp/backup_$(date +%s).tar.zst
 #
-function archiveCreateTAR() {
+function archive_create_tar() {
     local root="${ARCHIVE_ROOT%/}"  # без завершающего слеша
     local -a include=("${ARCHIVE_INCLUDE_LIST[@]}")
     local -a exclude=("${ARCHIVE_EXCLUDE_LIST[@]}")
@@ -585,27 +585,27 @@ function actionBackupArchive() {
             ARCHIVE_FILENAME+=".zstd"
 
             if ${use_pv}; then
-                archiveCreateTAR | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                archiveCreateTAR | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
         ;;
         pigz|gzip)
             ARCHIVE_FILENAME+=".tar.gz"
 
             if ${use_pv}; then
-                archiveCreateTAR | pv | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar | pv | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                archiveCreateTAR | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar | pigz "${ARCHIVE_GZIP_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
         ;;
         *)
             ARCHIVE_FILENAME+=".tar"
 
             if ${use_pv}; then
-                archiveCreateTAR | pv > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar | pv > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                archiveCreateTAR > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+                archive_create_tar > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
         ;;
     esac
