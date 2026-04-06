@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh
-# sudo chmod +x /usr/local/bin/kwbackup.sh
+# sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh && sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.17"
+VERSION="0.8.18"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -18,6 +17,7 @@ ACTION_FORCE=n
 ACTION_RESET_FLAGS=n
 
 VERBOSE_MODE=n
+MODE_DEBUG=n
 
 CONFIG_FILE=-
 CONFIG_BASEDIR=-
@@ -71,7 +71,7 @@ function parseArgs {
         exit 1
     fi
 
-    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install,self-update,reset,verbose
+    local LONGOPTS=config:,database,storage,archive,help,sync-mode:,force,version,install,self-update,reset,verbose,debug
     local OPTIONS=c:hdsam:fv
     local PARSED=-
 
@@ -144,6 +144,10 @@ function parseArgs {
             VERBOSE_MODE=y
             shift
             ;;
+        --debug)
+            MODE_DEBUG=y
+            shift
+            ;;
         -v | --version)
             echo "${__what_is_it}"
             exit 0
@@ -175,7 +179,7 @@ function displayConfigError() {
 # Выводит сообщение с учетом VERBOSE MODE
 function say() {
     local MESSAGE=$1
-    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+    if [[ "${MODE_DEBUG}" = "y" ]]; then
         echo -e ${MESSAGE}
     fi
 }
@@ -217,11 +221,16 @@ function detectDBType() {
     fi
 }
 
+function get_lock_filename() {
+    local action=$1
+    local action_hash=$(echo -n "${action}_${CONFIG_FILE}_${DB:-_}" | sha1sum | cut -d' ' -f1)
+    echo "/dev/shm/kwbackup_${action}_${action_hash}.flag"
+}
+
 # Добавляет флаг блокировки
 function check_action_lock() {
     local action=$1
-    local action_hash=$(echo -n "${action}_${CONFIG_FILE}_${DB:-_}" | sha1sum | cut -d' ' -f1)
-    PROCESS_FLAG_FILE="/dev/shm/kwbackup_${action}_${action_hash}.flag"
+    PROCESS_FLAG_FILE=$(get_lock_filename "${action}")
 
     if [[ -f "${PROCESS_FLAG_FILE}" ]]; then
         say "ERROR: ${action^^} backup already running (config: ${CONFIG_FILE}, DB: ${DB:-all})"
@@ -235,9 +244,11 @@ function check_action_lock() {
 # Удаляет флаг блокировки
 function cleanup_action_lock() {
     local action=$1
-    local action_hash=$(echo -n "${action}_${DB:-}_${CONFIG_FILE}" | sha1sum | cut -d' ' -f1)
-    local ACTION_FLAG_FILE="/dev/shm/kwbackup_${action}_${action_hash}.flag"
-    rm -f "${ACTION_FLAG_FILE}" 2>/dev/null || true
+    PROCESS_FLAG_FILE=$(get_lock_filename "${action}")
+
+    say "Cleaning lock: ${PROCESS_FLAG_FILE}"
+
+    rm -f "${PROCESS_FLAG_FILE}" 2>/dev/null || true
 }
 
 # Реальная команда дампа БД
@@ -405,36 +416,46 @@ function actionBackupDatabase() {
 # скрипт бэкапа STORAGE
 function actionBackupStorage() {
     if [[ ${ENABLE_BACKUP_STORAGE:-0} = 0 ]]; then
-        if [[ "${ACTION_FORCE:-n}" = "n" ]]; then
-            echo "Backup storage disabled"
-            exit 0
-        fi
+        [[ "${ACTION_FORCE:-n}" != "y" ]] && { say "Backup storage disabled"; return 0; }
     fi
+
+    check_action_lock "storage" || return 1
+    trap 'cleanup_action_lock "storage"' RETURN EXIT
+
     echo "$(date "+%d.%m.%Y %T %N") : started task STORAGE" >> "${PROCESS_FLAG_FILE}"
 
-    # определяем реальный алгоритм заливки данных в хранилище: CLI>Config>'sync'
+    # Алгоритм заливки
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${STORAGE_BACKUP_ALGO:-sync}}
+
+    # RCLONE_OPTIONS массивом
+    local rclone_opts=()
+    if [[ "${VERBOSE_MODE}" = "y" ]]; then
+        read -ra rclone_opts <<< "--copy-links --update --verbose --progress"
+    else
+        read -ra rclone_opts <<< "--copy-links --update"
+    fi
+
+    # Источники (строка → массив)
+    local sources=()
+    if [[ "$(declare -p STORAGE_SOURCES 2>/dev/null)" =~ "declare -a" ]]; then
+        sources=("${STORAGE_SOURCES[@]}")
+    elif [[ -n "${STORAGE_SOURCES}" ]]; then
+        sources=("${STORAGE_SOURCES}")
+    fi
 
     local SOURCE_ROOT=${STORAGE_SOURCES_ROOT:-}
 
-    if [[ "${VERBOSE_MODE}" = "y" ]]; then
-        RCLONE_OPTIONS="--copy-links --update --verbose --progress" # эквивалентно -LPuv
-    else
-        RCLONE_OPTIONS="--copy-links --update"
+    if [[ ${#sources[@]} -eq 0 && -n "${STORAGE_SOURCES_ROOT}" ]]; then
+      sources=("")  # пустая строка = корень
     fi
 
-    if [[ "$(declare -p STORAGE_SOURCES)" =~ "declare -a" ]]; then
-        for SOURCE in "${STORAGE_SOURCES[@]}"; do
-            say "rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
-            rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
-        done
-    else
-        local SOURCE=${STORAGE_SOURCES}
-        say "rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
-        rclone ${UPLOAD_MODE} --config ${RCLONE_CONFIG} ${RCLONE_OPTIONS} --progress ${SOURCE_ROOT}${SOURCE} ${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}
-    fi
+    # Бэкап каждого источника
+    for SOURCE in "${sources[@]}"; do
+        command_rclone "${UPLOAD_MODE}" "${rclone_opts[@]}" "${SOURCE_ROOT}${SOURCE}" "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_STORAGE}/${SOURCE}"
+    done
 
     echo "$(date "+%d.%m.%Y %T %N") : finished task STORAGE" >> "${PROCESS_FLAG_FILE}"
+    cleanup_action_lock "storage"
 }
 
 # Скрипт бэкапа архива
