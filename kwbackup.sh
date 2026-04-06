@@ -522,39 +522,61 @@ function actionBackupArchive() {
             ;;
         zstd)
             local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.zstd"
-            if ${use_pv}; then
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]:--9}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
-            else
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
-                    | zstd "${ARCHIVE_ZSTD_OPTIONS[@]:--9}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
-            fi
+
+            local archive_root=$(head -n1 "${FILES_INCLUDE_LIST}" | sed 's|/*\*\.\**$||')
+            say "DEBUG: archive_root='${archive_root}'"
+
+            # Прямой find без списка — берем корень из конфига
+    find "$archive_root" -maxdepth 1 -type f -print0 | \
+    xargs -0 tar -cf - --no-recursion --null -C "$archive_root" | \
+    (${use_pv} && pv || cat) | \
+    zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+
+#            if ${use_pv}; then
+ #               say "tar -cf - --files-from=${temp_include} . | pv | zstd ${ARCHIVE_ZSTD_OPTIONS[@]} -o ${TEMP_PATH}/${ARCHIVE_FILENAME}"
+  #              tar -cf - --files-from="${temp_include}" . | pv | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+   #         else
+    #            say "tar -cf - --files-from=${temp_include} . | zstd ${ARCHIVE_ZSTD_OPTIONS[@]} -o ${TEMP_PATH}/${ARCHIVE_FILENAME}"
+     #           tar -cf - --files-from="${temp_include}" . | zstd "${ARCHIVE_ZSTD_OPTIONS[@]}" -o "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+      #      fi
+
+#      exit
+
+ #           rm -f "${temp_include}"
             ;;
         pigz)
             local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
             if ${use_pv}; then
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
                     | pv | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
                     | pigz "${ARCHIVE_PIGZ_OPTIONS[@]:-}" -c > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
             ;;
         gzip)
             local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.gz"
             if ${use_pv}; then
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
                     | pv | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             else
-                tar -cf - --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
                     | gzip -9 > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
             fi
             ;;
         *)
-            say "ERROR: Unknown USE_ARCHIVER: ${USE_ARCHIVER}"
-            return 1
+            local ARCHIVE_FILENAME="${ARCHIVE_FILENAME}.tar"
+            if ${use_pv}; then
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    | pv  > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            else
+                tar -cf - --wildcards --files-from=${FILES_INCLUDE_LIST} --exclude-from=${FILES_EXCLUDE_LIST} . \
+                    > "${TEMP_PATH}/${ARCHIVE_FILENAME}"
+            fi
             ;;
     esac
+
+    exit
 
     # Удаляем старые файлы
     command_rclone "delete" --min-age 71d "${RCLONE_PROVIDER}:${CLOUD_CONTAINER_ARCHIVE}/"
