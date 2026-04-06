@@ -3,7 +3,7 @@
 # sudo wget https://raw.githubusercontent.com/KarelWintersky/kwBackup/main/kwbackup.sh -nv -O /usr/local/bin/kwbackup.sh
 # sudo chmod +x /usr/local/bin/kwbackup.sh
 
-VERSION="0.8.11"
+VERSION="0.8.17"
 
 THIS_SCRIPT="${0}"
 THIS_SCRIPT_BASEDIR="$(dirname ${THIS_SCRIPT})"
@@ -54,34 +54,6 @@ function defineColors() {
     export ANSI_YELLOW="\e[33m"
     export ANSI_WHITE="\e[97m"
     export ANSI_RESET="\e[0m"
-}
-
-#@todo: на самом деле нужно проверять не PID, а вычислять md5-хэш командной строки и создавать файловый флаг в /dev/shm/ или /tmp/
-# со стройкой запуска и датой запуска
-# при его наличии - говорить что скрипт уже запущен (и, возможно, печатать строку запуска и таймштамп)
-# а по окончанию работы файл стирать
-# в тот же файл писать временные логи процесса - чтобы было понятно, что происходит или в чем облом процесса
-function checkUniqueProcess() {
-    if pidof -o %PPID -x $(basename "$0") >/dev/null; then
-        echo "$(date "+%d.%m.%Y %T") EXIT: The script is already running." | tee -a "${LOG_FILE:-/var/log/kwbackup.log}"
-        exit 1
-    fi
-}
-
-# Улучшенная версия отслеживания уникальности запущенного процесса
-# создается pid-файл с именем = хэшу командной строки. По окончанию работы файл удаляется.
-function checkUniqueProcessWithConfig() {
-    local CMD_LINE="$0 $@"
-    local ARGS_LINE="$@"
-    local CMD_LINE_HASH=$(echo -n ${CMD_LINE} | sha1sum -t | /bin/cut -f1 -d" ")
-    PROCESS_FLAG_FILE="/dev/shm/kwbackup_${CMD_LINE_HASH}.flag"
-
-    if [[ -f  ${PROCESS_FLAG_FILE} ]]; then
-        echo "$(date "+%d.%m.%Y %T") kwBackup already running with args '${ARGS_LINE}'"
-        exit 1
-    else
-        echo "$(date "+%d.%m.%Y %T") kwBackup started with args: '${ARGS_LINE}'" > "${PROCESS_FLAG_FILE}"
-    fi
 }
 
 # функция, выполняющаяся перед завершением скрипта. Она же ловит CTRL-C
@@ -219,6 +191,32 @@ function get_db_port() {
     esac
 }
 
+# Вычисляет реальный бинарник для DB_TYPE = mysql
+function detectDBType() {
+    local mysql_bin=$(command -v mysql 2>/dev/null)
+
+    if [[ -z "$mysql_bin" ]]; then
+        return 1
+    fi
+
+    # Проверяем символическую ссылку
+    if [[ -L "/usr/bin/mysql" ]]; then
+        local link_target=$(readlink -f "/usr/bin/mysql")
+        if [[ "$link_target" == *"mariadb"* ]]; then
+            echo "mariadb"
+            return
+        fi
+    fi
+
+    # Проверяем mariadb бинарник
+    local mariadb_bin=$(command -v mariadb 2>/dev/null)
+    if [[ -n "$mariadb_bin" && "$mysql_bin" == "$mariadb_bin" ]]; then
+        echo "mariadb"
+    else
+        echo "mysql"
+    fi
+}
+
 # Добавляет флаг блокировки
 function check_action_lock() {
     local action=$1
@@ -243,12 +241,35 @@ function cleanup_action_lock() {
 }
 
 # Реальная команда дампа БД
-function database_dump_command() {
-    mysqldump "${MYSQL_OPTIONS[@]:-}" --host "${MYSQL_HOST}" "${DB}"
+function command_database_dump() {
+    [[ "${DB_TYPE}" == "mysql" ]] && DB_TYPE=$(detectDBType)
+
+    local db_port=${DB_PORT:-$(get_db_port "${DB_TYPE}")}
+
+    case "${DB_TYPE}" in
+        mariadb)
+            mariadb-dump "${DATABASE_MYSQL_OPTIONS[@]:-}" --host="${DB_HOST}" "${db_port:+--port=${db_port}}" "${DB}"
+            ;;
+        mysql)
+            mysqldump "${DATABASE_MYSQL_OPTIONS[@]:-}" --host="${DB_HOST}" "${db_port:+--port=${db_port}}" "${DB}"
+            ;;
+        postgres|pgsql)
+            # pg_dump требует PGPASSWORD или .pgpass
+            pg_dump "${DATABASE_PGSQL_OPTIONS[@]:-}" --host="${DB_HOST}" "${db_port:+-p ${db_port}}" --dbname="${DB}" --username="${PGUSER:-postgres}"
+            ;;
+        sqlite)
+            # DB_HOST содержит путь к .db файлу
+            sqlite3 "${DB_HOST}" .dump 2>/dev/null
+            ;;
+        *)
+            say "ERROR: Unsupported DB_TYPE: ${DB_TYPE}. Supported: mysql, mariadb, postgres, pgsql, sqlite"
+            return 1
+            ;;
+    esac
 }
 
 # Собирает команду RCLONE из аргументов с учетом кастомных команд из конфига
-function rclone_command() {
+function command_rclone() {
     local cmd_type=$1; shift  # delete/copy/sync
     local custom_cmds=()
 
@@ -264,11 +285,11 @@ function rclone_command() {
 }
 
 # Реальная команда копирования данных в облако
-function database_upload_command() {
+function command_upload_database() {
     local TYPE=$1 AGE=$2
 
-    rclone_command delete "${RCLONE_OPTIONS[@]:-}" --min-age "${AGE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
-    rclone_command copy "${RCLONE_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+    command_rclone delete "${RCLONE_OPTIONS[@]:-}" --min-age "${AGE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
+    command_rclone copy "${RCLONE_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}" "${RCLONE_PROVIDER}:${PATH_INSIDE_CONTAINER}/${TYPE}"
 }
 
 # суб-функция, которая делает бэкап на самом деле. Принимает 2 параметра:
@@ -292,33 +313,33 @@ function sub_backupDatabase() {
       "rar")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.rar"
           if ${use_pipe_view}; then
-              database_dump_command | pv | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | pv | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              database_dump_command | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | rar a -si"${DB}_${NOW}.sql" "${RAR_OPTIONS[@]:-}" "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       "zstd")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.zstd"
           if ${use_pipe_view}; then
-              database_dump_command | pv | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | pv | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              database_dump_command | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | zstd "${ZSTD_OPTIONS[@]:-}" -o "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       "zip")
           FILENAME_ARCHIVE="${DB}_${NOW}.sql.gz"
           if ${use_pipe_view}; then
-              database_dump_command | pv | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | pv | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              database_dump_command | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | pigz -c > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
       *)
           FILENAME_ARCHIVE="${DB}_${NOW}.sql"
           if ${use_pipe_view}; then
-              database_dump_command | pv > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump | pv > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           else
-              database_dump_command > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
+              command_database_dump > "${TEMP_PATH}/${FILENAME_ARCHIVE}"
           fi
           ;;
     esac
@@ -327,9 +348,9 @@ function sub_backupDatabase() {
     #@todo: сделать глубину хранения копий все таки зависимой от параметров, но со значением по умолчанию
     # DB_MIN_AGE_DAILY, DB_MIN_AGE_WEEKLY, DB_MIN_AGE_MONTHLY (какая-то с этим была проблема)
 
-    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && database_upload_command "DAILY" "7d"
-    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && database_upload_command "WEEKLY" "43d"
-    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && database_upload_command "MONTHLY" "360d"
+    [[ ${DB_BACKUP_DAILY:-0} = 1 ]] && command_upload_database "DAILY" "7d"
+    [[ ${DB_BACKUP_WEEKLY:-0} = 1 ]] && [[ ${NOW_DOW} -eq 1 ]] && command_upload_database "WEEKLY" "43d"
+    [[ ${DB_BACKUP_MONTHLY:-0} = 1 ]] && [[ ${NOW_DAY} == 01 ]] && command_upload_database "MONTHLY" "360d"
 
     say "rm ${TEMP_PATH}/${FILENAME_ARCHIVE}"
     rm "${TEMP_PATH}"/"${FILENAME_ARCHIVE}"
@@ -342,20 +363,27 @@ function actionBackupDatabase() {
     fi
 
     # Берем опции ИЗ КОНФИГА (или дефолт)
-    : "${DATABASE_RAR_OPTIONS:=-m3 -mdc}"
-    : "${DATABASE_ZSTD_OPTIONS:=-5}"
+    : "${DATABASE_RAR_OPTIONS:=-m3}"
+    : "${DATABASE_ZSTD_OPTIONS:=-9}"
     : "${DATABASE_MYSQL_OPTIONS:=-Q --single-transaction --no-tablespaces --extended-insert=false}"
+    : "${DATABASE_PGSQL_OPTIONS:=--clean --if-exists --no-owner --no-privileges}"
+    : "${DATABASE_SQLITE_OPTIONS:=}"
 
     # Парсим строки в массивы
     read -ra RAR_OPTIONS <<< "${DATABASE_RAR_OPTIONS}"
     read -ra ZSTD_OPTIONS <<< "${DATABASE_ZSTD_OPTIONS}"
-    read -ra MYSQL_OPTIONS <<< "${DATABASE_MYSQL_OPTIONS}"
+    read -ra DATABASE_MYSQL_OPTIONS <<< "${DATABASE_MYSQL_OPTIONS}"
+    read -ra DATABASE_PGSQL_OPTIONS <<< "${DATABASE_PGSQL_OPTIONS}"
+    read -ra DATABASE_SQLITE_OPTIONS <<< "${DATABASE_SQLITE_OPTIONS}"
 
-    # Опции RCLONE в зависимости от режима
+    # Правим опции в зависимости от режима
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
         read -ra RCLONE_OPTIONS <<< "--copy-links --update --verbose --progress"
+        DATABASE_PGSQL_OPTIONS+=("--verbose")
     else
-        RAR_OPTIONS+=("-inul")  # добавляем к массиву
+        RAR_OPTIONS+=("-inul")
+        ZSTD_OPTIONS+=("--quiet")
+
         read -ra RCLONE_OPTIONS <<< "--copy-links --update"
     fi
 
@@ -421,7 +449,7 @@ function actionBackupArchive() {
 
     local UPLOAD_MODE=${CLI_UPLOAD_MODE:-${ARCHIVE_BACKUP_ALGO:-copy}}
 
-    local RAR_OPTIONS="${ARCHIVE_RAR_OPTIONS:--m3 -mdc -r -s}"
+    local RAR_OPTIONS="${ARCHIVE_RAR_OPTIONS:--m3 -r -s}"
     local RCLONE_OPTIONS="--copy-links --update"
 
     if [[ "${VERBOSE_MODE}" = "y" ]]; then
@@ -448,25 +476,15 @@ function main() {
 
     [[ ! -f "${CONFIG_FILE}" ]] && { displayConfigError; exit 4; }
 
-#    if [ "${VERBOSE_MODE}" = "y" ]; then
-#        echo "${__what_is_it}"
-#    fi
-
     # Импортируем конфиг проекта
     . ${CONFIG_FILE}
 
-    # Trap for CTRL-C
-#    trap before_exit_script INT
-
+    # Если в конфиге не указан RCLONE_CONFIG - используется rclone из каталога скрипта
     if { [ -z "${RCLONE_CONFIG}" ] || [ ! -f "${RCLONE_CONFIG}" ]; } && [ -f "${THIS_SCRIPT_BASEDIR}/rclone.conf" ]; then
          RCLONE_CONFIG="${THIS_SCRIPT_BASEDIR}/rclone.conf"
     fi
 
-#    checkUniqueProcessWithConfig "$@"
-
-    if [ ${ACTION_RESET_FLAGS} = "y" ]; then
-        rm -f /dev/shm/kwbackup*
-    fi
+    [[ ${ACTION_RESET_FLAGS} = "y" ]] && { rm -f /dev/shm/kwbackup* ; }
 
     local ACTUAL_ACTIONS=0
 
@@ -475,26 +493,6 @@ function main() {
     [[ ${ACTION_BACKUP_ARCHIVE} = "y" ]] && { actionBackupArchive; ((ACTUAL_ACTIONS++)); }
 
     [[ ${ACTUAL_ACTIONS} -eq 0 ]] && show_available_actions
-
-#    local NO_ACTION=1
-#    if [ ${ACTION_BACKUP_DATABASE} = "y" ]; then
-#       actionBackupDatabase
-#        NO_ACTION=0
-#    fi
-#    if [ ${ACTION_BACKUP_STORAGE} = "y" ]; then
-#        actionBackupStorage
-#        NO_ACTION=0
-#    fi
-#    if [ ${ACTION_BACKUP_ARCHIVE} = "y" ]; then
-#        actionBackupArchive
-#        NO_ACTION=0
-#    fi
-#    if [ ${NO_ACTION=0;} = 1 ]; then
-#      echo -e "No one backup action(s) requested. Allowed: "
-#      { declare -p ENABLE_BACKUP_DATABASE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_DATABASE:-0} = 1 ]]; } && echo -e "... database (use ${ANSI_YELLOW}--database${ANSI_RESET} option)"
-#      { declare -p ENABLE_BACKUP_STORAGE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_STORAGE:-0} = 1 ]]; } && echo -e "... storage  (use ${ANSI_YELLOW}--storage${ANSI_RESET}  option)"
-#      { declare -p ENABLE_BACKUP_ARCHIVE >/dev/null 2>&1 && [[ ${ENABLE_BACKUP_ARCHIVE:-0} = 1 ]]; } && echo -e "... archive (use ${ANSI_YELLOW}--archive${ANSI_RESET}  option)"
-#    fi
 }
 
 function show_available_actions() {
