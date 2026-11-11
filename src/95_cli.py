@@ -5,7 +5,8 @@
 def build_parser():
     p = argparse.ArgumentParser(
         prog=PROG, description="Backup tool: database dumps, file storage, archives.",
-        epilog="Exit codes: 0 ok, 1 error, 2 config error, 3 usage, 4 locked, 5 verify failed.",
+        epilog="Exit codes: 0 ok, 1 error, 2 config error, 3 usage, 4 locked, 5 verify failed.\n"
+               "Subcommands: migrate OLD.conf [-o OUT.yaml]  (convert the legacy bash config)",
     )
     p.add_argument("-c", "--config", metavar="FILE", help="config file (YAML)")
     p.add_argument("-d", "--database", action="store_true", help="backup databases")
@@ -35,6 +36,9 @@ def build_parser():
 
 def main(argv=None):
     global DRY
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "migrate":
+        return migrate_main(argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
 

@@ -27,7 +27,9 @@ kwbackup -c project.yaml --dry-run -d  # показать план, ничего
 kwbackup -c project.yaml --check-config
 kwbackup -c project.yaml --list        # что реально лежит в облаке
 kwbackup -c project.yaml --verify      # скачать и проверить последнюю копию
-kwbackup -c project.yaml --restore --to /tmp/restore [--at 2026-11-09]
+kwbackup -c project.yaml --restore -d --to /tmp/restore [--at 2026-11-09]
+kwbackup -c project.yaml --restore -d --into-db mydb --yes   # залить в живую БД
+kwbackup migrate old.conf -o project.yaml                    # из старого bash-конфига
 ```
 
 Коды возврата: `0` ok, `1` ошибка выполнения, `2` ошибка конфига, `3` ошибка
@@ -49,6 +51,29 @@ kwbackup -c project.yaml --restore --to /tmp/restore [--at 2026-11-09]
   MONTHLY дополнительно 1-го числа. `catch_up: true` создаёт пропущенную
   weekly/monthly копию при следующем запуске.
 * **Секреты** — только через `${ENV_VAR}` или `rclone.env`; в конфиг не пишутся.
+
+## Миграция со старого конфига
+
+```bash
+kwbackup migrate /etc/kwbackup/_config.conf -o /etc/kwbackup/project.yaml -p myproject
+kwbackup -c /etc/kwbackup/project.yaml --check-config
+```
+
+Конвертер читает старый конфиг через bash (он исполняемый, иначе значения не
+получить) и переносит известные переменные в YAML:
+
+* `DB_MIN_AGE_*` / `ARCHIVE_ROTATION_PERIOD` → `keep: N` (приоритет — число
+  копий); в комментарии остаётся исходное значение, чтобы было видно, откуда
+  взялось число;
+* `USE_ARCHIVER` / `ARCHIVE_USE_COMPRESSOR` → `compressor` (`zip` → `gzip`);
+* `STORAGE_SOURCES_ROOT` + `STORAGE_SOURCES` → `storage.sources` с полными путями;
+* `RCLONE_CUSTOM_OPTIONS` с ключами доступа переносятся с предупреждением —
+  их лучше вынести в `rclone.env`;
+* `ARCHIVE_RAR_INCLUDE_LIST` / `EXCLUDE_LIST` не переносятся: новые
+  `include`/`exclude` работают с любым компрессором.
+
+Если в старом конфиге чего-то не было (`DATABASES=`, `ARCHIVE_ROOT=`), это
+останется пустым и `--check-config` прямо скажет, что нужно заполнить.
 
 ## Разработка
 

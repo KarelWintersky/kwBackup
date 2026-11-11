@@ -512,11 +512,89 @@ database:
         env.cleanup()
 
 
+OLD_CONFIG = r"""#!/usr/bin/env bash
+export NOW=`date '+%F-%H-%M-%S'`
+export TEMP_PATH=/tmp
+export LOG_FILE=/var/log/kwbackup.log
+export USE_ARCHIVER=zstd
+export RCLONE_CONFIG=/etc/kwbackup/rclone.conf
+export RCLONE_PROVIDER=beget
+export RCLONE_CUSTOM_OPTIONS=("--s3-access-key-id=XXX" "--s3-no-check-bucket")
+export ENABLE_BACKUP_DATABASE=1
+export DB_TYPE=mysql
+export DB_HOST=localhost
+export DATABASES=(db1 db2)
+export DATABASE_MYSQL_OPTIONS="-Q --single-transaction"
+export DATABASE_ZSTD_OPTIONS="-9"
+export DB_BACKUP_DAILY=1
+export DB_BACKUP_WEEKLY=1
+export DB_BACKUP_MONTHLY=0
+export DB_MIN_AGE_DAILY=7d
+export DB_MIN_AGE_WEEKLY=43d
+export DB_MIN_AGE_MONTHLY=360d
+export DATABASE_CLOUD_CONTAINER="/DB"
+export ENABLE_BACKUP_STORAGE=1
+export STORAGE_SOURCES_ROOT=/srv
+export STORAGE_SOURCES=(files.aait files.etks)
+export STORAGE_CLOUD_CONTAINER="/STORAGE"
+export STORAGE_BACKUP_ALGO="sync"
+export ENABLE_BACKUP_ARCHIVE=1
+export ARCHIVE_USE_COMPRESSOR="rar"
+export ARCHIVE_RAR_OPTIONS="-r -s -m5"
+export ARCHIVE_FILENAME=site_${NOW}
+export ARCHIVE_ROOT=/srv/site
+export ARCHIVE_INCLUDE_LIST=("*")
+export ARCHIVE_EXCLUDE_LIST=("*.mp4")
+export ARCHIVE_CLOUD_CONTAINER="/ARCHIVE"
+export ARCHIVE_ROTATION_PERIOD="71d"
+"""
+
+
+def test_migrate_old_config():
+    env = Env()
+    try:
+        old = env.dir / "old.conf"
+        old.write_text(OLD_CONFIG, encoding="utf-8")
+        out = env.dir / "new.yaml"
+        env.run("migrate", old, "-o", out, "-p", "legacy")
+        text = out.read_text()
+        for expected in ("project: legacy", "- db1", "- db2", "keep: 6", "monthly: false",
+                         "/srv/files.aait", "name: site", "retention: {keep: 71}",
+                         "compressor: zstd"):
+            assert expected in text, f"missing {expected!r} in:\n{text}"
+        env.run("-c", out, "--check-config")
+        env.run("migrate", old, "-o", out, expect=3)      # no --force
+        env.run("migrate", old, "-o", out, "-f")
+    finally:
+        env.cleanup()
+
+
+def test_migrate_uses_keep_by_default():
+    env = Env()
+    try:
+        old = env.dir / "c.conf"
+        old.write_text('export ENABLE_BACKUP_DATABASE=1\n'
+                       'export DB_TYPE=postgres\n'
+                       'export DATABASES=(pg1)\n'
+                       'export DB_BACKUP_DAILY=1\n'
+                       'export DB_MIN_AGE_DAILY=14d\n'
+                       'export DATABASE_CLOUD_CONTAINER="/PG"\n',
+                       encoding="utf-8")
+        out = env.dir / "o.yaml"
+        env.run("migrate", old, "-o", out)
+        text = out.read_text()
+        assert "keep: 14" in text, text
+        assert "type: postgres" in text, text
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
          test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
-         test_restore_archive_and_storage, test_restore_at_filter]
+         test_restore_archive_and_storage, test_restore_at_filter,
+         test_migrate_old_config, test_migrate_uses_keep_by_default]
 
 
 def main():

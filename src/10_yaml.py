@@ -78,6 +78,25 @@ def _split_flow(text, lineno):
     return [p.strip() for p in parts]
 
 
+ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/"}
+
+
+def _unescape(body, lineno, text):
+    out, i = [], 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body):
+            nxt = body[i + 1]
+            if nxt not in ESCAPES:
+                raise YamlError(f"unsupported escape \\{nxt}", lineno, text)
+            out.append(ESCAPES[nxt])
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _scalar(text, lineno):
     text = text.strip()
     if text == "":
@@ -91,10 +110,7 @@ def _scalar(text, lineno):
             raise YamlError("bad double-quoted scalar", lineno, text)
         body = text[1:-1]
         if "\\" in body:
-            try:
-                body = body.encode("utf-8").decode("unicode_escape")
-            except UnicodeDecodeError:
-                raise YamlError("bad escape sequence", lineno, text)
+            body = _unescape(body, lineno, text)
         return body
     if text[0] == "'":
         if len(text) < 2 or not text.endswith("'"):
