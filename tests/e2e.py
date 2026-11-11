@@ -589,12 +589,26 @@ def test_migrate_uses_keep_by_default():
         env.cleanup()
 
 
+def test_documented_examples_validate():
+    """Every examples/*.yaml must pass --check-config."""
+    env = Env()
+    try:
+        secret_env = {"RCLONE_KEY_ID": "k", "RCLONE_SECRET": "s", "MYSQL_PWD": "p"}
+        files = sorted((ROOT / "examples").glob("*.yaml"))
+        assert files, "no example configs found"
+        for path in files:
+            env.run("-c", path, "--check-config", extra_env=secret_env)
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
          test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
          test_restore_archive_and_storage, test_restore_at_filter,
-         test_migrate_old_config, test_migrate_uses_keep_by_default]
+         test_migrate_old_config, test_migrate_uses_keep_by_default,
+         test_documented_examples_validate]
 
 
 def main():

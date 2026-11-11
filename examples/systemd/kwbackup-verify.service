@@ -1,0 +1,20 @@
+# /etc/systemd/system/kwbackup-verify.service
+# Скачивает последнюю копию и проверяет, что она читается.
+# Код 5 (проверка не прошла) = failed unit.
+[Unit]
+Description=kwbackup: verify the latest backup copy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/kwbackup/secrets.env
+ExecStart=/usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --verify
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths=/var/log/kwbackup /tmp/kwbackup /run/kwbackup
+TimeoutStartSec=3h

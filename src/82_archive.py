@@ -46,6 +46,10 @@ def action_archive(cfg, args):
     if not ar.root or not Path(ar.root).is_dir():
         raise ActionFailed(f"archive: root is not a directory: {ar.root!r}")
 
+    if args.mode:
+        LOG.warning("archive: -m/--mode has no effect, archives are always "
+                    "uploaded and pruned by retention")
+
     rclone = Rclone(cfg.rclone)
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now()

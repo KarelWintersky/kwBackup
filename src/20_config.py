@@ -17,8 +17,7 @@ SECTIONS = {
                  "databases", "retention", "retention_mode", "catch_up"},
     "storage": {"enabled", "mode", "target", "sources"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
-                "include", "exclude", "target", "retention", "retention_mode",
-                "mode"},
+                "include", "exclude", "target", "retention", "retention_mode"},
 }
 
 COMPRESSORS = ("zstd", "gzip", "pigz", "rar", "none")

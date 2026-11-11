@@ -1,0 +1,22 @@
+# Только синхронизация файлового storage в облако.
+version: 1
+project: uploads
+
+log:
+  file: /var/log/kwbackup/uploads.log
+
+rclone:
+  config: /etc/kwbackup/rclone.conf
+  remote: beget
+  env:
+    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
+    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+
+storage:
+  enabled: true
+  mode: sync              # sync = зеркало; copy = только доливать
+  target: "beget:/uploads"
+  sources:
+    - /srv/app/uploads
+    - path: /srv/app/static
+      dest: static

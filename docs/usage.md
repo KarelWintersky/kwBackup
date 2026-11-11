@@ -1,0 +1,240 @@
+# Использование
+
+## Установка и первая проверка
+
+```bash
+python3 build.py --test
+sudo install -m 755 dist/kwbackup /usr/local/bin/kwbackup
+kwbackup --version
+kwbackup --selftest
+```
+
+Дальше нужен remote в rclone (`rclone config`) и файл секретов:
+
+```bash
+sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
+sudo install -m 600 examples/secrets.env.example /etc/kwbackup/secrets.env
+sudoedit /etc/kwbackup/secrets.env      # ключи S3 и пароли БД
+sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
+```
+
+Конфиг держите с правами `0600`: в нём нет секретов, но есть имена хостов,
+баз и структура каталогов.
+
+## Порядок первого запуска
+
+```bash
+sudo -s
+set -a; . /etc/kwbackup/secrets.env; set +a
+kwbackup -c /etc/kwbackup/shop.yaml --check-config
+kwbackup -c /etc/kwbackup/shop.yaml --dry-run
+kwbackup -c /etc/kwbackup/shop.yaml
+kwbackup -c /etc/kwbackup/shop.yaml --list
+kwbackup -c /etc/kwbackup/shop.yaml --verify
+```
+
+Секреты должны быть в окружении процесса: их загружает `EnvironmentFile=`
+в systemd, `. /etc/kwbackup/secrets.env` в cron, либо строка выше в
+интерактивной сессии. `sudo` по умолчанию окружение не передаёт — если
+идёте через `sudo -E`, переменные должны быть экспортированы заранее.
+
+`--check-config` печатает разобранный конфиг и **preflight**: найден ли
+`rclone`, `mysqldump`/`pg_dump`, `tar`, компрессор; существует ли
+`rclone.config`; доступны ли источники storage, `root` архива, `temp_dir`;
+задана ли переменная с паролем. Предупреждения не меняют код возврата,
+но при реальном запуске preflight уже блокирует работу.
+
+`--dry-run` проходит те же проверки и печатает полный план: команды дампа,
+сжатия и `rclone copyto`. Ничего не скачивается и не заливается.
+
+## Сценарии
+
+### Ежедневный бэкап всего
+
+```bash
+kwbackup -c /etc/kwbackup/shop.yaml      # все enabled: из конфига
+```
+
+Если в конфиге ничего не включено, команда скажет об этом и выйдет с кодом 0.
+
+### Явный набор действий
+
+```bash
+kwbackup -c shop.yaml -d            # БД
+kwbackup -c shop.yaml -d -s -a      # БД + storage + архив за один прогон
+kwbackup -c shop.yaml -s -m copy    # storage в режиме copy
+kwbackup -c shop.yaml -d -f         # даже если enabled: false
+```
+
+`-f/--force` игнорирует `enabled: false`, но не отменяет preflight.
+
+### Один проект — несколько конфигов
+
+Каждый конфиг — отдельный `project`. Блокировки и логи не пересекаются,
+разные задачи могут идти параллельно:
+
+```bash
+kwbackup -c /etc/kwbackup/shop.yaml -d &
+kwbackup -c /etc/kwbackup/blog.yaml -d &
+```
+
+Один и тот же проект параллельно не запустится: второй процесс получит
+код 4 (`already running (pid=..., since=..., config=...)`).
+
+## Расписание
+
+### systemd
+
+```bash
+sudo cp examples/systemd/kwbackup.service examples/systemd/kwbackup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now kwbackup.timer
+
+sudo cp examples/systemd/kwbackup-verify.* /etc/systemd/system/
+sudo systemctl enable --now kwbackup-verify.timer
+```
+
+`OnCalendar=*-*-* 03:30` + `Persistent=true` — пропущенный из-за выключенного
+хоста запуск выполнится при загрузке. `RandomizedDelaySec` разводит проекты
+по времени.
+
+Ненулевой код возврата делает unit `failed`: `systemctl --failed` и
+`journalctl -u kwbackup` показывают причину. Уведомления — через
+`OnFailure=` на свой сервис.
+
+### cron
+
+```bash
+sudo install -m 644 examples/cron/kwbackup /etc/cron.d/kwbackup
+```
+
+Секреты в cron не наследуются: в примере они подхватываются через
+`. /etc/kwbackup/secrets.env`. Файлы в `/etc/cron.d` должны быть `0644`,
+принадлежать root и не иметь точки в имени.
+
+## Мониторинг
+
+### `--list` — что реально лежит в облаке
+
+```bash
+kwbackup -c shop.yaml --list
+```
+
+```
+DATABASE shop  ->  beget:/shop/DB
+  DAILY     8 files  2026-11-04 .. 2026-11-11  last 3.1 GiB  (keep 8)
+          ⚠ gap: 2026-10-28
+  WEEKLY    6 files  2026-09-29 .. 2026-11-10  last 3.1 GiB  (keep 6)
+  MONTHLY  12 files  2025-12-01 .. 2026-11-01  last 2.9 GiB  (keep 12)
+
+STORAGE  ->  beget:/STORAGE  (sync)
+  /srv/app/uploads
+      1204 files, 8.4 GiB, newest 2026-11-11 03:31  ->  beget:/STORAGE/uploads
+```
+
+Код возврата 5, если: DAILY пуст, последняя DAILY-копия старше суток,
+источник storage пуст в облаке, архив пуст. Это готовый watchdog.
+
+### `--verify` — копия действительно читается
+
+```bash
+kwbackup -c shop.yaml --verify          # по последней копии каждого класса
+kwbackup -c shop.yaml --verify --all    # по всем копиям (долго и дорого)
+```
+
+Что проверяется: файл скачивается, размер совпадает с размером в облаке,
+`zstd -t` / `gzip -t` / `rar t` проходит, а распакованное содержимое похоже
+на дамп (заголовок `MySQL dump`, `PostgreSQL database dump`, …) или на
+читаемый tar. Любая проблема — код 5 и строка `✗`.
+
+Скачанные файлы удаляются сразу; для больших БД нужен запас в `temp_dir`.
+
+## Восстановление
+
+Всегда сначала в каталог, в живую БД — отдельным явным шагом.
+
+### База данных
+
+```bash
+# самая свежая копия (ищется по всем классам: MONTHLY/DAILY/WEEKLY)
+kwbackup -c shop.yaml --restore -d --to /srv/restore
+
+# конкретная дата (подстрока имени файла)
+kwbackup -c shop.yaml --restore -d --at 2026-11-09 --to /srv/restore
+```
+
+В каталоге появится `shop_2026-11-09-03-30-00.sql` — уже распакованный.
+
+Заливка в живую БД — только с подтверждением:
+
+```bash
+kwbackup -c shop.yaml --restore -d --at 2026-11-09 --into-db shop_test --yes
+```
+
+Без `--yes` команда откажется (код 1). Для mysql используется `mysql`,
+для postgres — `psql -v ON_ERROR_STOP=1`, для sqlite — `sqlite3`.
+Заливка **не пересоздаёт** базу: существующие таблицы будут перезаписаны
+тем, что есть в дампе. Для чистого восстановления создайте пустую БД
+и передайте её имя в `--into-db`.
+
+### Архив
+
+```bash
+kwbackup -c site.yaml --restore -a --to /srv/restore --at 2026-11-10
+```
+
+tar-поток распаковывается в каталог; `.rar` — через `rar x`.
+Права и владельцы файлов восстанавливаются такими, какие были в архиве.
+
+### Storage
+
+```bash
+kwbackup -c uploads.yaml --restore -s --to /srv/restore
+```
+
+Используется `rclone copy` (никогда не `sync`): в локальном каталоге ничего
+не удаляется.
+
+## Логи и блокировки
+
+```
+/var/log/kwbackup/<project>.log          # если задан log.file
+/run/kwbackup/<project>.db.<db>.lock
+/run/kwbackup/<project>.storage.lock
+/run/kwbackup/<project>.archive.lock
+```
+
+Если `/run/kwbackup` недоступен для записи — `/tmp/kwbackup-<uid>/`.
+Блокировка — `flock`: снимается ядром при завершении процесса, в том числе
+после `kill -9`. «Протухших» флагов не бывает, `--reset` не нужен.
+
+## Разбор ошибок
+
+| Симптом | Причина | Что делать |
+|---|---|---|
+| код 2, `unknown key` | опечатка в конфиге | сверить с `docs/configuration.md` |
+| код 2, `environment variable X is not set` | не загружен secrets.env | `EnvironmentFile=` / `. secrets.env` |
+| код 2, `at least one class must be configured` | пустой `retention` | включить класс |
+| код 4, `already running` | параллельный запуск того же проекта | дождаться; проверить `ps` и lock-файл |
+| код 1, `binary not found in PATH` | нет `rclone`/`zstd`/`tar`/дампа | установить пакет |
+| код 1, `rclone config not found` | неверный `rclone.config` | указать существующий файл |
+| код 1, `archive: no files matched the include list` | `include` не совпал ни с чем | проверить маски относительно `root` |
+| код 1, `dump produced an empty file` | дамп упал молча | запустить команду дампа вручную, смотреть stderr |
+| код 5, `empty` | копий нет | проверить расписание и первый запуск |
+| код 5, `newest DAILY copy is N days old` | бэкап не выполняется | смотреть лог и `systemctl --failed` |
+| код 5, `✗ ... unsupported format` | файл в облаке повреждён | удалить и перезапустить бэкап |
+| в логе `rclone` пусто, но копий нет | каталога ещё нет в облаке | нормально при первом запуске |
+
+## Безопасность
+
+* Скрипт работает от root (нужен доступ к сокету БД и `/etc/kwbackup`).
+  systemd-юнит в примерах включает `NoNewPrivileges`, `ProtectSystem=full`,
+  `ProtectHome=read-only`.
+* Секреты — только в `secrets.env` (0600). В YAML — имена переменных.
+* `--into-db` — единственная разрушительная операция, требует `--yes`.
+* **Копии не шифруются на клиенте**: в облако уходит обычный `.sql.zst`
+  или `.tar.zst`. Шифрование на диске — ответственность провайдера
+  (SSE) либо отдельного шага (`zstd | gpg`); в текущей версии не встроено.
+  Если это требование — держите бакет приватным и включите серверное
+  шифрование у провайдера.
+* `--verify` и `--list` только читают и скачивают, ничего не меняют.

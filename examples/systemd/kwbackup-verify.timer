@@ -1,0 +1,11 @@
+# /etc/systemd/system/kwbackup-verify.timer
+[Unit]
+Description=Weekly kwbackup verification
+
+[Timer]
+OnCalendar=Sun 05:00
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

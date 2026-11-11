@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .venv/
 .scratch/
+AGENTS.md
+secrets.env

@@ -1,0 +1,29 @@
+# /etc/systemd/system/kwbackup.service
+# Ежедневный прогон: все действия, включённые в конфиге.
+[Unit]
+Description=kwbackup: backup to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Секреты (ключи S3, пароли БД) — отдельным файлом с правами 0600.
+EnvironmentFile=/etc/kwbackup/secrets.env
+ExecStart=/usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml
+
+# Бэкап не должен душить прод
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=6h
+
+# Минимальная изоляция.
+# /etc/kwbackup читается, поэтому ProtectSystem=full, а не strict.
+NoNewPrivileges=yes
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths=/var/log/kwbackup /tmp/kwbackup /run/kwbackup
+
+# Любой ненулевой код возврата = failed unit: видно в systemctl --failed.
+# Можно добавить уведомление:
+# OnFailure=notify-admin@%n.service
