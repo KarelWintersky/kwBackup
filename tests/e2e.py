@@ -644,12 +644,27 @@ database:
         assert "kwbackup_defaults.yaml" in out.stdout, out.stdout
         assert "keep 1" in out.stdout, out.stdout
         assert "chmod 600" in out.stdout, out.stdout        # 0644 + credentials
+        assert "kwbackup_defaults.yaml contains credentials" not in out.stdout, out.stdout
 
         env.run("-c", task, "-d")
         log = (env.dir / "rclone.log").read_text()
         assert "--s3-no-check-bucket" in log, log           # from defaults
         assert "--s3-access-key-id=KEY1" in log, log        # from the task, appended
         assert "--s3-secret-access-key=SECRET1" in log, log
+
+        # keys in the defaults file are flagged as that file's problem
+        defaults.write_text(defaults.read_text(encoding="utf-8").replace(
+            '  args: ["--s3-no-check-bucket"]',
+            '  args: ["--s3-no-check-bucket", "--s3-secret-access-key=SECRET2"]'),
+            encoding="utf-8")
+        out = env.run("-c", task, "--check-config")
+        assert "defaults" in out.stdout and "contains credentials" in out.stdout, out.stdout
+
+        # 0600 on both files: no security warnings at all
+        defaults.chmod(0o600)
+        task.chmod(0o600)
+        out = env.run("-c", task, "--check-config")
+        assert "security:" not in out.stdout, out.stdout
 
         env.run("-c", task, "--check-config", "--defaults",
                 env.dir / "missing.yaml", expect=2)

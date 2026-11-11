@@ -128,6 +128,7 @@ class Config:
     path: Path
     project: str
     defaults_path: Path | None = None
+    secret_files: list = field(default_factory=list)   # [(label, path)]
     log_level: str = "info"
     log_file: str | None = None
     temp_dir: Path = Path("/tmp/kwbackup")
@@ -187,19 +188,23 @@ def _read_yaml(path):
     return data
 
 
+def _has_credentials(data):
+    """Does THIS file (before merging) carry S3 keys in rclone.args?"""
+    rclone = data.get("rclone") or {}
+    args = rclone.get("args") if isinstance(rclone, dict) else None
+    if not isinstance(args, list):
+        return False
+    return any("secret" in str(arg).lower() or "access-key" in str(arg).lower()
+               for arg in args)
+
+
 def secret_warnings(cfg):
     """S3 per-bucket credentials are passed as rclone flags (Beget style):
-    the file then must not be readable by group/other."""
-    has_secret = any("secret" in arg.lower() or "access-key" in arg.lower()
-                     for arg in cfg.rclone.args)
-    if not has_secret:
-        return []
+    the file that carries them must not be readable by group/other."""
     warnings = []
-    for label, path in (("config", cfg.path), ("defaults", cfg.defaults_path)):
-        if not path:
-            continue
+    for label, path in cfg.secret_files:
         try:
-            mode = path.stat().st_mode & 0o777
+            mode = Path(path).stat().st_mode & 0o777
         except OSError:
             continue
         if mode & 0o077:
@@ -332,11 +337,15 @@ def load_config(path, env=None, defaults=None):
 
     task = _read_yaml(path)
     chosen = find_defaults(path, defaults)
+    secret_files = [("config", path)] if _has_credentials(task) else []
     data = task
     if chosen is not None:
         if not chosen.is_file():
             raise ConfigError(f"{chosen}: defaults file not found")
-        data = deep_merge(_read_yaml(chosen), task)
+        defaults_data = _read_yaml(chosen)
+        if _has_credentials(defaults_data):
+            secret_files.append(("defaults", chosen))
+        data = deep_merge(defaults_data, task)
     else:
         chosen = None
 
@@ -348,7 +357,7 @@ def load_config(path, env=None, defaults=None):
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
                                             errors, required=True) or path.stem,
-                 defaults_path=chosen)
+                 defaults_path=chosen, secret_files=secret_files)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):
