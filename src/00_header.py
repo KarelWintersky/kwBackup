@@ -17,7 +17,7 @@ Exit codes: 0 ok, 1 runtime error, 2 config error, 3 usage error,
             4 already running (lock), 5 verification failed.
 """
 
-VERSION = "1.0.0-dev"
+VERSION = "1.0.0"
 PROG = "kwbackup"
 
 import argparse

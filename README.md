@@ -182,6 +182,7 @@ Storage: `<target>/<dest>/...`, где `dest` — `basename` источника 
   по умолчанию.
 * [docs/migration.md](docs/migration.md) — из `kwbackup.sh` в YAML.
 * [examples/](examples) — конфиги под каждый сценарий, systemd-юниты, cron.
+* [CHANGELOG.md](CHANGELOG.md) — что изменилось между версиями.
 
 ## Разработка
 
