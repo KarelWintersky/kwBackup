@@ -20,9 +20,12 @@ def build_parser():
     p.add_argument("--list", action="store_true", help="show what is stored in the cloud")
     p.add_argument("--verify", action="store_true", help="download and check the newest copy")
     p.add_argument("--all", action="store_true", help="with --verify: check every stored copy")
-    p.add_argument("--restore", action="store_true", help="download a copy (not implemented yet)")
+    p.add_argument("--restore", action="store_true", help="download a copy from the cloud")
     p.add_argument("--to", metavar="DIR", help="restore target directory")
-    p.add_argument("--at", metavar="TS", help="restore a specific copy, e.g. 2026-11-09-03-00-00")
+    p.add_argument("--at", metavar="TS", help="pick a copy by date prefix, e.g. 2026-11-09")
+    p.add_argument("--into-db", metavar="NAME", help="with --restore: load the dump into "
+                                                    "a live database (needs --yes)")
+    p.add_argument("--yes", action="store_true", help="confirm destructive operations")
     p.add_argument("--verbose", action="store_true", help="more messages")
     p.add_argument("--debug", action="store_true", help="debug messages, print every command")
     p.add_argument("--selftest", action="store_true", help="run internal tests and exit")
@@ -63,7 +66,16 @@ def main(argv=None):
     if args.verify:
         return action_verify(cfg, args)
     if args.restore:
-        return action_restore(cfg, args)
+        try:
+            stats = action_restore(cfg, args)
+        except Locked as exc:
+            LOG.error("%s", exc)
+            return EXIT_LOCKED
+        except (ActionFailed, CommandError, OSError) as exc:
+            LOG.error("%s", exc)
+            return EXIT_ERROR
+        LOG.info("restore: %d file(s), %s", stats["files"], fmt_bytes(stats["bytes"]))
+        return EXIT_OK
 
     actions = requested_actions(cfg, args)
     if not actions:

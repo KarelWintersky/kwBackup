@@ -70,6 +70,10 @@ else:
     print(f"fake rclone: unsupported command {cmd}", file=sys.stderr); sys.exit(2)
 '''
 
+LOADER = r'''#!/bin/sh
+cat > "$FAKE_MYSQL_OUT"
+'''
+
 DUMPER = r'''#!/bin/sh
 echo "-- MySQL dump stub"
 echo "-- args: $*"
@@ -91,6 +95,7 @@ class Env:
         self._tool("mysqldump", DUMPER)
         self._tool("mariadb-dump", DUMPER)
         self._tool("pg_dump", DUMPER)
+        self._tool("mysql", LOADER)
         self.config = self.dir / "config.yaml"
 
     def _tool(self, name, body):
@@ -115,10 +120,13 @@ rclone:
         body += extra.get("extra", "")
         return self.write_config(body)
 
-    def run(self, *args, expect=0):
+    def run(self, *args, expect=0, extra_env=None):
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         env["FAKE_CLOUD"] = str(self.cloud)
+        env["FAKE_MYSQL_OUT"] = str(self.dir / "mysql.out")
+        if extra_env:
+            env.update(extra_env)
         cmd = [str(DIST), *map(str, args)]
         if VERBOSE:
             print("   $", " ".join(cmd))
@@ -387,9 +395,128 @@ database:
         env.cleanup()
 
 
+def test_restore_database():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  compressor_args: ["-1"]
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 3}
+""")
+        env.run("-c", env.config, "-d")
+        out = env.dir / "restore"
+        env.run("-c", env.config, "--restore", "-d", "--to", out)
+        files = list(out.glob("*.sql"))
+        assert len(files) == 1, files
+        assert b"MySQL dump" in files[0].read_bytes()
+        assert not list(env.tmp.iterdir()), "temp dir must be empty"
+    finally:
+        env.cleanup()
+
+
+def test_restore_into_db():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 3}
+""")
+        env.run("-c", env.config, "-d")
+        env.run("-c", env.config, "--restore", "-d", "--into-db", "db1", "--yes")
+        captured = (env.dir / "mysql.out").read_bytes()
+        assert b"MySQL dump" in captured, captured
+    finally:
+        env.cleanup()
+
+
+def test_restore_requires_confirmation():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  type: mysql
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 3}
+""")
+        env.run("-c", env.config, "-d")
+        env.run("-c", env.config, "--restore", "-d", "--into-db", "db1", expect=1)
+    finally:
+        env.cleanup()
+
+
+def test_restore_archive_and_storage():
+    env = Env()
+    try:
+        root = env.dir / "site"
+        (root / "sub").mkdir(parents=True)
+        (root / "index.html").write_text("html")
+        (root / "sub" / "a.js").write_text("js")
+        storage_src = env.dir / "files"
+        storage_src.mkdir()
+        (storage_src / "one.txt").write_text("1")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  target: "fake:/STORAGE"
+  sources: [{storage_src}]
+archive:
+  enabled: true
+  compressor: zstd
+  name: site
+  root: {root}
+  target: "fake:/ARCHIVE"
+  retention: {{keep: 2}}
+""")
+        env.run("-c", env.config, "-a", "-s")
+        out = env.dir / "restored"
+        env.run("-c", env.config, "--restore", "-a", "-s", "--to", out)
+        assert (out / "index.html").read_text() == "html"
+        assert (out / "sub" / "a.js").read_text() == "js"
+        assert (out / "files" / "one.txt").read_text() == "1", list(out.rglob("*"))
+    finally:
+        env.cleanup()
+
+
+def test_restore_at_filter():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 3}
+""")
+        env.run("-c", env.config, "-d")
+        env.run("-c", env.config, "--restore", "-d", "--to", env.dir / "r",
+                "--at", "1999-01-01", expect=1)
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
-         test_list_and_verify, test_verify_detects_corruption]
+         test_list_and_verify, test_verify_detects_corruption,
+         test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
+         test_restore_archive_and_storage, test_restore_at_filter]
 
 
 def main():
