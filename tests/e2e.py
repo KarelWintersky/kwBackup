@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""End-to-end tests for dist/kwbackup.
+
+The binary is run as a real process; rclone is replaced by a local stub that
+keeps the "cloud" in a temporary directory, the database dumpers are stubs
+that print SQL. Real tar/zstd/gzip are used.
+
+    python3 tests/e2e.py [-v]
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import traceback
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DIST = ROOT / "dist" / "kwbackup"
+
+FAKE_RCLONE = r'''#!/usr/bin/env python3
+import os, shutil, sys
+from pathlib import Path
+CLOUD = Path(os.environ["FAKE_CLOUD"])
+argv = sys.argv[1:]
+while "--config" in argv:
+    i = argv.index("--config"); del argv[i:i + 2]
+DROP = {"--s3-no-check-bucket", "--copy-links", "--update", "--verbose", "--progress"}
+argv = [a for a in argv if a not in DROP]
+cmd, rest = argv[0], argv[1:]
+
+def resolve(p):
+    p = str(p)
+    if ":" in p:
+        return CLOUD / p.split(":", 1)[1].lstrip("/")
+    return Path(p).resolve()
+
+def tree(d):
+    return sorted(f for f in d.rglob("*") if f.is_file())
+
+if cmd == "lsf":
+    d = resolve(rest[-1])
+    if not d.is_dir():
+        print("directory not found", file=sys.stderr); sys.exit(3)
+    for f in tree(d):
+        print(f"{f.relative_to(d)};{f.stat().st_size}")
+elif cmd == "copyto":
+    src, dst = resolve(rest[0]), resolve(rest[-1])
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+elif cmd in ("copy", "sync"):
+    src, dst = resolve(rest[0]), resolve(rest[-1])
+    dst.mkdir(parents=True, exist_ok=True)
+    for f in tree(src):
+        target = dst / f.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, target)
+    if cmd == "sync":
+        for f in tree(dst):
+            if not (src / f.relative_to(dst)).exists():
+                f.unlink()
+elif cmd == "deletefile":
+    f = resolve(rest[-1])
+    f.unlink(missing_ok=True)
+elif cmd == "cat":
+    sys.stdout.buffer.write(resolve(rest[-1]).read_bytes())
+else:
+    print(f"fake rclone: unsupported command {cmd}", file=sys.stderr); sys.exit(2)
+'''
+
+DUMPER = r'''#!/bin/sh
+echo "-- MySQL dump stub"
+echo "-- args: $*"
+echo "CREATE TABLE t (id INT);"
+'''
+
+VERBOSE = "-v" in sys.argv
+
+
+class Env:
+    def __init__(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="kwbackup-e2e-"))
+        self.bin = self.dir / "bin"
+        self.cloud = self.dir / "cloud"
+        self.tmp = self.dir / "tmp"
+        for d in (self.bin, self.cloud, self.tmp):
+            d.mkdir(parents=True)
+        self._tool("rclone", FAKE_RCLONE)
+        self._tool("mysqldump", DUMPER)
+        self._tool("mariadb-dump", DUMPER)
+        self._tool("pg_dump", DUMPER)
+        self.config = self.dir / "config.yaml"
+
+    def _tool(self, name, body):
+        path = self.bin / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+
+    def write_config(self, text):
+        self.config.write_text(text, encoding="utf-8")
+        return self.config
+
+    def base_config(self, **extra):
+        body = f"""
+version: 1
+project: e2e
+log: {{level: info}}
+runtime: {{temp_dir: {self.tmp}}}
+rclone:
+  binary: {self.bin / "rclone"}
+  remote: fake
+"""
+        body += extra.get("extra", "")
+        return self.write_config(body)
+
+    def run(self, *args, expect=0):
+        env = dict(os.environ)
+        env["PATH"] = f"{self.bin}:{env['PATH']}"
+        env["FAKE_CLOUD"] = str(self.cloud)
+        cmd = [str(DIST), *map(str, args)]
+        if VERBOSE:
+            print("   $", " ".join(cmd))
+        res = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if VERBOSE or res.returncode != expect:
+            if res.stdout.strip():
+                print(res.stdout)
+            if res.stderr.strip():
+                print(res.stderr)
+        if res.returncode != expect:
+            raise AssertionError(f"expected exit {expect}, got {res.returncode}: "
+                                 f"{' '.join(cmd)}")
+        return res
+
+    def cloud_tree(self):
+        if not self.cloud.exists():
+            return []
+        return sorted(str(p.relative_to(self.cloud))
+                      for p in self.cloud.rglob("*") if p.is_file())
+
+    def cleanup(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def sql(text):
+    return text.encode()
+
+
+def test_database_retention():
+    env = Env()
+    try:
+        env.base_config(extra=f"""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  compressor_args: ["-1"]
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {{keep: 2}}
+""")
+        env.run("-c", env.config, "-d")
+        assert len(env.cloud_tree()) == 1, env.cloud_tree()
+        time.sleep(1.1)
+        env.run("-c", env.config, "-d")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-d")
+        files = env.cloud_tree()
+        assert len(files) == 2, files
+        assert not list(env.tmp.iterdir()), "temp dir must be empty"
+    finally:
+        env.cleanup()
+
+
+def test_database_disabled():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: false
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 2}
+""")
+        res = env.run("-c", env.config, "-d")
+        assert "disabled" in res.stderr, res.stderr
+        assert env.cloud_tree() == []
+    finally:
+        env.cleanup()
+
+
+def test_storage_sync():
+    env = Env()
+    try:
+        src = env.dir / "files"
+        (src / "sub").mkdir(parents=True)
+        (src / "a.txt").write_text("a")
+        (src / "sub" / "b.txt").write_text("b")
+        (src / ".hidden").write_text("h")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  mode: sync
+  target: "fake:/STORAGE"
+  sources:
+    - {src}
+""")
+        env.run("-c", env.config, "-s")
+        tree = env.cloud_tree()
+        assert tree == ["STORAGE/files/.hidden", "STORAGE/files/a.txt",
+                        "STORAGE/files/sub/b.txt"], tree
+
+        (src / "a.txt").unlink()
+        (src / "c.txt").write_text("c")
+        env.run("-c", env.config, "-s")
+        tree = env.cloud_tree()
+        assert tree == ["STORAGE/files/.hidden", "STORAGE/files/c.txt",
+                        "STORAGE/files/sub/b.txt"], tree
+    finally:
+        env.cleanup()
+
+
+def test_storage_dest():
+    env = Env()
+    try:
+        src = env.dir / "src"
+        src.mkdir()
+        (src / "x").write_text("x")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  target: "fake:/S"
+  sources:
+    - path: {src}
+      dest: custom/dir
+""")
+        env.run("-c", env.config, "-s")
+        assert env.cloud_tree() == ["S/custom/dir/x"], env.cloud_tree()
+    finally:
+        env.cleanup()
+
+
+def tar_entries(archive):
+    data = subprocess.run(["zstd", "-dc", str(archive)], capture_output=True, check=True).stdout
+    out = subprocess.run(["tar", "-tf", "-"], input=data, capture_output=True, check=True)
+    entries = []
+    for line in out.stdout.decode().splitlines():
+        line = line.rstrip("/")
+        if line.startswith("./"):
+            line = line[2:]
+        if line and line != ".":
+            entries.append(line)
+    return sorted(entries)
+
+
+def test_archive_contents_and_retention():
+    env = Env()
+    try:
+        root = env.dir / "site"
+        (root / "sub").mkdir(parents=True)
+        (root / "index.html").write_text("<html>")
+        (root / "sub" / "app.js").write_text("js")
+        (root / ".env").write_text("SECRET=1")
+        (root / "big.mp4").write_text("video")
+        env.base_config(extra=f"""
+archive:
+  enabled: true
+  compressor: zstd
+  compressor_args: ["-1"]
+  name: site
+  root: {root}
+  include: ["*"]
+  exclude: ["*.mp4"]
+  target: "fake:/ARCHIVE"
+  retention: {{keep: 2}}
+""")
+        env.run("-c", env.config, "-a")
+        files = env.cloud_tree()
+        assert len(files) == 1, files
+        archive = env.cloud / files[0]
+        entries = tar_entries(archive)
+        assert "index.html" in entries, entries
+        assert ".env" in entries, f"dotfiles must be archived: {entries}"
+        assert "sub/app.js" in entries, entries
+        assert not any(e.endswith(".mp4") for e in entries), entries
+        assert not list(env.tmp.iterdir()), "temp dir must be empty"
+
+        time.sleep(1.1)
+        env.run("-c", env.config, "-a")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-a")
+        files = env.cloud_tree()
+        assert len(files) == 2, files
+    finally:
+        env.cleanup()
+
+
+def test_archive_include_list():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        (root / "keep").mkdir(parents=True)
+        (root / "skip").mkdir()
+        (root / "keep" / "a.txt").write_text("a")
+        (root / "skip" / "b.txt").write_text("b")
+        (root / "top.txt").write_text("t")
+        env.base_config(extra=f"""
+archive:
+  enabled: true
+  compressor: gzip
+  name: data
+  root: {root}
+  include: ["keep/*", "top.txt"]
+  target: "fake:/A"
+""")
+        env.run("-c", env.config, "-a")
+        archive = env.cloud / env.cloud_tree()[0]
+        data = subprocess.run(["gzip", "-dc", str(archive)], capture_output=True, check=True).stdout
+        out = subprocess.run(["tar", "-tf", "-"], input=data, capture_output=True, check=True)
+        entries = [line.rstrip("/") for line in out.stdout.decode().splitlines()
+                   if line.strip("./")]
+        assert "keep/a.txt" in entries, entries
+        assert "top.txt" in entries, entries
+        assert not any("skip" in e for e in entries), entries
+    finally:
+        env.cleanup()
+
+
+def test_list_and_verify():
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        env.base_config(extra=f"""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  compressor_args: ["-1"]
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {{keep: 3}}
+archive:
+  enabled: true
+  compressor: zstd
+  compressor_args: ["-1"]
+  name: site
+  root: {root}
+  target: "fake:/ARCHIVE"
+""")
+        env.run("-c", env.config, "-d", "-a")
+        out = env.run("-c", env.config, "--list")
+        assert "DATABASE db1" in out.stdout, out.stdout
+        assert "DAILY" in out.stdout
+        assert "ARCHIVE" in out.stdout
+        res = env.run("-c", env.config, "--verify")
+        assert res.stdout.count("✓") == 2, res.stdout
+    finally:
+        env.cleanup()
+
+
+def test_verify_detects_corruption():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  type: mysql
+  compressor: zstd
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 3}
+""")
+        env.run("-c", env.config, "-d")
+        victim = env.cloud / env.cloud_tree()[0]
+        good = victim.stat().st_size
+        victim.write_bytes(b"x" * good)
+        res = env.run("-c", env.config, "--verify", expect=5)
+        assert "✗" in res.stdout, res.stdout
+    finally:
+        env.cleanup()
+
+
+TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
+         test_archive_contents_and_retention, test_archive_include_list,
+         test_list_and_verify, test_verify_detects_corruption]
+
+
+def main():
+    if not DIST.exists():
+        sys.exit("tests: dist/kwbackup not built, run python3 build.py")
+    failed = 0
+    for test in TESTS:
+        try:
+            test()
+            print(f"ok   {test.__name__}")
+        except Exception:
+            failed += 1
+            print(f"FAIL {test.__name__}")
+            traceback.print_exc()
+    print(f"\n{len(TESTS) - failed}/{len(TESTS)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,213 +1,97 @@
-# kwBackup - WARNING, outdated version
+# kwbackup
 
-KW Backup scripts with sync to Selectel Cloud Storage
+Бэкап баз данных, файлового storage и файловых архивов в S3-совместимое
+облако (rclone). Замена `kwbackup.sh` (0.9.0): те же сценарии, но с честными
+кодами возврата, блокировками, проверкой копий и конфигом в YAML.
 
-# Как это использовать "с нуля"? 
+Python 3.10+, **только стандартная библиотека**. В продакшен ставится один файл.
 
-1. Написать конфигурацию проекта, за основу можно взять файл `_config.conf`
+## Сборка и установка
 
-В этом файле 5 значимых секций:
-
-- Общие настройки - пути к временному каталогу и используемый архиватор. ZIP (используется pigz) или RAR.
-- Настройки rclone - имя секции в конфиге rclone и путь к конфигу rclone.
-- Настройки бэкапа БД
-- Настройки бэкапа STORAGE
-- Настройки бэкапа АРХИВА
-
-2. Написать файл `rclone.conf`, который упомянуть в конфиге проекта:
-```
-export RCLONE_CONFIG=${CONFIG_BASEDIR}/rclone.conf
+```bash
+python3 build.py --test          # собрать dist/kwbackup и прогнать selftest
+sudo install -m 755 dist/kwbackup /usr/local/bin/kwbackup
 ```
 
-Можно не указывать rclone-конфиг для каждого проекта, а использовать общий. В этом случае он должен лежать рядом со скриптом `kwbackup.sh` и называться `rclone.conf`.
+`dist/kwbackup` — один исполняемый файл с шебангом, собранный из `src/*.py`
+простой конкатенацией в фиксированном порядке (см. `build.py`). Единственное
+правило: все `import` живут в `src/00_header.py`, сборщик это проверяет.
 
-Формат конфига rclone таков:
-```
-[section_1]
-type = swift
-env_auth = false
-user = <user>
-key = <password>
-auth = https://auth.selcdn.ru/v1.0
-endpoint_type = public
+## Использование
 
-[section_2]
-...
-```
-
-3. Написать файлы `rarfiles-include.conf` и `rarfiles-exclude.conf` - в которых перечислить включаемые и исключаемые пути/файлы для бэкапа типа ARCHIVE 
-
-Например:
-```
-# cat rarfiles-include.conf
-
-/var/www/livemap/*
-
-# cat rarfiles-exclude.conf
-
-/var/www/livemap/cache
-/var/www/livemap/logs
-
+```bash
+kwbackup -c project.yaml -d            # бэкап БД
+kwbackup -c project.yaml -d -s -a      # БД + storage + архив за один запуск
+kwbackup -c project.yaml               # все включённые в конфиге действия
+kwbackup -c project.yaml --dry-run -d  # показать план, ничего не делать
+kwbackup -c project.yaml --check-config
+kwbackup -c project.yaml --list        # что реально лежит в облаке
+kwbackup -c project.yaml --verify      # скачать и проверить последнюю копию
+kwbackup -c project.yaml --restore --to /tmp/restore [--at 2026-11-09]
 ```
 
-Если не предполагается использование сценария "ARCHIVE" - этот шаг можно опустить.  
+Коды возврата: `0` ok, `1` ошибка выполнения, `2` ошибка конфига, `3` ошибка
+аргументов, `4` уже запущено (lock), `5` проверка копии не прошла.
 
-4. Запустить скрипт, передав ему конфиг и команду бэкапа, например:
+`--list` и `--verify` можно ставить в cron как watchdog: они возвращают `5`,
+если копий нет, они устарели или повреждены.
 
-```
-/bin/bash kwbackup.sh --config /path/to/project.conf --database 
-```
+## Конфиг
 
-5. Важно помнить, что нигде в конфиге не указаны ключи доступа к MySQL. Их следует указать в файле `.my.cnf` в домашнем
-каталоге пользователя, исполняющего скрипт. Этот файл имеет вид:
-```
-[client]
-user=root
-password=password
-```
+Пример с комментариями: [`configs/kwbackup.example.yaml`](configs/kwbackup.example.yaml).
 
-# Вызов скрипта бэкапа:
+Ключевое:
 
-Допустимые ключи:
+* **Retention** — на каждый класс (`daily`/`weekly`/`monthly`) ровно одно из
+  `keep: N` или `max_age: 7d`. Оба сразу или ни одного — ошибка конфига.
+  `retention_mode` запрещает смешивать правила в одном файле.
+* **Расписание** — DAILY каждым запуском, WEEKLY дополнительно по понедельникам,
+  MONTHLY дополнительно 1-го числа. `catch_up: true` создаёт пропущенную
+  weekly/monthly копию при следующем запуске.
+* **Секреты** — только через `${ENV_VAR}` или `rclone.env`; в конфиг не пишутся.
 
-- `-c` или `--config=/path/to/project.conf` - [ОБЯЗАТЕЛЬНО] задает файл конфига: (`-c config.conf` или `--config=config.conf`)
-- `-d` или `--database` - запустить бэкап БД
-- `-s` или `--storage` - запустить бэкап STORAGE
-- `-a` или `--archive` - запустить бэкап архива
-- `-m` или `--sync-mode=` - [ОПЦИОНАЛЬНО] - задает алгоритм заливки в облако. Перекрывает конфиг и значения по умолчанию. Используется для STORAGE и ARCHIVE
-- `-f` или `--force` - принудительно запускает сценарии бэкапа, вне зависимости от настроек в конфиге (`ENABLE_BACKUP_DATABASE`, `ENABLE_BACKUP_STORAGE`, `ENABLE_BACKUP_ARCHIVE`)
-- `-v` или `--verbose` - печатает расширенную информацию о происходящих процессах (бэкап, упаковка, аплоад)
-- `-h` или `-help` - печатает помощь и выходит из скрипта
-- `--install` - устанавливает пререквезиты - RAR и PIGZ (потребует ввода пароля sudo)
-
-Обязателен ключ `--config`.
-
-Если ни один из ключей `--database`, `--storage` или `--archive` не указан - скрипт выведет возможные (разрешенные в конфиге) 
-сценарии бэкапа.
-
-Ключ `--force` принудительно запускает сценарий.
-
-# О структуре файла конфига
-
-Это файл, имеющий шебанг `#!/usr/bin/env bash` и подгружаемый через `SOURCE config.conf`. Поэтому все опции в файле предваряются
-ключевым словом `export`
-
-В принципе, файл шаблона конфига достаточно прокомментирован, нет смысла повторять разбор всех опций. Я только разберу некоторые
-неочевидные моменты:
-
-## RCLONE_PROVIDER
-
-Этот ключ содержит название нужной секции из конфига `rclone.conf` 
-
-## DB_BACKUP_DAILY, DB_BACKUP_WEEKLY, DB_BACKUP_MONTHLY
-
-Этот механизм позволяет хранить ежедневные, еженедельные и ежемесячные копии БД.
-
-Ежедневные копии (даже если они делаются реже чем раз в день) складываются в субдиректорию `DAILY`. 
-Они хранятся `DB_MIN_AGE_DAILY` дней (по умолчанию 7d) 
-
-В первый день недели может делаться еженедельная копия (точнее, берется уже сделанный архив дампа БД), она заливается
-в субдиректорию `WEEKLY` и хранится `DB_MIN_AGE_WEEKLY` дней (7*6+1 = 43 по умолчанию)
-
-В первый день месяца может делаться ежемесячная копия (берется архив дампа БД), она заливается в субдиректорию MONTHLY
-и хранится `DB_MIN_AGE_MONTHLY` дней (360d по умолчанию).
-
-В версии 0.8.5 и ранее опции `DB_MIN_AGE_DAILY`, `DB_MIN_AGE_WEEKLY`, `DB_MIN_AGE_MONTHLY` не используются, но подсказывают нам,
-сколько хранятся соответствующие копии базы.
-
-## STORAGE_SOURCES_ROOT + STORAGE_SOURCES
-
-Параметр `STORAGE_SOURCES_ROOT` имеет смысл для бэкапа нескольких подкаталогов в одном каталоге-корне. Так, например, в проекте LibDB мы
-указываем
-```
-export STORAGE_SOURCES_ROOT=/srv/LIBDB.Storage/
-export STORAGE_SOURCES=(
-    files.aait
-    files.etks
-    files.hait
-)
-```
-В этом случае в целевом контейнере будут созданы каталоги `files.aait`, `files.etks` и `files.hait`, в которые будет выгружен 
-контент каталогов `/srv/LIBDB.Storage/files.aait`, `/srv/LIBDB.Storage/files.etks`, `/srv/LIBDB.Storage/files.hait`
-
-Зачем так сделано? Если мы перечислим в STORAGE_SOURCES полные пути:
-```
-export STORAGE_SOURCES=(
-    /srv/LIBDB.Storage/files.aait
-    /srv/LIBDB.Storage/files.etks
-    /srv/LIBDB.Storage/files.hait
-)
-```
-
-То в целевой контейнер файлы будут выгружены с повторением **полного указанного пути**, то есть будут созданы подкаталоги:
-`srv` > `LIBDB.Storage` > `files...` > `*`.
-
-Это может быть неудобно - например, если путь к файлам очень длинный или содержит симлинки (кстати, не проверялось). 
-С другой стороны, абсолютные пути могут использоваться для хранения в контейнере STORAGE любых путей/файлов, 
-доступных в файловой системе. 
-
-Какой способ выбрать - according to your wishes.
-
-
-
-# Сценарии бэкапа
-
-## Database
-
-dump, pack (rar|zip), copy (с удалением копий старше определенной даты)
-
-## Storage
-
-copy или sync в зависимости от:
-- значения ключа `--sync-mode` (по умолчанию sync)
-- значения `STORAGE_BACKUP_ALGO` в секции конфига
-- по умолчанию sync
-
-Условия перечислены в порядке убывания приоритета. 
-
-Таким образом, можно сделать 2 крон-задачи на одном конфиге:
-
-`kwbackup.sh --storage --config --sync-mode=copy --config=/etc/kwbackup/example.conf` 
-- которая копирует файлы в STORAGE
-
-`kwbackup.sh --storage --config --sync-mode=sync --config=/etc/kwbackup/example.conf` 
-- которая обновляет файлы в хранилище, удаляя несуществующие.
-
-В случае второй команды `--sync-mode=sync` можно опустить, будет использоваться значение ключа `STORAGE_BACKUP_ALGO`, 
-а в случае его отсутствия - значение `sync`.
-
-## Archive
-
-Создается архив с таймштампом NOW, включающий файлы, перечисленные в `Config::RARFILES_INCLUDE_LIST`, исключающий файлы, 
-перечисленные в `Config::RARFILES_EXCLUDE_LIST` с опциями `-r -s -m5 -mde`
-
-Режим заливки в облако задается аналогично STORAGE:
-
-`--sync-mode` > Config: `ARCHIVE_BACKUP_ALGO` > "copy"
-
-
-# Как поставить RAR? 
-
-В `/etc/apt/sources.list` добавить:
-```
-deb http://mirror.yandex.ru/debian/ stable main contrib non-free
-deb-src http://mirror.yandex.ru/debian/ stable main contrib non-free
-deb http://security.debian.org/ stable/updates main contrib non-free
-deb-src http://security.debian.org/ stable/updates main contrib non-free
-```
-
-и `apt update && apt install rar `
-
-Или из пакета: https://debian.pkgs.org/11/debian-nonfree-amd64/rar_5.5.0-1_amd64.deb.html : 
+## Разработка
 
 ```
-wget http://ftp.de.debian.org/debian/pool/non-free/r/rar/rar_5.5.0-1_amd64.deb
-sudo dpkg -i rar_5.5.0-1_amd64.deb
+src/00_header.py     импорты, константы
+src/10_yaml.py       YAML-подмножество (без зависимостей)
+src/20_config.py     схема, валидация, env-подстановка
+src/30_logging.py    логи и формат размеров
+src/40_lock.py       flock-блокировки
+src/50_runner.py     пайплайны subprocess
+src/60_rclone.py     обёртка rclone
+src/70_retention.py  keep / max_age / расписание (чистые функции)
+src/80_database.py   дампы и заливка
+src/81_storage.py    rclone sync/copy
+src/82_archive.py    tar + компрессор
+src/83_restore.py    восстановление
+src/85_report.py     --list и --verify
+src/90_preflight.py  проверки перед запуском
+src/92_migrate.py    конвертер старых bash-конфигов
+src/95_cli.py        argparse и main
+src/99_selftest.py   встроенные тесты (--selftest)
+src/zz_main.py       точка входа
 ```
 
-# TODO
+```bash
+python3 build.py --test     # сборка + py_compile + selftest
+python3 tests/e2e.py        # сквозные тесты на фейковом rclone
+```
 
-- Добавить в файл конфига проекта опциональные параметры доступа к БД
-- Добавить поддержку PostgreSQL
+`tests/e2e.py` запускает собранный бинарь как процесс, подменяя `rclone`
+локальным стабом (облако = временный каталог) и дамперы — заглушками.
+Реальные `tar`, `zstd`, `gzip` используются как есть.
 
-О вычислении хэша: https://stackoverflow.com/questions/1602378/how-to-calculate-a-hash-for-a-string-url-in-bash-for-wget-caching
+## Отличия от kwbackup.sh
+
+| | kwbackup.sh 0.9.0 | kwbackup (python) |
+|---|---|---|
+| конфиг | исполняемый bash под root | YAML + валидатор |
+| `-d -s -a` | выполнялось только первое действие | все действия |
+| lock | файл-флаг, протухает навсегда | `flock`, снимается ядром |
+| ошибки | часто exit 0 и тишина | код возврата + лог |
+| проверка | нет | `--list`, `--verify` |
+| восстановление | нет | `--restore` |
+| dotfiles в архиве | терялись | включаются |
+
+Старая документация по bash-версии: [`kwbackup-config.md`](kwbackup-config.md).

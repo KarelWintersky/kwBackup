@@ -1,0 +1,90 @@
+# kwbackup config — полный пример. Проверка: kwbackup -c файл.yaml --check-config
+#
+# R E T E N T I O N
+# Для каждого класса (DAILY/WEEKLY/MONTHLY) указывается РОВНО ОДНО правило:
+#   keep: N      — оставить N самых новых копий (не зависит от пропусков и дублей)
+#   max_age: 7d  — удалять всё старше указанного возраста (паритет с bash-версией)
+# Оба сразу — ошибка конфига, ни одного — тоже. Класс отключается через `false`
+# или отсутствие ключа. `retention_mode: keep|max_age` (опционально) запрещает
+# смешивать правила в одном конфиге.
+#
+# Р А С П И С А Н И Е
+# DAILY создаётся каждым запуском. WEEKLY — дополнительно по понедельникам,
+# MONTHLY — дополнительно 1-го числа (один дамп, 1-3 заливки одного файла).
+# catch_up: true — если за текущую ISO-неделю/месяц копии ещё нет, она будет
+# создана при следующем запуске (страховка от «хост лежал в понедельник»).
+
+version: 1
+project: example                  # lock-файлы, логи, тексты отчётов
+
+log:
+  level: info                     # debug | info | warning | error
+  file: /var/log/kwbackup/example.log
+
+runtime:
+  temp_dir: /tmp/kwbackup         # дампы и архивы перед заливкой
+  keep_temp: false                # true = не удалять локальную копию после заливки
+
+rclone:
+  binary: rclone
+  config: /etc/kwbackup/rclone.conf
+  remote: beget                   # имя remote из rclone.conf
+  args:
+    - --s3-no-check-bucket
+  env:                            # секреты только из окружения, не из конфига
+    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
+    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+
+# ---------------------------------------------------------------- database
+database:
+  enabled: true
+  type: mariadb                   # mysql | mariadb | postgres | sqlite
+  host: localhost
+  port: 3306
+  user: backup                    # mysql: --user, postgres: --username
+  password_env: MYSQL_PWD         # для postgres подставляется и в PGPASSWORD
+  args:                           # дефолты для mariadb/mysql
+    - --single-transaction
+    - --quick
+    - --no-tablespaces
+  compressor: zstd                # zstd | gzip | pigz | rar | none
+  compressor_args: ["-3"]
+  target: "beget:/DB"             # одна БД -> /DB/DAILY, несколько -> /DB/<db>/DAILY
+  databases:
+    - mediamaker
+  catch_up: false
+  retention_mode: keep
+  retention:
+    daily:
+      keep: 8                     # эквивалент DB_MIN_AGE_DAILY=7d
+    weekly:
+      keep: 6                     # эквивалент DB_MIN_AGE_WEEKLY=43d
+    monthly:
+      keep: 12                    # эквивалент DB_MIN_AGE_MONTHLY=360d
+    # daily: {max_age: 7d}        # альтернативная форма, не смешивать
+
+# ----------------------------------------------------------------- storage
+storage:
+  enabled: false
+  mode: sync                      # sync (зеркало, удаляет лишнее в облаке) | copy
+  target: "beget:/STORAGE"
+  sources:
+    # короткая форма: путь; имя каталога в облаке = basename
+    - /srv/example/files
+    # полная форма: явный путь назначения ("" = корень STORAGE)
+    - path: /srv/example/uploads
+      dest: uploads
+    # - path: /mnt/archive
+    #   dest: ""
+
+# ----------------------------------------------------------------- archive
+archive:
+  enabled: false
+  compressor: zstd                # zstd | gzip | pigz | rar | none
+  compressor_args: ["-9"]
+  name: example                   # к имени добавляется _<timestamp>
+  root: /srv/example
+  include: ["*"]                  # "*" = весь корень вместе с dotfiles (.env, .git)
+  exclude: ["*.mp4", "*.tmp"]     # маски tar, применяются к путям внутри root
+  target: "beget:/ARCHIVE"
+  retention: {keep: 5}            # или {max_age: 71d}
