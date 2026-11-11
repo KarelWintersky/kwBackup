@@ -1,27 +1,19 @@
-# Только бэкап БД. Минимум, который нужен для старта.
+# Бэкап БД. Общие настройки (log, rclone.config/remote, компрессор, retention)
+# берутся из kwbackup_defaults.yaml — см. examples/kwbackup_defaults.yaml.
 version: 1
 project: shop
 
-log:
-  file: /var/log/kwbackup/shop.log
-
 rclone:
-  config: /etc/kwbackup/rclone.conf
-  remote: beget
-  env:
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  args:
+    # BEGET выдаёт ключи на бакет, а в rclone.conf стоит env_auth = false,
+    # поэтому ключи передаются флагами rclone. Файл держите с правами 0600.
+    # Можно подставлять из окружения:
+    #   "--s3-access-key-id=${BEGET_SHOP_KEY}"
+    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SHOP>"
+    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SHOP>"
 
 database:
   enabled: true
-  type: mysql
-  host: localhost
-  user: backup
-  password_env: MYSQL_PWD
-  compressor: zstd
   target: "beget:/shop/DB"
   databases: [shop]
-  retention:
-    daily:   {keep: 8}
-    weekly:  {keep: 6}
-    monthly: {keep: 12}
+  # retention и compressor наследуются из defaults

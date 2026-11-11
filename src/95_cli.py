@@ -9,6 +9,9 @@ def build_parser():
                "Subcommands: migrate OLD.conf [-o OUT.yaml]  (convert the legacy bash config)",
     )
     p.add_argument("-c", "--config", metavar="FILE", help="config file (YAML)")
+    p.add_argument("--defaults", metavar="FILE",
+                   help="defaults file (default: kwbackup_defaults.yaml next to "
+                        "the script, next to the config, or /etc/kwbackup)")
     p.add_argument("-d", "--database", action="store_true", help="backup databases")
     p.add_argument("-s", "--storage", action="store_true", help="backup file storage")
     p.add_argument("-a", "--archive", action="store_true", help="backup file archive")
@@ -53,7 +56,7 @@ def main(argv=None):
         return EXIT_USAGE
 
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(args.config, defaults=args.defaults)
     except ConfigError as exc:
         print(f"{PROG}: {exc}", file=sys.stderr)
         return EXIT_CONFIG
@@ -61,6 +64,9 @@ def main(argv=None):
     setup_logging(cfg, args.verbose, args.debug)
     DRY = args.dry_run
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
+    LOG.debug("defaults: %s", cfg.defaults_path or "none")
+    for warning in secret_warnings(cfg):
+        LOG.warning("%s", warning)
 
     if args.check_config:
         return check_config(cfg, args)
@@ -131,6 +137,7 @@ def requested_actions(cfg, args, silent=False):
 
 def check_config(cfg, args):
     print(f"config OK: {cfg.path}")
+    print(f"  defaults: {cfg.defaults_path or 'none (config is self-contained)'}")
     print(f"  project: {cfg.project}")
     print(f"  rclone:  {cfg.rclone.remote} via {cfg.rclone.config or 'default config'}")
     if cfg.database.enabled:
@@ -157,4 +164,9 @@ def check_config(cfg, args):
             print(f"    ! {problem}")
     else:
         print("  preflight: ok")
+    security = secret_warnings(cfg)
+    if security:
+        print("  security: warnings")
+        for warning in security:
+            print(f"    ! {warning}")
     return EXIT_OK

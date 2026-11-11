@@ -153,8 +153,11 @@ def build_yaml(old, project, source_path):
         for arg in custom:
             add(f"    - {_yaml_value(arg)}")
         if secrets:
-            add("  # !!! В args выше есть ключи доступа. Перенесите их в rclone.env,")
-            add("  #     например: AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}")
+            add("  # !!! В args выше ключи доступа. BEGET выдаёт их на бакет,")
+            add("  #     поэтому они и передаются флагами rclone (env_auth = false")
+            add("  #     в rclone.conf игнорирует AWS_* переменные). Держите файл")
+            add("  #     с правами 0600 либо подставляйте из окружения:")
+            add('  #     "--s3-access-key-id=${BEGET_SHOP_KEY}"')
 
     if _flag(old, "ENABLE_BACKUP_DATABASE"):
         db_type = _str(old, "DB_TYPE", "mysql").lower()

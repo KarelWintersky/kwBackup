@@ -26,6 +26,21 @@ RETENTION_CLASSES = ("daily", "weekly", "monthly")
 AGE_RE = re.compile(r"^(\d+)([smhdw])$")
 AGE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
+DEFAULTS_NAME = "kwbackup_defaults.yaml"
+
+# Lists that are APPENDED when a task config overrides the defaults file.
+# These are "add another option" lists where duplicates are harmless and the
+# last flag wins (rclone, dumpers, compressors). Every other list is replaced:
+# `databases`, `storage.sources` and `archive.include` must not silently grow
+# when a single project overrides them.
+APPEND_KEYS = {
+    "rclone.args",
+    "database.args",
+    "database.compressor_args",
+    "archive.compressor_args",
+    "archive.exclude",
+}
+
 
 def parse_age(text):
     m = AGE_RE.match(str(text).strip())
@@ -112,6 +127,7 @@ class ArchiveCfg:
 class Config:
     path: Path
     project: str
+    defaults_path: Path | None = None
     log_level: str = "info"
     log_file: str | None = None
     temp_dir: Path = Path("/tmp/kwbackup")
@@ -120,6 +136,76 @@ class Config:
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
+
+
+def find_defaults(config_path, explicit=None):
+    """Locate kwbackup_defaults.yaml.
+
+    Order: --defaults, the script directory, the task config directory,
+    /etc/kwbackup. None means "no defaults file, the task config is complete".
+    """
+    if explicit:
+        return Path(explicit)
+    script_dir = Path(sys.argv[0]).resolve().parent
+    candidates = [script_dir / DEFAULTS_NAME,
+                  Path(config_path).resolve().parent / DEFAULTS_NAME,
+                  Path("/etc/kwbackup") / DEFAULTS_NAME]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def deep_merge(base, override, path=""):
+    """Defaults <- task. Maps merge, APPEND_KEYS lists append, the rest wins."""
+    result = dict(base)
+    for key, value in override.items():
+        full = f"{path}.{key}" if path else key
+        current = result.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            result[key] = deep_merge(current, value, full)
+        elif isinstance(current, list) and isinstance(value, list) and full in APPEND_KEYS:
+            # dedupe: the same flag in defaults and in the task is harmless
+            # but noisy in logs
+            result[key] = list(dict.fromkeys(list(current) + list(value)))
+        else:
+            result[key] = value
+    return result
+
+
+def _read_yaml(path):
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"{path}: {exc.strerror}") from exc
+    try:
+        data = yaml_loads(text)
+    except YamlError as exc:
+        raise ConfigError(f"{path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path}: top level must be a mapping")
+    return data
+
+
+def secret_warnings(cfg):
+    """S3 per-bucket credentials are passed as rclone flags (Beget style):
+    the file then must not be readable by group/other."""
+    has_secret = any("secret" in arg.lower() or "access-key" in arg.lower()
+                     for arg in cfg.rclone.args)
+    if not has_secret:
+        return []
+    warnings = []
+    for label, path in (("config", cfg.path), ("defaults", cfg.defaults_path)):
+        if not path:
+            continue
+        try:
+            mode = path.stat().st_mode & 0o777
+        except OSError:
+            continue
+        if mode & 0o077:
+            warnings.append(f"{label} {path} contains credentials but its mode is "
+                            f"{mode:03o}; chmod 600 {path}")
+    return warnings
 
 
 def _check_keys(data, section, path, errors):
@@ -233,21 +319,26 @@ SECTIONS["retention"] = {"keep", "max_age"}
 SECTIONS["source"] = {"path", "dest"}
 
 
-def load_config(path, env=None):
-    """Read and validate a YAML config. Raises ConfigError with all problems."""
+def load_config(path, env=None, defaults=None):
+    """Read, merge with the defaults file and validate a config.
+
+    Raises ConfigError with every problem found, not just the first one.
+    """
     path = Path(path)
     if env is not None:
         os.environ.update(env)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ConfigError(f"{path}: {exc.strerror}") from exc
-    try:
-        data = yaml_loads(text)
-    except YamlError as exc:
-        raise ConfigError(f"{path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ConfigError(f"{path}: top level must be a mapping")
+    if defaults and not Path(defaults).is_file():
+        raise ConfigError(f"{defaults}: defaults file not found")
+
+    task = _read_yaml(path)
+    chosen = find_defaults(path, defaults)
+    data = task
+    if chosen is not None:
+        if not chosen.is_file():
+            raise ConfigError(f"{chosen}: defaults file not found")
+        data = deep_merge(_read_yaml(chosen), task)
+    else:
+        chosen = None
 
     errors = []
     _check_keys(data, "root", "config", errors)
@@ -256,7 +347,8 @@ def load_config(path, env=None):
     data = _expand_env(data, "config", errors)
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
-                                            errors, required=True) or path.stem)
+                                            errors, required=True) or path.stem,
+                 defaults_path=chosen)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):

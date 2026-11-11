@@ -24,6 +24,8 @@
   блокировка снимается ядром даже при `kill -9`.
 * **Миграция**: `kwbackup migrate old.conf` конвертирует старый bash-конфиг
   в YAML, сохраняя глубину хранения.
+* **Слои конфигурации**: общий `kwbackup_defaults.yaml` (логи, rclone, глубина
+  хранения, компрессоры) + короткий файл задачи на каждый проект.
 * `--dry-run`, `--check-config`, `--selftest`.
 
 ## Требования
@@ -56,24 +58,26 @@ kwbackup --version
 # 1. remote для rclone (один раз)
 rclone config
 
-# 2. секреты отдельным файлом, не в YAML
-sudo install -m 600 /dev/null /etc/kwbackup/secrets.env
-sudo tee /etc/kwbackup/secrets.env >/dev/null <<'EOF'
-RCLONE_KEY_ID=...
-RCLONE_SECRET=...
-MYSQL_PWD=...
-EOF
+# 2. общие настройки хоста: логи, rclone.config/remote, глубина хранения
+sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
+sudo install -m 600 examples/kwbackup_defaults.yaml /etc/kwbackup/kwbackup_defaults.yaml
 
-# 3. конфиг проекта
-sudo cp examples/database-only.yaml /etc/kwbackup/shop.yaml
+# 3. задача: project, target, базы и ключи бакета
+#    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
+sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
+sudoedit /etc/kwbackup/shop.yaml
 
-# 4. проверка конфига и пробный прогон (от root, с загруженными секретами)
+# 4. пароль БД и прочие секреты — в окружение
+sudo install -m 600 examples/secrets.env.example /etc/kwbackup/secrets.env
+sudoedit /etc/kwbackup/secrets.env
+
+# 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
 sudo -s
 set -a; . /etc/kwbackup/secrets.env; set +a
 kwbackup -c /etc/kwbackup/shop.yaml --check-config
 kwbackup -c /etc/kwbackup/shop.yaml --dry-run
 
-# 5. боевой запуск и проверка результата
+# 6. боевой запуск и проверка результата
 kwbackup -c /etc/kwbackup/shop.yaml
 kwbackup -c /etc/kwbackup/shop.yaml --list
 ```
@@ -106,40 +110,47 @@ kwbackup -c /etc/kwbackup/shop.yaml --list
 
 ## Конфиг
 
-Минимальный пример (полный — [`examples/full.yaml`](examples/full.yaml)):
+Общие настройки — один раз на хост, [`examples/kwbackup_defaults.yaml`](examples/kwbackup_defaults.yaml):
+логи, `rclone.config`, `rclone.remote`, тип БД, компрессор, глубина хранения.
+
+Файл задачи после этого короткий (полный самодостаточный пример —
+[`examples/full.yaml`](examples/full.yaml)):
 
 ```yaml
 version: 1
 project: shop
 
 rclone:
-  config: /etc/kwbackup/rclone.conf
-  remote: beget
-  env:
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  args:
+    # BEGET: ключи на бакет, env_auth = false -> только флагами rclone.
+    # Файл с ключами — 0600; можно подставлять "${BEGET_SHOP_KEY}".
+    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SHOP>"
+    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SHOP>"
 
 database:
   enabled: true
-  type: mysql
-  host: localhost
-  user: backup
-  password_env: MYSQL_PWD
-  compressor: zstd
   target: "beget:/shop/DB"
   databases: [shop]
-  retention:
-    daily:   {keep: 8}
-    weekly:  {keep: 6}
-    monthly: {keep: 12}
+  # log, rclone.config/remote, compressor, retention — из defaults
 ```
+
+Файл дефолтов ищется рядом со скриптом, рядом с конфигом задачи и в
+`/etc/kwbackup`; перекрыть путь — `--defaults FILE`. Списки `rclone.args`,
+`database.args`, `*_compressor_args` и `archive.exclude` дополняются,
+остальные значения задача перекрывает.
 
 Готовые варианты: [`examples/database-only.yaml`](examples/database-only.yaml),
 [`examples/storage-only.yaml`](examples/storage-only.yaml),
 [`examples/archive-only.yaml`](examples/archive-only.yaml).
 
-Секреты в конфиг не пишутся: только `${ENV_VAR}` или `rclone.env`,
-значения — в `/etc/kwbackup/secrets.env` (0600).
+Секреты:
+
+* **Ключи S3-бакета** (BEGET и подобные провайдеры) в `rclone.conf` не
+  работают: там `env_auth = false`, поэтому ключи передаются флагами
+  `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
+  Файл с ключами — `0600`, `--check-config` предупредит, если права шире.
+  Можно подставлять из окружения: `--s3-access-key-id=${BEGET_SHOP_KEY}`.
+* **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).
 
 ## Как это работает
 

@@ -1,16 +1,11 @@
-# Только синхронизация файлового storage в облако.
+# Синхронизация файлового storage. Общие настройки — в kwbackup_defaults.yaml.
 version: 1
 project: uploads
 
-log:
-  file: /var/log/kwbackup/uploads.log
-
 rclone:
-  config: /etc/kwbackup/rclone.conf
-  remote: beget
-  env:
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  args:
+    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_UPLOADS>"
+    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_UPLOADS>"
 
 storage:
   enabled: true

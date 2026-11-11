@@ -1,24 +1,17 @@
-# Только tar-архив каталога (с исключениями).
+# tar-архив каталога. Общие настройки — в kwbackup_defaults.yaml.
 version: 1
 project: site
 
-log:
-  file: /var/log/kwbackup/site.log
-
 rclone:
-  config: /etc/kwbackup/rclone.conf
-  remote: beget
-  env:
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  args:
+    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SITE>"
+    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SITE>"
 
 archive:
   enabled: true
-  compressor: zstd
-  compressor_args: ["-9"]
   name: site
   root: /srv/site
-  include: ["*"]          # весь корень, включая .env
+  include: ["*"]          # весь корень, включая dotfiles (.env)
   exclude: ["*.mp4", "*/cache/*"]
   target: "beget:/site/ARCHIVE"
-  retention: {keep: 5}
+  # compressor и retention наследуются из defaults

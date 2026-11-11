@@ -3,7 +3,38 @@
 Полный пример со всеми ключами: [`examples/full.yaml`](../examples/full.yaml).
 Проверка файла: `kwbackup -c FILE --check-config`.
 
-Общие правила:
+## Слои: `kwbackup_defaults.yaml` + файл задачи
+
+Общие для хоста настройки (логи, `rclone.config`/`remote`, тип БД, компрессоры,
+глубина хранения) живут в `kwbackup_defaults.yaml`, а файл задачи содержит только
+своё: `project`, `target`, `databases`, `sources`, `root`, ключи бакета.
+
+Порядок поиска (первый найденный):
+
+1. `--defaults FILE`
+2. рядом со скриптом: `/usr/local/bin/kwbackup_defaults.yaml`
+3. рядом с конфигом задачи: `<каталог конфига>/kwbackup_defaults.yaml`
+4. `/etc/kwbackup/kwbackup_defaults.yaml`
+
+Файла нет — конфиг задачи считается полным. Путь к найденному файлу печатает
+`--check-config` (`defaults: ...`).
+
+Слияние: карты сливаются рекурсивно, скаляр задачи перекрывает значение из
+дефолтов. Списки — двумя способами:
+
+| Список | Поведение |
+|---|---|
+| `rclone.args`, `database.args`, `database.compressor_args`, `archive.compressor_args`, `archive.exclude` | **дополняются** (дефолты + задача, дубликаты убираются) |
+| `databases`, `storage.sources`, `archive.include`, любые другие | **заменяются** целиком |
+
+Дополняются именно списки опций, где «добавить ещё флаг» — норма, а дубликат
+безвреден (последний флаг выигрывает). Список баз или источников задачи не
+должен незаметно разрастаться от дефолтов, поэтому он заменяется.
+
+Проверка выполняется уже над объединённым деревом: ошибка указывает путь
+`config.database.retention.weekly` без указания, из какого файла он пришёл.
+
+## Общие правила
 
 * Неизвестный ключ — ошибка с указанием пути (`config.database.databeses:
   unknown key`). Опечатка не пройдёт молча.
@@ -63,14 +94,30 @@
 `args` попадают и в `lsf`, и в `copyto`, и в `deletefile` — годится для
 `--s3-no-check-bucket`, `--transfers`, `--bwlimit`.
 
+### Ключи S3-провайдера
+
+У BEGET (и у ряда S3-совместимых провайдеров с бакетной моделью, как minio)
+access key и secret key выдаются **на бакет**, а не на аккаунт. В `rclone.conf`
+при этом стоит `env_auth = false`, и переменные `AWS_*` игнорируются.
+Единственный рабочий способ — передать ключи флагами rclone:
+
 ```yaml
 rclone:
-  remote: beget
-  args: ["--s3-no-check-bucket", "--transfers=4"]
-  env:
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  args:
+    - "--s3-access-key-id=${BEGET_SHOP_KEY}"       # или литералом
+    - "--s3-secret-access-key=${BEGET_SHOP_SECRET}"
 ```
+
+* Ключи можно писать литералами (так их выдаёт провайдер) — тогда файл
+  с ними держите с правами `0600`: `--check-config` и каждый запуск
+  предупреждают, если права шире.
+* Либо подставлять `${...}` из `secrets.env` — сами ключи остаются в одном
+  файле с правами `0600`, а задачи — без секретов.
+* Если бакет один на весь хост, ключи удобно положить в `kwbackup_defaults.yaml`
+  (тоже `0600`) и не повторять в каждой задаче.
+* `rclone.env` (`AWS_ACCESS_KEY_ID` и т.п.) работает только когда в rclone
+  включён `env_auth` (`env_auth = true` в `rclone.conf` или флаг
+  `--s3-env-auth`). С настройками BEGET по умолчанию — не работает.
 
 ## `database`
 

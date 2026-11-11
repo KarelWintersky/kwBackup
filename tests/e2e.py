@@ -25,11 +25,15 @@ import os, shutil, sys
 from pathlib import Path
 CLOUD = Path(os.environ["FAKE_CLOUD"])
 argv = sys.argv[1:]
+if os.environ.get("FAKE_RCLONE_LOG"):
+    with open(os.environ["FAKE_RCLONE_LOG"], "a") as fh:
+        fh.write(" ".join(argv) + "\n")
 while "--config" in argv:
     i = argv.index("--config"); del argv[i:i + 2]
+COMMANDS = {"lsf", "copyto", "copy", "sync", "deletefile", "cat"}
 DROP = {"--s3-no-check-bucket", "--copy-links", "--update", "--verbose", "--progress"}
-argv = [a for a in argv if a not in DROP]
-cmd, rest = argv[0], argv[1:]
+idx = next(i for i, a in enumerate(argv) if a in COMMANDS)
+cmd, rest = argv[idx], [a for a in argv[idx + 1:] if a not in DROP]
 
 def resolve(p):
     p = str(p)
@@ -125,6 +129,7 @@ rclone:
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         env["FAKE_CLOUD"] = str(self.cloud)
         env["FAKE_MYSQL_OUT"] = str(self.dir / "mysql.out")
+        env["FAKE_RCLONE_LOG"] = str(self.dir / "rclone.log")
         if extra_env:
             env.update(extra_env)
         cmd = [str(DIST), *map(str, args)]
@@ -594,10 +599,60 @@ def test_documented_examples_validate():
     env = Env()
     try:
         secret_env = {"RCLONE_KEY_ID": "k", "RCLONE_SECRET": "s", "MYSQL_PWD": "p"}
-        files = sorted((ROOT / "examples").glob("*.yaml"))
+        files = [p for p in sorted((ROOT / "examples").glob("*.yaml"))
+                 if p.name != "kwbackup_defaults.yaml"]   # defaults are not a task
         assert files, "no example configs found"
         for path in files:
             env.run("-c", path, "--check-config", extra_env=secret_env)
+    finally:
+        env.cleanup()
+
+
+def test_defaults_file_layer():
+    env = Env()
+    try:
+        defaults = env.dir / "kwbackup_defaults.yaml"      # next to the task config
+        defaults.write_text(f"""
+version: 1
+log: {{level: warning}}
+rclone:
+  binary: {env.bin / "rclone"}
+  remote: fake
+  args: ["--s3-no-check-bucket"]
+database:
+  type: mysql
+  compressor: zstd
+  compressor_args: ["-1"]
+  retention:
+    daily: {{keep: 1}}
+""", encoding="utf-8")
+        task = env.dir / "task.yaml"
+        task.write_text("""
+version: 1
+project: layered
+rclone:
+  args:
+    - "--s3-access-key-id=KEY1"
+    - "--s3-secret-access-key=SECRET1"
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+""", encoding="utf-8")
+
+        out = env.run("-c", task, "--check-config")
+        assert "kwbackup_defaults.yaml" in out.stdout, out.stdout
+        assert "keep 1" in out.stdout, out.stdout
+        assert "chmod 600" in out.stdout, out.stdout        # 0644 + credentials
+
+        env.run("-c", task, "-d")
+        log = (env.dir / "rclone.log").read_text()
+        assert "--s3-no-check-bucket" in log, log           # from defaults
+        assert "--s3-access-key-id=KEY1" in log, log        # from the task, appended
+        assert "--s3-secret-access-key=SECRET1" in log, log
+
+        env.run("-c", task, "--check-config", "--defaults",
+                env.dir / "missing.yaml", expect=2)
     finally:
         env.cleanup()
 
@@ -608,7 +663,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
          test_restore_archive_and_storage, test_restore_at_filter,
          test_migrate_old_config, test_migrate_uses_keep_by_default,
-         test_documented_examples_validate]
+         test_documented_examples_validate, test_defaults_file_layer]
 
 
 def main():

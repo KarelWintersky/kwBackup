@@ -1,0 +1,53 @@
+# kwbackup_defaults.yaml — общие настройки для всех задач на этом хосте.
+#
+# Где ищется (первый найденный):
+#   1. --defaults FILE
+#   2. рядом со скриптом: /usr/local/bin/kwbackup_defaults.yaml
+#   3. рядом с конфигом задачи: /etc/kwbackup/kwbackup_defaults.yaml
+#   4. /etc/kwbackup/kwbackup_defaults.yaml
+# Нет файла — конфиг задачи считается полным и ничем не дополняется.
+#
+# Задача перекрывает любое значение. Списки `rclone.args`, `database.args`,
+# `database.compressor_args`, `archive.compressor_args` и `archive.exclude`
+# ДОПОЛНЯЮТСЯ (дефолты + задача), остальные списки заменяются целиком
+# (`databases`, `storage.sources`, `archive.include`).
+
+version: 1
+
+log:
+  level: info
+  file: /var/log/kwbackup/kwbackup.log   # общий лог на все задачи
+
+runtime:
+  temp_dir: /tmp/kwbackup
+
+rclone:
+  config: /etc/kwbackup/rclone_beget.conf
+  remote: beget
+  args:
+    - --s3-no-check-bucket
+    # BEGET выдаёт access key / secret key на БАКЕТ (как minio), а не на
+    # аккаунт, и в rclone.conf стоит env_auth = false. Поэтому ключи
+    # передаются флагами rclone в файле задачи:
+    #   --s3-access-key-id=...
+    #   --s3-secret-access-key=...
+    # Если бакет один на весь хост — можно держать ключи прямо здесь,
+    # тогда файлы задач будут совсем короткими.
+
+database:
+  type: mariadb
+  host: localhost
+  user: backup
+  password_env: MYSQL_PWD
+  compressor: zstd
+  compressor_args: ["-3"]
+  catch_up: false
+  retention:
+    daily:   {keep: 8}
+    weekly:  {keep: 6}
+    monthly: {keep: 12}
+
+archive:
+  compressor: zstd
+  compressor_args: ["-9"]
+  retention: {keep: 5}

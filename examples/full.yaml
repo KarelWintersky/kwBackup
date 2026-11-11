@@ -1,4 +1,8 @@
-# kwbackup — полный пример конфига. Все ключи, все комментарии.
+# kwbackup — полный пример: все ключи в одном файле.
+# Если рядом лежит kwbackup_defaults.yaml, он тоже применяется, но значения
+# этого файла приоритетнее. В обычной эксплуатации удобнее наоборот:
+# общие вещи (log, rclone.config/remote, compressor, retention) — в defaults,
+# а здесь только project, target, databases, sources, root и ключи бакета.
 #
 # Проверка после правки:
 #   kwbackup -c full.yaml --check-config
@@ -29,6 +33,11 @@ rclone:
   remote: beget           # имя remote, как в [beget] в rclone.conf
   args:                   # добавляются к каждому вызову rclone
     - --s3-no-check-bucket
+    # BEGET выдаёт ключи на бакет, а в rclone.conf стоит env_auth = false,
+    # поэтому ключи передаются именно флагами (в этом файле или в файле
+    # задачи). Права на файл с ключами — 0600.
+    # - "--s3-access-key-id=..."
+    # - "--s3-secret-access-key=..."
     # - "--transfers=4"
     # - "--bwlimit=10M"
   env:                    # переменные окружения для rclone

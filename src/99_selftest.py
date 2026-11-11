@@ -63,6 +63,18 @@ h: ${HOME}/bin
     check("parse_age", parse_age("7d") == dt.timedelta(days=7) and parse_age("12h") == dt.timedelta(hours=12))
     check("fmt_age", fmt_age(dt.timedelta(days=43)) == "43d")
 
+    # defaults merge
+    base = {"rclone": {"args": ["--a"], "remote": "r"},
+            "database": {"databases": ["d1"], "retention": {"daily": {"keep": 1}}}}
+    over = {"rclone": {"args": ["--b"]},
+            "database": {"databases": ["d2"], "retention": {"weekly": {"keep": 2}}}}
+    merged = deep_merge(base, over)
+    check("merge appends rclone.args", merged["rclone"]["args"] == ["--a", "--b"])
+    check("merge replaces databases", merged["database"]["databases"] == ["d2"])
+    check("merge keeps maps", merged["database"]["retention"] ==
+          {"daily": {"keep": 1}, "weekly": {"keep": 2}})
+    check("merge scalar wins", deep_merge({"a": 1, "b": {"c": 1}}, {"b": {"c": 2}})["b"]["c"] == 2)
+
     # config validation
     with tempfile.TemporaryDirectory() as tmp:
         base = """
