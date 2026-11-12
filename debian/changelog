@@ -1,3 +1,15 @@
+kwbackup (0.0.23) unstable; urgency=medium
+
+  * chore: ignore the local test sandbox
+
+    _test/ (a migrated config with real bucket keys, rclone.conf and a log) was
+    committed by mistake in 0.0.21 via 'git add -A'. It is removed from the index
+    and purged from the whole history; the files stay on disk and are ignored.
+
+    No remote is configured, so nothing was published.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:16:10 +0300
+
 kwbackup (0.0.22) unstable; urgency=medium
 
   * fix(cli): never run a backup without an explicit action

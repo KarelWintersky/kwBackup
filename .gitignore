@@ -16,3 +16,4 @@ debian/debhelper-build-stamp
 *.buildinfo
 *.dsc
 _real/
+_test/
