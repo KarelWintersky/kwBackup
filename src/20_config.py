@@ -6,10 +6,13 @@ class ConfigError(Exception):
     pass
 
 
+# Validation schema: the allowed keys of every section. Anything else is a
+# config error with the list of valid keys, so a typo cannot silently
+# disable a section (`databeses:` would otherwise be ignored and the backup
+# would run with no databases at all).
 SECTIONS = {
     "root": {"version", "project", "log", "runtime", "rclone",
              "database", "storage", "archive", "security"},
-    "security": {"check_excessive_access_rights"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
     "rclone": {"binary", "config", "remote", "args", "env"},
@@ -19,11 +22,19 @@ SECTIONS = {
     "storage": {"enabled", "mode", "target", "sources"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "target", "retention", "retention_mode"},
+    "security": {"check_excessive_access_rights"},
+    "retention": {"keep", "max_age"},
+    "source": {"path", "dest"},
 }
 
+# Enumerations checked in load_config.
 COMPRESSORS = ("zstd", "gzip", "pigz", "rar", "none")
 DB_TYPES = ("mysql", "mariadb", "postgres", "pgsql", "sqlite")
+
+# Retention classes: validated here and iterated by the actions and reports.
 RETENTION_CLASSES = ("daily", "weekly", "monthly")
+
+# max_age syntax: 30s, 15m, 12h, 7d, 6w.
 AGE_RE = re.compile(r"^(\d+)([smhdw])$")
 AGE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
@@ -334,9 +345,6 @@ def _parse_retention(value, path, errors, mode_hint=None):
         return None
     return Retention(max_age=age)
 
-
-SECTIONS["retention"] = {"keep", "max_age"}
-SECTIONS["source"] = {"path", "dest"}
 
 
 def load_config(path, env=None, defaults=None):

@@ -1,3 +1,14 @@
+kwbackup (0.0.18) unstable; urgency=medium
+
+  * refactor(config): keep the whole validation schema in one dict
+
+    retention and source were added to SECTIONS after _parse_retention, far from
+    the rest of the schema. They are entries of the same dictionary, so they now
+    live in the literal, and the constant groups carry a one-line explanation of
+    what uses them.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:06:59 +0300
+
 kwbackup (0.0.17) unstable; urgency=medium
 
   * chore: stop tracking IDE files
