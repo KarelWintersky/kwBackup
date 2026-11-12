@@ -115,7 +115,6 @@ class Env:
 
     def base_config(self, **extra):
         body = f"""
-version: 1
 project: e2e
 log: {{level: info}}
 runtime: {{temp_dir: {self.tmp}}}
@@ -617,7 +616,6 @@ def test_defaults_file_layer():
     try:
         defaults = env.dir / "defaults.yaml"
         defaults.write_text(f"""
-version: 1
 log: {{level: warning}}
 rclone:
   binary: {env.bin / "rclone"}
@@ -632,7 +630,6 @@ database:
 """, encoding="utf-8")
         task = env.dir / "task.yaml"
         task.write_text("""
-version: 1
 project: layered
 rclone:
   args:
@@ -768,7 +765,6 @@ def test_mode_sync_rejected_in_config():
     env = Env()
     try:
         base = """
-version: 1
 project: mirror
 rclone: {binary: %s, remote: fake}
 """ % (env.bin / "rclone")
@@ -943,7 +939,6 @@ def test_shared_target_keeps_foreign_archives():
         def config(project):
             path = env.dir / f"{project}.yaml"
             path.write_text(f"""
-version: 1
 project: {project}
 rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
 archive:
@@ -974,7 +969,6 @@ def test_shared_target_keeps_foreign_databases():
         def config(dbname):
             path = env.dir / f"{dbname}.yaml"
             path.write_text(f"""
-version: 1
 project: {dbname}
 rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
 database:
@@ -1003,7 +997,6 @@ def test_quiet_by_default():
     try:
         logfile = env.dir / "kwbackup.log"
         env.write_config(f"""
-version: 1
 project: quiet
 log: {{level: info, file: {logfile}}}
 runtime: {{temp_dir: {env.tmp}}}

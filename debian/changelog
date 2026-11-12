@@ -1,3 +1,17 @@
+kwbackup (0.0.34) unstable; urgency=medium
+
+  * feat(config): drop the version field entirely
+
+    The schema only grows, and an unknown key is already a hard error, so a
+    schema version marker added nothing but a line of boilerplate in every task
+    file. Removed from SECTIONS, from the validator, from the migrator output,
+    from the examples and from the documentation.
+
+    An old file that still carries 'version: 1' fails with a clear
+    'config.version: unknown key' instead of being silently accepted.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:58:47 +0300
+
 kwbackup (0.0.33) unstable; urgency=medium
 
   * feat(retention): prune only the files this config owns; archive name defaults to project

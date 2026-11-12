@@ -124,7 +124,6 @@ def build_yaml(old, project, source_path):
     add(f"# Сгенерировано kwbackup migrate из {source_path}")
     add("# Проверьте перед использованием: kwbackup -c <этот файл> --check-config")
     add("")
-    add("version: 1")
     add(f"project: {_yaml_value(project)}")
 
     log_file = _str(old, "LOG_FILE")

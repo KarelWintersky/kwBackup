@@ -11,7 +11,7 @@ class ConfigError(Exception):
 # disable a section (`databeses:` would otherwise be ignored and the backup
 # would run with no databases at all).
 SECTIONS = {
-    "root": {"version", "project", "log", "runtime", "rclone",
+    "root": {"project", "log", "runtime", "rclone",
              "database", "storage", "archive"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
@@ -327,8 +327,6 @@ def load_config(path, env=None, defaults=None):
 
     errors = []
     _check_keys(data, "root", "config", errors)
-    if data.get("version") != 1:
-        errors.append("config.version: must be 1")
     data = _expand_env(data, "config", errors)
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",

@@ -1,5 +1,4 @@
 # Синхронизация файлового storage. Общие настройки — в /etc/kwbackup/defaults.yaml.
-version: 1
 project: uploads
 
 rclone:

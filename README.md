@@ -133,7 +133,6 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 [`examples/full.yaml`](examples/full.yaml)):
 
 ```yaml
-version: 1
 project: shop
 
 rclone:

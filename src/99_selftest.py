@@ -65,7 +65,6 @@ h: ${HOME}/bin
 
     # built-in defaults (the single source of default values)
     check("builtin db type", _default("database", "type") == "mysql")
-    check("builtin archive name", _default("archive", "name") == "archive")
     check("builtin include is a copy",
           _default("archive", "include") == ["*"]
           and _default("archive", "include") is not BUILTIN_DEFAULTS["archive"]["include"])
@@ -86,7 +85,6 @@ h: ${HOME}/bin
     # config validation
     with tempfile.TemporaryDirectory() as tmp:
         base = """
-version: 1
 project: t
 rclone: {remote: r, config: /dev/null}
 database:
