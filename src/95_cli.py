@@ -9,9 +9,9 @@ def build_parser():
                "Subcommands: migrate OLD.conf [-o OUT.yaml]  (convert the legacy bash config)",
     )
     p.add_argument("-c", "--config", metavar="FILE", help="config file (YAML)")
-    p.add_argument("--defaults", metavar="FILE",
-                   help="defaults file (default: kwbackup_defaults.yaml next to "
-                        "the script, next to the config, or /etc/kwbackup)")
+    # Hidden: the system defaults always come from /etc/kwbackup/defaults.yaml.
+    # The flag exists for tests and for running the examples in place.
+    p.add_argument("--defaults", metavar="FILE", help=argparse.SUPPRESS)
     p.add_argument("-d", "--database", action="store_true", help="backup databases")
     p.add_argument("-s", "--storage", action="store_true", help="backup file storage")
     p.add_argument("-a", "--archive", action="store_true", help="backup file archive")
@@ -64,7 +64,7 @@ def main(argv=None):
     setup_logging(cfg, args.verbose, args.debug)
     DRY = args.dry_run
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
-    LOG.debug("defaults: %s", cfg.defaults_path or "none")
+    LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
     for warning in secret_warnings(cfg):
         LOG.warning("%s", warning)
 
@@ -137,7 +137,7 @@ def requested_actions(cfg, args, silent=False):
 
 def check_config(cfg, args):
     print(f"config OK: {cfg.path}")
-    print(f"  defaults: {cfg.defaults_path or 'none (config is self-contained)'}")
+    print(f"  defaults: {cfg.defaults_path or 'none (built-in defaults only)'}")
     print(f"  project: {cfg.project}")
     print(f"  rclone:  {cfg.rclone.remote} via {cfg.rclone.config or 'default config'}")
     if cfg.database.enabled:

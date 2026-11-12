@@ -27,8 +27,6 @@ RETENTION_CLASSES = ("daily", "weekly", "monthly")
 AGE_RE = re.compile(r"^(\d+)([smhdw])$")
 AGE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
-DEFAULTS_NAME = "kwbackup_defaults.yaml"
-
 # Lists that are APPENDED when a task config overrides the defaults file.
 # These are "add another option" lists where duplicates are harmless and the
 # last flag wins (rclone, dumpers, compressors). Every other list is replaced:
@@ -82,12 +80,12 @@ class SecurityCfg:
     # Warn when a file that carries S3 credentials is readable by
     # group/other. Some setups mount configs read-only with fixed modes;
     # they can switch this off.
-    check_excessive_access_rights: bool = True
+    check_excessive_access_rights: bool = _default("security", "check_excessive_access_rights")
 
 
 @dataclass
 class RcloneCfg:
-    binary: str = "rclone"
+    binary: str = _default("rclone", "binary")
     config: str | None = None
     remote: str = ""
     args: list = field(default_factory=list)
@@ -97,24 +95,24 @@ class RcloneCfg:
 @dataclass
 class DatabaseCfg:
     enabled: bool = False
-    type: str = "mysql"
-    host: str = "localhost"
+    type: str = _default("database", "type")
+    host: str = _default("database", "host")
     port: int | None = None
     user: str | None = None
     password_env: str | None = None
     args: list = field(default_factory=list)
-    compressor: str = "zstd"
+    compressor: str = _default("database", "compressor")
     compressor_args: list = field(default_factory=list)
     target: str = ""
     databases: list = field(default_factory=list)
     retention: dict = field(default_factory=dict)      # class -> Retention | None
-    catch_up: bool = False
+    catch_up: bool = _default("database", "catch_up")
 
 
 @dataclass
 class StorageCfg:
     enabled: bool = False
-    mode: str = "sync"
+    mode: str = _default("storage", "mode")
     target: str = ""
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
 
@@ -122,11 +120,11 @@ class StorageCfg:
 @dataclass
 class ArchiveCfg:
     enabled: bool = False
-    compressor: str = "zstd"
+    compressor: str = _default("archive", "compressor")
     compressor_args: list = field(default_factory=list)
-    name: str = "archive"
+    name: str = _default("archive", "name")
     root: str = ""
-    include: list = field(default_factory=lambda: ["*"])
+    include: list = field(default_factory=lambda: _default("archive", "include"))
     exclude: list = field(default_factory=list)
     target: str = ""
     retention: Retention | None = None
@@ -138,10 +136,10 @@ class Config:
     project: str
     defaults_path: Path | None = None
     secret_files: list = field(default_factory=list)   # [(label, path)]
-    log_level: str = "info"
+    log_level: str = _default("log", "level")
     log_file: str | None = None
-    temp_dir: Path = Path("/tmp/kwbackup")
-    keep_temp: bool = False
+    temp_dir: Path = Path(_default("runtime", "temp_dir"))
+    keep_temp: bool = _default("runtime", "keep_temp")
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
     security: SecurityCfg = field(default_factory=SecurityCfg)
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
@@ -149,22 +147,16 @@ class Config:
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
 
 
-def find_defaults(config_path, explicit=None):
-    """Locate kwbackup_defaults.yaml.
+def find_defaults(explicit=None):
+    """The system defaults file. Only /etc/kwbackup/defaults.yaml, nothing else.
 
-    Order: --defaults, the script directory, the task config directory,
-    /etc/kwbackup. None means "no defaults file, the task config is complete".
+    `explicit` is the hidden --defaults flag: tests and running the examples
+    in place. None means "no file, the built-in defaults are the whole base".
     """
     if explicit:
         return Path(explicit)
-    script_dir = Path(sys.argv[0]).resolve().parent
-    candidates = [script_dir / DEFAULTS_NAME,
-                  Path(config_path).resolve().parent / DEFAULTS_NAME,
-                  Path("/etc/kwbackup") / DEFAULTS_NAME]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
+    return SYSTEM_DEFAULTS_PATH if SYSTEM_DEFAULTS_PATH.is_file() else None
+
 
 
 def deep_merge(base, override, path=""):
@@ -359,18 +351,17 @@ def load_config(path, env=None, defaults=None):
         raise ConfigError(f"{defaults}: defaults file not found")
 
     task = _read_yaml(path)
-    chosen = find_defaults(path, defaults)
+    chosen = find_defaults(defaults)
     secret_files = [("config", path)] if _has_credentials(task) else []
-    data = task
+    data = BUILTIN_DEFAULTS
     if chosen is not None:
         if not chosen.is_file():
             raise ConfigError(f"{chosen}: defaults file not found")
         defaults_data = _read_yaml(chosen)
         if _has_credentials(defaults_data):
             secret_files.append(("defaults", chosen))
-        data = deep_merge(defaults_data, task)
-    else:
-        chosen = None
+        data = deep_merge(BUILTIN_DEFAULTS, defaults_data)
+    data = deep_merge(data, task)
 
     errors = []
     _check_keys(data, "root", "config", errors)
@@ -387,7 +378,8 @@ def load_config(path, env=None, defaults=None):
         errors.append("config.log: expected a mapping")
         log_raw = {}
     _check_keys(log_raw, "log", "config.log", errors)
-    level = (_as_str(log_raw.get("level"), "config.log.level", errors, "info") or "info").lower()
+    level = (_as_str(log_raw.get("level"), "config.log.level", errors,
+                     _default("log", "level")) or "info").lower()
     if level not in ("debug", "info", "warning", "error"):
         errors.append(f"config.log.level: unknown level {level!r}")
         level = "info"
@@ -402,7 +394,8 @@ def load_config(path, env=None, defaults=None):
     cfg.security = SecurityCfg(
         check_excessive_access_rights=_as_bool(
             sec.get("check_excessive_access_rights"),
-            "config.security.check_excessive_access_rights", errors, True),
+            "config.security.check_excessive_access_rights", errors,
+            _default("security", "check_excessive_access_rights")),
     )
 
     rt = data.get("runtime") or {}
@@ -411,7 +404,7 @@ def load_config(path, env=None, defaults=None):
         rt = {}
     _check_keys(rt, "runtime", "config.runtime", errors)
     cfg.temp_dir = Path(_as_str(rt.get("temp_dir"), "config.runtime.temp_dir", errors,
-                                "/tmp/kwbackup"))
+                                _default("runtime", "temp_dir")))
     cfg.keep_temp = _as_bool(rt.get("keep_temp"), "config.runtime.keep_temp", errors)
 
     rl = data.get("rclone") or {}
@@ -420,7 +413,8 @@ def load_config(path, env=None, defaults=None):
         rl = {}
     _check_keys(rl, "rclone", "config.rclone", errors)
     cfg.rclone = RcloneCfg(
-        binary=_as_str(rl.get("binary"), "config.rclone.binary", errors, "rclone"),
+        binary=_as_str(rl.get("binary"), "config.rclone.binary", errors,
+                       _default("rclone", "binary")),
         config=_as_str(rl.get("config"), "config.rclone.config", errors),
         remote=_as_str(rl.get("remote"), "config.rclone.remote", errors, required=True) or "",
         args=_as_list(rl.get("args"), "config.rclone.args", errors),
@@ -436,10 +430,12 @@ def load_config(path, env=None, defaults=None):
     if retention_mode not in (None, "keep", "max_age"):
         errors.append("config.database.retention_mode: expected keep or max_age")
         retention_mode = None
-    db_type = (_as_str(db.get("type"), "config.database.type", errors, "mysql") or "mysql").lower()
+    db_type = (_as_str(db.get("type"), "config.database.type", errors,
+                       _default("database", "type")) or "mysql").lower()
     if db_type not in DB_TYPES:
         errors.append(f"config.database.type: unsupported {db_type!r} (allowed: {', '.join(DB_TYPES)})")
-    compressor = (_as_str(db.get("compressor"), "config.database.compressor", errors, "zstd") or "zstd").lower()
+    compressor = (_as_str(db.get("compressor"), "config.database.compressor", errors,
+                          _default("database", "compressor")) or "zstd").lower()
     if compressor not in COMPRESSORS:
         errors.append(f"config.database.compressor: unsupported {compressor!r} (allowed: {', '.join(COMPRESSORS)})")
     target = _as_str(db.get("target"), "config.database.target", errors) or ""
@@ -460,7 +456,8 @@ def load_config(path, env=None, defaults=None):
     cfg.database = DatabaseCfg(
         enabled=_as_bool(db.get("enabled"), "config.database.enabled", errors),
         type=db_type,
-        host=_as_str(db.get("host"), "config.database.host", errors, "localhost") or "localhost",
+        host=_as_str(db.get("host"), "config.database.host", errors,
+                     _default("database", "host")) or "localhost",
         port=_as_int(db.get("port"), "config.database.port", errors, minimum=1),
         user=_as_str(db.get("user"), "config.database.user", errors),
         password_env=_as_str(db.get("password_env"), "config.database.password_env", errors),
@@ -486,7 +483,8 @@ def load_config(path, env=None, defaults=None):
     _check_keys(st, "storage", "config.storage", errors)
     cfg.storage = StorageCfg(
         enabled=_as_bool(st.get("enabled"), "config.storage.enabled", errors),
-        mode=_as_str(st.get("mode"), "config.storage.mode", errors, "sync") or "sync",
+        mode=_as_str(st.get("mode"), "config.storage.mode", errors,
+                     _default("storage", "mode")) or "sync",
         target=_as_str(st.get("target"), "config.storage.target", errors) or "",
         sources=_as_sources(st.get("sources"), "config.storage.sources", errors),
     )
@@ -504,9 +502,11 @@ def load_config(path, env=None, defaults=None):
         ar_mode = None
     cfg.archive = ArchiveCfg(
         enabled=_as_bool(ar.get("enabled"), "config.archive.enabled", errors),
-        compressor=(_as_str(ar.get("compressor"), "config.archive.compressor", errors, "zstd") or "zstd").lower(),
+        compressor=(_as_str(ar.get("compressor"), "config.archive.compressor", errors,
+                            _default("archive", "compressor")) or "zstd").lower(),
         compressor_args=_as_list(ar.get("compressor_args"), "config.archive.compressor_args", errors),
-        name=_as_str(ar.get("name"), "config.archive.name", errors, "archive") or "archive",
+        name=_as_str(ar.get("name"), "config.archive.name", errors,
+                     _default("archive", "name")) or "archive",
         root=_as_str(ar.get("root"), "config.archive.root", errors) or "",
         include=_as_list(ar.get("include"), "config.archive.include", errors),
         exclude=_as_list(ar.get("exclude"), "config.archive.exclude", errors),

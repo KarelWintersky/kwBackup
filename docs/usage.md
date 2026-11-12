@@ -14,7 +14,7 @@ kwbackup --selftest
 ```bash
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
 # общие настройки хоста
-sudo install -m 600 examples/kwbackup_defaults.yaml /etc/kwbackup/kwbackup_defaults.yaml
+sudo install -m 600 examples/defaults.yaml /etc/kwbackup//etc/kwbackup/defaults.yaml
 # задача: project, target, базы, ключи бакета
 sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 # секреты, которые передаются через окружение
@@ -22,7 +22,8 @@ sudo install -m 600 examples/secrets.env.example /etc/kwbackup/secrets.env
 sudoedit /etc/kwbackup/secrets.env
 ```
 
-`kwbackup_defaults.yaml` и файлы задач держите с правами `0600`: у BEGET
+`/etc/kwbackup/defaults.yaml` ставится с правами `0644` (он идёт conffile в
+пакете), файлы задач с ключами держите `0600`: у BEGET
 ключи выдаются на бакет и передаются флагами rclone прямо в конфиге, так что
 файл задачи — это файл с секретами. `--check-config` предупреждает, если права
 шире `0600` (`security: warnings`).
@@ -221,7 +222,7 @@ kwbackup -c uploads.yaml --restore -s --to /srv/restore
 | код 2, `unknown key` | опечатка в конфиге | сверить с `docs/configuration.md` |
 | код 2, `environment variable X is not set` | не загружен secrets.env | `EnvironmentFile=` / `. secrets.env` |
 | код 2, `defaults file not found` | указан несуществующий `--defaults` | поправить путь |
-| конфиг «дополняется» не тем, что вы ждёте | рядом лежит `kwbackup_defaults.yaml` | смотреть строку `defaults:` в `--check-config`, при необходимости `--defaults` |
+| конфиг «дополняется» не тем, что вы ждёте | сработал `/etc/kwbackup/defaults.yaml` | смотреть строку `defaults:` в `--check-config` |
 | код 2, `at least one class must be configured` | пустой `retention` | включить класс |
 | код 4, `already running` | параллельный запуск того же проекта | дождаться; проверить `ps` и lock-файл |
 | код 1, `binary not found in PATH` | нет `rclone`/`zstd`/`tar`/дампа | установить пакет |
@@ -242,7 +243,7 @@ kwbackup -c uploads.yaml --restore -s --to /srv/restore
   флаги `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
   Файл с ними — `0600`; ключи можно подставлять из `secrets.env`.
   Пароли БД — через `password_env`.
-* `kwbackup_defaults.yaml` может содержать ключи для единственного бакета:
+* `/etc/kwbackup/defaults.yaml` может содержать ключи для единственного бакета:
   тогда это тоже файл `0600`.
 * Ключи на аккаунт можно держать в `rclone.conf` — это штатно; флаги
   в `rclone.args` их перекрывают для конкретного бакета.

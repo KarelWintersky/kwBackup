@@ -24,7 +24,7 @@
   блокировка снимается ядром даже при `kill -9`.
 * **Миграция**: `kwbackup migrate old.conf` конвертирует старый bash-конфиг
   в YAML, сохраняя глубину хранения.
-* **Слои конфигурации**: общий `kwbackup_defaults.yaml` (логи, rclone, глубина
+* **Слои конфигурации**: общий `/etc/kwbackup/defaults.yaml` (логи, rclone, глубина
   хранения, компрессоры) + короткий файл задачи на каждый проект.
 * `--dry-run`, `--check-config`, `--selftest`.
 
@@ -60,7 +60,7 @@ rclone config
 
 # 2. общие настройки хоста: логи, rclone.config/remote, глубина хранения
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
-sudo install -m 600 examples/kwbackup_defaults.yaml /etc/kwbackup/kwbackup_defaults.yaml
+sudo install -m 600 examples/defaults.yaml /etc/kwbackup//etc/kwbackup/defaults.yaml
 
 # 3. задача: project, target, базы и ключи бакета
 #    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
@@ -110,7 +110,7 @@ kwbackup -c /etc/kwbackup/shop.yaml --list
 
 ## Конфиг
 
-Общие настройки — один раз на хост, [`examples/kwbackup_defaults.yaml`](examples/kwbackup_defaults.yaml):
+Общие настройки — один раз на хост, [`examples/defaults.yaml`](examples/defaults.yaml):
 логи, `rclone.config`, `rclone.remote`, тип БД, компрессор, глубина хранения.
 
 Файл задачи после этого короткий (полный самодостаточный пример —
@@ -134,8 +134,9 @@ database:
   # log, rclone.config/remote, compressor, retention — из defaults
 ```
 
-Файл дефолтов ищется рядом со скриптом, рядом с конфигом задачи и в
-`/etc/kwbackup`; перекрыть путь — `--defaults FILE`. Списки `rclone.args`,
+Файл `/etc/kwbackup/defaults.yaml` — единственное место, которое читает
+программа; ниже него лежат встроенные дефолты (`src/05_builtin_defaults.py`).
+Списки `rclone.args`,
 `database.args`, `*_compressor_args` и `archive.exclude` дополняются,
 остальные значения задача перекрывает.
 
@@ -150,7 +151,7 @@ database:
   `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
   Файл с ключами — `0600`, `--check-config` предупредит, если права шире
   (проверка включается ключом `security.check_excessive_access_rights`,
-  обычно в `kwbackup_defaults.yaml`). Можно подставлять из окружения:
+  обычно в `/etc/kwbackup/defaults.yaml`). Можно подставлять из окружения:
   `--s3-access-key-id=${BEGET_SHOP_KEY}`.
 * **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
   флаги в `rclone.args` перекрывают их для конкретного бакета.

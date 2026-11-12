@@ -1,11 +1,11 @@
-# kwbackup_defaults.yaml — общие настройки для всех задач на этом хосте.
+# /etc/kwbackup/defaults.yaml — общие настройки для всех задач на этом хосте.
 #
-# Где ищется (первый найденный):
-#   1. --defaults FILE
-#   2. рядом со скриптом: /usr/local/bin/kwbackup_defaults.yaml
-#   3. рядом с конфигом задачи: /etc/kwbackup/kwbackup_defaults.yaml
-#   4. /etc/kwbackup/kwbackup_defaults.yaml
-# Нет файла — конфиг задачи считается полным и ничем не дополняется.
+# Это единственный путь, который читает программа: /etc/kwbackup/defaults.yaml.
+# Ниже него лежат встроенные дефолты (src/05_builtin_defaults.py), выше —
+# файл задачи, указанный в --config. Файла нет — работают только встроенные.
+#
+# Установка из .deb кладёт этот файл как conffile с правами 0644. Если
+# положите сюда ключи бакета, сделайте chmod 600: проверка прав предупредит.
 #
 # Задача перекрывает любое значение. Списки `rclone.args`, `database.args`,
 # `database.compressor_args`, `archive.compressor_args` и `archive.exclude`

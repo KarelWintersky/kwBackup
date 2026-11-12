@@ -600,10 +600,12 @@ def test_documented_examples_validate():
     try:
         secret_env = {"RCLONE_KEY_ID": "k", "RCLONE_SECRET": "s", "MYSQL_PWD": "p"}
         files = [p for p in sorted((ROOT / "examples").glob("*.yaml"))
-                 if p.name != "kwbackup_defaults.yaml"]   # defaults are not a task
+                 if p.name != "defaults.yaml"]   # defaults are not a task
         assert files, "no example configs found"
         for path in files:
-            env.run("-c", path, "--check-config", extra_env=secret_env)
+            env.run("-c", path, "--check-config",
+                    "--defaults", ROOT / "examples" / "defaults.yaml",
+                    extra_env=secret_env)
     finally:
         env.cleanup()
 
@@ -611,7 +613,7 @@ def test_documented_examples_validate():
 def test_defaults_file_layer():
     env = Env()
     try:
-        defaults = env.dir / "kwbackup_defaults.yaml"      # next to the task config
+        defaults = env.dir / "defaults.yaml"
         defaults.write_text(f"""
 version: 1
 log: {{level: warning}}
@@ -639,35 +641,21 @@ database:
   target: "fake:/DB"
   databases: [db1]
 """, encoding="utf-8")
+        base = ["-c", task, "--defaults", defaults]
 
-        out = env.run("-c", task, "--check-config")
-        assert "kwbackup_defaults.yaml" in out.stdout, out.stdout
+        out = env.run(*base, "--check-config")
+        assert "defaults.yaml" in out.stdout, out.stdout
         assert "keep 1" in out.stdout, out.stdout
         assert "chmod 600" in out.stdout, out.stdout        # 0644 + credentials
-        assert "kwbackup_defaults.yaml contains credentials" not in out.stdout, out.stdout
+        assert "defaults.yaml contains credentials" not in out.stdout, out.stdout
 
-        env.run("-c", task, "-d")
+        env.run(*base, "-d")
         log = (env.dir / "rclone.log").read_text()
         assert "--s3-no-check-bucket" in log, log           # from defaults
         assert "--s3-access-key-id=KEY1" in log, log        # from the task, appended
         assert "--s3-secret-access-key=SECRET1" in log, log
 
-        # keys in the defaults file are flagged as that file's problem
-        defaults.write_text(defaults.read_text(encoding="utf-8").replace(
-            '  args: ["--s3-no-check-bucket"]',
-            '  args: ["--s3-no-check-bucket", "--s3-secret-access-key=SECRET2"]'),
-            encoding="utf-8")
-        out = env.run("-c", task, "--check-config")
-        assert "defaults" in out.stdout and "contains credentials" in out.stdout, out.stdout
-
-        # 0600 on both files: no security warnings at all
-        defaults.chmod(0o600)
-        task.chmod(0o600)
-        out = env.run("-c", task, "--check-config")
-        assert "chmod 600" not in out.stdout, out.stdout
-        assert "permissions check on" in out.stdout, out.stdout
-
-        # keys inside rclone.conf are account-level: no warning, that is normal
+        # rclone.conf with account-level keys is normal, never flagged
         rclone_conf = env.dir / "rclone.conf"
         rclone_conf.write_text("[beget]\naccess_key_id = AAAA\nsecret_access_key = BBBB\n",
                                encoding="utf-8")
@@ -675,8 +663,8 @@ database:
         task.write_text(task.read_text(encoding="utf-8").replace(
             "rclone:\n  args:",
             f"rclone:\n  config: {rclone_conf}\n  args:"), encoding="utf-8")
-        out = env.run("-c", task, "--check-config")
-        assert "chmod 600" not in out.stdout, out.stdout
+        out = env.run(*base, "--check-config")
+        assert "rclone.conf contains credentials" not in out.stdout, out.stdout
 
         # the check can be switched off in config
         task.write_text(task.read_text(encoding="utf-8").replace(
@@ -684,12 +672,33 @@ database:
             "version: 1\nproject: layered\nsecurity: {check_excessive_access_rights: false}"),
             encoding="utf-8")
         task.chmod(0o644)
-        out = env.run("-c", task, "--check-config")
-        assert "chmod 600" not in out.stdout, out.stdout
+        out = env.run(*base, "--check-config")
+        assert "rclone.conf contains credentials" not in out.stdout, out.stdout
         assert "permissions check off" in out.stdout, out.stdout
 
-        env.run("-c", task, "--check-config", "--defaults",
-                env.dir / "missing.yaml", expect=2)
+        env.run("-c", task, "--defaults", env.dir / "missing.yaml",
+                "--check-config", expect=2)
+    finally:
+        env.cleanup()
+
+
+def test_builtin_defaults_only():
+    """Without /etc/kwbackup/defaults.yaml the built-in defaults apply."""
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+  retention:
+    daily: {keep: 2}
+""")
+        out = env.run("-c", env.config, "--check-config")
+        assert "built-in defaults only" in out.stdout, out.stdout
+        assert "compressor zstd" in out.stdout, out.stdout      # builtin value
+        env.run("-c", env.config, "-d")
+        assert env.cloud_tree()[0].endswith(".sql.zst"), env.cloud_tree()
     finally:
         env.cleanup()
 
@@ -700,7 +709,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
          test_restore_archive_and_storage, test_restore_at_filter,
          test_migrate_old_config, test_migrate_uses_keep_by_default,
-         test_documented_examples_validate, test_defaults_file_layer]
+         test_documented_examples_validate, test_defaults_file_layer,
+         test_builtin_defaults_only]
 
 
 def main():

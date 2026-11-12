@@ -1,4 +1,4 @@
-# tar-архив каталога. Общие настройки — в kwbackup_defaults.yaml.
+# tar-архив каталога. Общие настройки — в /etc/kwbackup/defaults.yaml.
 version: 1
 project: site
 

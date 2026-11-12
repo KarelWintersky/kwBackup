@@ -63,6 +63,14 @@ h: ${HOME}/bin
     check("parse_age", parse_age("7d") == dt.timedelta(days=7) and parse_age("12h") == dt.timedelta(hours=12))
     check("fmt_age", fmt_age(dt.timedelta(days=43)) == "43d")
 
+    # built-in defaults (the single source of default values)
+    check("builtin db type", _default("database", "type") == "mysql")
+    check("builtin archive name", _default("archive", "name") == "archive")
+    check("builtin include is a copy",
+          _default("archive", "include") == ["*"]
+          and _default("archive", "include") is not BUILTIN_DEFAULTS["archive"]["include"])
+    check("builtin system path", str(SYSTEM_DEFAULTS_PATH) == "/etc/kwbackup/defaults.yaml")
+
     # defaults merge
     base = {"rclone": {"args": ["--a"], "remote": "r"},
             "database": {"databases": ["d1"], "retention": {"daily": {"keep": 1}}}}
