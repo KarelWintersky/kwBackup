@@ -17,8 +17,14 @@ Exit codes: 0 ok, 1 runtime error, 2 config error, 3 usage error,
             4 already running (lock), 5 verification failed.
 """
 
-VERSION = "1.0.0"
+VERSION = "LOCALDEV"
 PROG = "kwbackup"
+
+import sys
+
+# Never leave __pycache__ next to the installed script. The -B in the shebang
+# does the same for direct execution; this covers `python3 /usr/bin/kwbackup`.
+sys.dont_write_bytecode = True
 
 import argparse
 import contextlib

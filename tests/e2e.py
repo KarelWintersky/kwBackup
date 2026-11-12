@@ -703,6 +703,23 @@ database:
         env.cleanup()
 
 
+def test_build_version_and_shebang():
+    """build.py substitutes the version and produces a -B shebang."""
+    env = Env()
+    try:
+        out = env.dir / "kwbackup-built"
+        res = subprocess.run(
+            [sys.executable, str(ROOT / "build.py"), "--version", "9.9.9",
+             "-o", str(out)],
+            capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+        assert out.read_text(encoding="utf-8").splitlines()[0] == "#!/usr/bin/python3 -B"
+        ver = subprocess.run([str(out), "--version"], capture_output=True, text=True)
+        assert ver.stdout.strip() == "kwbackup 9.9.9", ver.stdout
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -710,7 +727,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_restore_archive_and_storage, test_restore_at_filter,
          test_migrate_old_config, test_migrate_uses_keep_by_default,
          test_documented_examples_validate, test_defaults_file_layer,
-         test_builtin_defaults_only]
+         test_builtin_defaults_only, test_build_version_and_shebang]
 
 
 def main():
