@@ -1,64 +1,66 @@
-# /etc/kwbackup/defaults.yaml — общие настройки для всех задач на этом хосте.
+# /etc/kwbackup/defaults.yaml — все настройки по умолчанию для этого хоста.
 #
-# Это единственный путь, который читает программа: /etc/kwbackup/defaults.yaml.
-# Ниже него лежат встроенные дефолты (src/05_builtin_defaults.py), выше —
-# файл задачи, указанный в --config. Файла нет — работают только встроенные.
+# Это единственный файл, который читает программа. Ниже него лежат встроенные
+# дефолты (src/05_builtin_defaults.py): если ключа здесь нет, берётся оттуда.
+# Выше — файл задачи, указанный в --config; он перекрывает любой ключ отсюда.
+# Удалённый из этого файла ключ снова начинает браться из встроенных дефолтов.
 #
-# Установка из .deb кладёт этот файл как conffile с правами 0644. Если
-# положите сюда ключи бакета, сделайте chmod 600: проверка прав предупредит.
+# Файл сознательно содержит НЕ МЕНЬШЕ ключей, чем встроенные дефолты: сюда
+# смотрят, чтобы узнать значения по умолчанию, а не в исходники.
 #
-# Задача перекрывает любое значение. Списки `rclone.args`, `database.args`,
-# `database.compressor_args`, `archive.compressor_args` и `archive.exclude`
-# ДОПОЛНЯЮТСЯ (дефолты + задача), остальные списки заменяются целиком
-# (`databases`, `storage.sources`, `archive.include`).
+# Установка из .deb кладёт его как conffile с правами 0644. Если добавите сюда
+# ключи бакета, сделайте chmod 600 — проверка прав предупредит.
 
 version: 1
 
 log:
   level: info
-  file: /var/log/kwbackup/kwbackup.log   # общий лог на все задачи
+  file: /var/log/kwbackup/kwbackup.log
 
 runtime:
   temp_dir: /tmp/kwbackup
-
-# Проверка прав на файлы, где ключи доступа передаются флагами rclone
-# (--s3-access-key-id / --s3-secret-access-key): если такой файл читаем
-# группой или остальными, --check-config и каждый запуск печатают
-# предупреждение с предложением chmod 600. Проверяются файл задачи и этот
-# файл дефолтов. Ключи внутри rclone.conf — нормальный сценарий (они на
-# аккаунт), он не проверяется.
-# false — отключить, например когда конфиги лежат на read-only монтировании
-# с правами, которые вы всё равно не можете изменить.
-security:
-  check_excessive_access_rights: true
+  keep_temp: false          # true = не удалять локальную копию после заливки
 
 rclone:
-  config: /etc/kwbackup/rclone_beget.conf
+  binary: rclone
+  config: /etc/kwbackup/rclone.conf
   remote: beget
   args:
     - --s3-no-check-bucket
-    # BEGET выдаёт access key / secret key на БАКЕТ (как minio), а не на
-    # аккаунт, и в rclone.conf стоит env_auth = false. Поэтому ключи
-    # передаются флагами rclone в файле задачи:
-    #   --s3-access-key-id=...
-    #   --s3-secret-access-key=...
-    # Если бакет один на весь хост — можно держать ключи прямо здесь,
-    # тогда файлы задач будут совсем короткими.
+  env: {}
 
 database:
-  type: mariadb
+  type: mariadb             # mysql | mariadb | postgres | sqlite
   host: localhost
+  # port: 3306              # по умолчанию порт клиента; 3306 неверен для postgres
   user: backup
   password_env: MYSQL_PWD
-  compressor: zstd
+  compressor: zstd          # zstd | gzip | pigz | rar | none
   compressor_args: ["-3"]
-  catch_up: false
+  mode: copy                # в конфиге допустим только copy; -m sync — из CLI
+  catch_up: false           # true = догонять пропущенные weekly/monthly
+  retention_mode: keep      # keep | max_age; запрещает смешивать правила
   retention:
-    daily:   {keep: 8}
-    weekly:  {keep: 6}
-    monthly: {keep: 12}
+    daily:
+      keep: 8
+    weekly:
+      keep: 6
+    monthly:
+      keep: 12
+    # daily: {max_age: 7d}  # альтернатива, не смешивать в одном классе
+
+storage:
+  mode: sync                # sync = зеркало, copy = только доливать
 
 archive:
-  compressor: zstd
+  compressor: zstd          # zstd | gzip | pigz | rar | none
   compressor_args: ["-9"]
-  retention: {keep: 5}
+  name: archive             # к имени добавляется _<timestamp>
+  include: ["*"]            # "*" = весь root, включая dotfiles
+  exclude: []
+  mode: copy                # в конфиге допустим только copy; -m sync — из CLI
+  # retention: {keep: 5}    # нет ключа = архив не чистится НИКОГДА
+  # retention_mode: keep
+
+security:
+  check_excessive_access_rights: true

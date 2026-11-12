@@ -720,6 +720,49 @@ def test_build_version_and_shebang():
         env.cleanup()
 
 
+def _artifact():
+    """Import the built single-file tool as a module (main() is guarded)."""
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader("kwbackup_built", str(DIST))
+    spec = importlib.util.spec_from_loader("kwbackup_built", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _key_paths(data, prefix=""):
+    out = set()
+    for key, value in data.items():
+        path = f"{prefix}{key}"
+        out.add(path)
+        if isinstance(value, dict):
+            out |= _key_paths(value, path + ".")
+    return out
+
+
+def _value(data, path):
+    cur = data
+    for part in path.split("."):
+        cur = cur[part]
+    return cur
+
+
+def test_defaults_file_covers_builtins():
+    """The shipped defaults file must be at least as complete as BUILTIN_DEFAULTS."""
+    kw = _artifact()
+    raw = kw.yaml_loads((ROOT / "examples" / "defaults.yaml").read_text(encoding="utf-8"))
+    missing = _key_paths(kw.BUILTIN_DEFAULTS) - _key_paths(raw)
+    assert not missing, f"examples/defaults.yaml misses built-in keys: {sorted(missing)}"
+    for path in ("runtime.temp_dir", "runtime.keep_temp", "rclone.binary",
+                 "database.mode", "archive.mode", "storage.mode",
+                 "security.check_excessive_access_rights",
+                 "archive.include", "archive.exclude"):
+        assert _value(raw, path) == _value(kw.BUILTIN_DEFAULTS, path), path
+    assert "retention" in raw["database"], "database retention must be a host default"
+    assert "retention" not in raw["archive"], "archive is not pruned by default"
+
+
 def test_mode_copy_in_config():
     env = Env()
     try:
@@ -819,7 +862,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_documented_examples_validate, test_defaults_file_layer,
          test_builtin_defaults_only, test_build_version_and_shebang,
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
-         test_archive_sync_mirrors, test_database_sync_mirrors]
+         test_archive_sync_mirrors, test_database_sync_mirrors,
+         test_defaults_file_covers_builtins]
 
 
 def main():

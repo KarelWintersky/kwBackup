@@ -1,3 +1,21 @@
+kwbackup (0.0.20) unstable; urgency=medium
+
+  * docs: the shipped defaults file covers every built-in default
+
+    /etc/kwbackup/defaults.yaml is what people open to learn the defaults, so it
+    now lists every key of BUILTIN_DEFAULTS: runtime.keep_temp, rclone.binary,
+    rclone.env, database.mode, archive.name/include/exclude/mode and security
+    were missing.
+
+    The file stays editable: a removed key falls back to the built-in value.
+    Retention is a host default for the database only; the archive is not pruned
+    if retention is absent, which is now stated in the config and in the docs.
+
+    tests: invariant that examples/defaults.yaml is a superset of
+    BUILTIN_DEFAULTS (key paths + mechanical values), 24/24.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:34:23 +0300
+
 kwbackup (0.0.19) unstable; urgency=medium
 
   * feat: explicit copy mode for database and archive, -m sync mirrors

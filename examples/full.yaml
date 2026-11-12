@@ -121,6 +121,7 @@ archive:
   enabled: false
   compressor: zstd        # zstd | gzip | pigz | rar | none
   compressor_args: ["-9"]
+  mode: copy              # в конфиге только copy; -m sync — из CLI
   name: example           # к имени добавляется _<YYYY-MM-DD-HH-MM-SS>
   root: /srv/example      # что архивируем (каталог)
   # "*" = весь корень, включая dotfiles (.env, .git) на верхнем уровне.
@@ -129,5 +130,5 @@ archive:
   include: ["*"]
   exclude: ["*.mp4", "*.tmp", "*/cache/*"]
   target: "beget:/ARCHIVE"
-  retention: {keep: 5}    # или {max_age: 71d}; отсутствие = не чистить
+  retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
   # retention_mode: keep

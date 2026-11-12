@@ -107,6 +107,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --database` | бэкап баз данных из конфига |
 | `kwbackup --config FILE --storage` | синхронизация storage |
 | `kwbackup --config FILE --archive` | упаковка и заливка архива |
+| `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
 | `kwbackup --config FILE` | все действия, включённые в конфиге |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
 | `kwbackup --config FILE --check-config` | проверить конфиг и наличие бинарников |
