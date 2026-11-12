@@ -152,6 +152,8 @@ database:
   (проверка включается ключом `security.check_excessive_access_rights`,
   обычно в `kwbackup_defaults.yaml`). Можно подставлять из окружения:
   `--s3-access-key-id=${BEGET_SHOP_KEY}`.
+* **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
+  флаги в `rclone.args` перекрывают их для конкретного бакета.
 * **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).
 
 ## Как это работает

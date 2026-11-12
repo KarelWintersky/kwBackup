@@ -198,24 +198,6 @@ def _read_yaml(path):
     return data
 
 
-RCLONE_CONF_KEY_RE = re.compile(r"^\s*(access_key_id|secret_access_key)\s*=\s*\S+", re.I)
-
-
-def _rclone_conf_has_keys(path):
-    """Does an rclone.conf keep credentials in plain text?"""
-    try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if RCLONE_CONF_KEY_RE.match(line):
-            return True
-    return False
-
-
 def _has_credentials(data):
     """Does THIS file (before merging) carry S3 keys in rclone.args?"""
     rclone = data.get("rclone") or {}
@@ -227,15 +209,17 @@ def _has_credentials(data):
 
 
 def secret_warnings(cfg):
-    """Files that carry S3 credentials must not be readable by group/other.
+    """Files that pass S3 credentials as rclone flags must not be readable
+    by group/other.
+
+    Keys inside rclone.conf are a normal setup (account-level credentials);
+    they are not flagged: rclone flags in the task config override them.
 
     Controlled by security.check_excessive_access_rights (default: on).
     """
     if not cfg.security.check_excessive_access_rights:
         return []
     files = list(cfg.secret_files)
-    if cfg.rclone.config and _rclone_conf_has_keys(cfg.rclone.config):
-        files.append(("rclone config", cfg.rclone.config))
     warnings = []
     seen = set()
     for label, path in files:

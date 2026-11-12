@@ -667,7 +667,7 @@ database:
         assert "chmod 600" not in out.stdout, out.stdout
         assert "permissions check on" in out.stdout, out.stdout
 
-        # rclone.conf with plaintext keys is checked too
+        # keys inside rclone.conf are account-level: no warning, that is normal
         rclone_conf = env.dir / "rclone.conf"
         rclone_conf.write_text("[beget]\naccess_key_id = AAAA\nsecret_access_key = BBBB\n",
                                encoding="utf-8")
@@ -676,7 +676,7 @@ database:
             "rclone:\n  args:",
             f"rclone:\n  config: {rclone_conf}\n  args:"), encoding="utf-8")
         out = env.run("-c", task, "--check-config")
-        assert "rclone config" in out.stdout and "chmod 600" in out.stdout, out.stdout
+        assert "chmod 600" not in out.stdout, out.stdout
 
         # the check can be switched off in config
         task.write_text(task.read_text(encoding="utf-8").replace(
