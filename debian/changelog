@@ -1,3 +1,20 @@
+kwbackup (0.0.27) unstable; urgency=medium
+
+  * fix(rclone): stream rclone output under --verbose so --progress is visible
+
+    rclone was always started with capture_output=True, so its progress and stats
+    went into a captured stderr and were dropped unless the command failed. The
+    --progress flag added in 0.0.26 was therefore invisible.
+
+    run() now has capture=True/False. Rclone.run streams by default when VERBOSE
+    is on and keeps capture for lsf, whose stdout must be parsed. A failed
+    streamed command still reports the command and the exit code.
+
+    tests: the fake rclone writes a progress line to stderr when --progress is
+    present; it is hidden by default, visible with --verbose and --debug (26/26).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:34:10 +0300
+
 kwbackup (0.0.26) unstable; urgency=medium
 
   * feat(cli): --verbose also makes rclone talk, --debug owns the debug log

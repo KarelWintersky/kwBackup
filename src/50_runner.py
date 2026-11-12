@@ -17,14 +17,25 @@ def _fmt_cmd(cmd):
     return " ".join(cmd)
 
 
-def run(cmd, env=None, check=True, timeout=None):
+def run(cmd, env=None, check=True, timeout=None, capture=True):
+    """Run one command.
+
+    capture=True  - stdout/stderr are collected (needed to parse lsf output).
+    capture=False - the child writes straight to our terminal: this is how
+                    rclone --progress becomes visible under --verbose.
+    """
     if DRY:
         LOG.info("dry-run: %s", _fmt_cmd(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
     LOG.debug("run: %s", _fmt_cmd(cmd))
-    res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    if capture:
+        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+        stderr = res.stderr or res.stdout
+    else:
+        res = subprocess.run(cmd, env=env, timeout=timeout)
+        stderr = ""
     if check and res.returncode != 0:
-        raise CommandError(_fmt_cmd(cmd), res.returncode, res.stderr or res.stdout)
+        raise CommandError(_fmt_cmd(cmd), res.returncode, stderr)
     return res
 
 

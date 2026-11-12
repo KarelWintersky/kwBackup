@@ -28,6 +28,8 @@ argv = sys.argv[1:]
 if os.environ.get("FAKE_RCLONE_LOG"):
     with open(os.environ["FAKE_RCLONE_LOG"], "a") as fh:
         fh.write(" ".join(argv) + "\n")
+if "--progress" in argv:
+    print("Transferred: 1 KiB / 1 KiB, 100%", file=sys.stderr)
 while "--config" in argv:
     i = argv.index("--config"); del argv[i:i + 2]
 COMMANDS = {"lsf", "copyto", "copy", "sync", "deletefile", "cat"}
@@ -877,16 +879,19 @@ database:
 
         res = env.run("-c", env.config, "-d")
         assert "--progress" not in rlog.read_text(), "quiet by default"
+        assert "Transferred:" not in res.stderr, "rclone output stays hidden"
         assert "run:" not in res.stderr, "command lines are debug-only"
 
         rlog.unlink()
         res = env.run("-c", env.config, "-d", "--verbose")
         assert "--progress" in rlog.read_text(), "--verbose must reach rclone"
+        assert "Transferred:" in res.stderr, "rclone progress must reach the terminal"
         assert "run:" not in res.stderr, "--verbose must not turn on debug logging"
 
         rlog.unlink()
         res = env.run("-c", env.config, "-d", "--debug")
         assert "--progress" in rlog.read_text(), "--debug implies verbose for rclone"
+        assert "Transferred:" in res.stderr, "progress under --debug too"
         assert "run:" in res.stderr, "--debug prints every command"
     finally:
         env.cleanup()

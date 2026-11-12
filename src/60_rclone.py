@@ -26,14 +26,20 @@ class Rclone:
             cmd.append("--progress")
         return cmd + list(self.cfg.args)
 
-    def run(self, *args, check=True):
-        return run(self._base() + list(args), env=self.env, check=check)
+    def run(self, *args, check=True, capture=None):
+        """Rclone talks directly to the terminal when --verbose is on,
+        except for commands whose output we have to parse (lsf)."""
+        if capture is None:
+            capture = not VERBOSE
+        return run(self._base() + list(args), env=self.env, check=check,
+                   capture=capture)
 
     def lsf(self, path):
         """List files under remote:path as RemoteFile objects (empty if missing)."""
         if DRY:
             return []
-        res = self.run("lsf", "--files-only", "--format", "pst", path.rstrip("/") + "/", check=False)
+        res = self.run("lsf", "--files-only", "--format", "pst",
+                       path.rstrip("/") + "/", check=False, capture=True)
         if res.returncode != 0:
             if "directory not found" in (res.stderr or "").lower():
                 return []
