@@ -1,3 +1,21 @@
+kwbackup (0.0.26) unstable; urgency=medium
+
+  * feat(cli): --verbose also makes rclone talk, --debug owns the debug log
+
+    --verbose used to raise the script log to debug, which flooded the output,
+    and it did not affect rclone at all. Now:
+
+      --verbose  log stays at info, rclone gets --progress (stats + progress)
+      --debug    log at debug (every command and its arguments), rclone --progress
+
+    The rclone flag is added in Rclone._base(), so it applies to lsf, copyto,
+    sync and deletefile alike. Neither flag changes behaviour, only output.
+
+    tests: default run has no --progress and no command lines, --verbose adds
+    --progress but keeps debug off, --debug adds both (26/26).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:25:54 +0300
+
 kwbackup (0.0.25) unstable; urgency=medium
 
   * style(cli): legacy layout for the action list, option name in yellow

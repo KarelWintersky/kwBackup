@@ -15,7 +15,12 @@ class _Fmt(logging.Formatter):
 def setup_logging(cfg, verbose=False, debug=False):
     LOG.handlers.clear()
     LOG.propagate = False
-    level = logging.DEBUG if (debug or verbose) else getattr(logging, cfg.log_level.upper())
+    if debug:
+        level = logging.DEBUG
+    elif verbose:
+        level = logging.INFO        # --debug is the one that prints everything
+    else:
+        level = getattr(logging, cfg.log_level.upper())
     LOG.setLevel(logging.DEBUG)
     console = logging.StreamHandler(sys.stderr)
     console.setLevel(level)

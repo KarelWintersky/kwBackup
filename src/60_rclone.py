@@ -20,6 +20,10 @@ class Rclone:
         cmd = [self.cfg.binary]
         if self.cfg.config:
             cmd += ["--config", self.cfg.config]
+        if VERBOSE:
+            # --verbose / --debug also make rclone talk: transfer stats and
+            # a progress line. Without the flag rclone stays quiet in cron.
+            cmd.append("--progress")
         return cmd + list(self.cfg.args)
 
     def run(self, *args, check=True):

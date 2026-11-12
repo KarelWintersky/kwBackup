@@ -31,7 +31,8 @@ def build_parser():
     p.add_argument("--into-db", metavar="NAME", help="with --restore: load the dump into "
                                                     "a live database (needs --yes)")
     p.add_argument("--yes", action="store_true", help="confirm destructive operations")
-    p.add_argument("--verbose", action="store_true", help="more messages")
+    p.add_argument("--verbose", action="store_true",
+                   help="script messages at info level and rclone --progress")
     p.add_argument("--debug", action="store_true", help="debug messages, print every command")
     p.add_argument("--selftest", action="store_true", help="run internal tests and exit")
     p.add_argument("--version", action="store_true", help="print version and exit")
@@ -39,7 +40,7 @@ def build_parser():
 
 
 def main(argv=None):
-    global DRY
+    global DRY, VERBOSE
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "migrate":
         return migrate_main(argv[1:])
@@ -64,6 +65,7 @@ def main(argv=None):
 
     setup_logging(cfg, args.verbose, args.debug)
     DRY = args.dry_run
+    VERBOSE = args.verbose or args.debug
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
 

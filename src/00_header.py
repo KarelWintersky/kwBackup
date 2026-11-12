@@ -47,6 +47,7 @@ EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_USAGE, EXIT_LOCKED, EXIT_VERIFY = 0, 1, 2
 
 LOG = logging.getLogger("kwbackup")
 DRY = False
+VERBOSE = False          # --verbose / --debug: also passed to rclone
 TS_FORMAT = "%Y-%m-%d-%H-%M-%S"
 DATE_FMT = "%Y-%m-%d"
 

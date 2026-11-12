@@ -863,6 +863,35 @@ database:
         env.cleanup()
 
 
+def test_verbose_reaches_rclone():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {daily: {keep: 2}}
+""")
+        rlog = env.dir / "rclone.log"
+
+        res = env.run("-c", env.config, "-d")
+        assert "--progress" not in rlog.read_text(), "quiet by default"
+        assert "run:" not in res.stderr, "command lines are debug-only"
+
+        rlog.unlink()
+        res = env.run("-c", env.config, "-d", "--verbose")
+        assert "--progress" in rlog.read_text(), "--verbose must reach rclone"
+        assert "run:" not in res.stderr, "--verbose must not turn on debug logging"
+
+        rlog.unlink()
+        res = env.run("-c", env.config, "-d", "--debug")
+        assert "--progress" in rlog.read_text(), "--debug implies verbose for rclone"
+        assert "run:" in res.stderr, "--debug prints every command"
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -873,7 +902,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_builtin_defaults_only, test_build_version_and_shebang,
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
          test_archive_sync_mirrors, test_database_sync_mirrors,
-         test_defaults_file_covers_builtins, test_no_action_does_nothing]
+         test_defaults_file_covers_builtins, test_no_action_does_nothing,
+         test_verbose_reaches_rclone]
 
 
 def main():
