@@ -1,3 +1,18 @@
+kwbackup (0.0.32) unstable; urgency=medium
+
+  * style: the product is kwBackup, the command stays kwbackup
+
+    APP = 'kwBackup' is used in every user-facing message: --version, error
+    prefixes (invalid config, migrate, interrupted) and the no-config banner.
+    PROG = 'kwbackup' remains the command name: argv, usage:, prog= and every
+    example command in the docs.
+
+    The banner now says 'Backup tool over rclone' (lowercase, as the project
+    spells it). README title, module docstring and the Debian long description
+    use kwBackup.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:04:37 +0300
+
 kwbackup (0.0.31) unstable; urgency=medium
 
   * style(cli): reformat the no-config banner

@@ -694,7 +694,7 @@ def test_build_version_and_shebang():
         assert res.returncode == 0, res.stderr
         assert out.read_text(encoding="utf-8").splitlines()[0] == "#!/usr/bin/python3 -B"
         ver = subprocess.run([str(out), "--version"], capture_output=True, text=True)
-        assert ver.stdout.strip() == "kwbackup 9.9.9", ver.stdout
+        assert ver.stdout.strip() == "kwBackup 9.9.9", ver.stdout
     finally:
         env.cleanup()
 
@@ -904,7 +904,7 @@ def test_no_args_shows_banner():
     try:
         res = env.run(expect=3)
         out = res.stdout + res.stderr
-        assert "kwBackup: Backup tool over RClone: database dumps, file storage, archives" in out, out
+        assert "kwBackup: Backup tool over rclone: database dumps, file storage, archives" in out, out
         assert "Version: " in out, out
         assert "ERROR: -c/--config is required" in out, out
     finally:

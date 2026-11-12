@@ -51,10 +51,10 @@ def main(argv=None):
     if args.selftest:
         return selftest()
     if args.version:
-        print(f"{PROG} {VERSION}")
+        print(f"{APP} {VERSION}")
         return EXIT_OK
     if not args.config:
-        print("kwBackup: Backup tool over RClone: database dumps, file storage, archives",
+        print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives",
               file=sys.stderr)
         print(f"Version: {VERSION}", file=sys.stderr)
         print(file=sys.stderr)
@@ -66,7 +66,7 @@ def main(argv=None):
     try:
         cfg = load_config(args.config, defaults=args.defaults)
     except ConfigError as exc:
-        print(f"{PROG}: {exc}", file=sys.stderr)
+        print(f"{APP}: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
     DRY = args.dry_run

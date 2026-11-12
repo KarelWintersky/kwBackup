@@ -279,7 +279,7 @@ def migrate_main(argv):
 
     src = Path(args.config)
     if not src.is_file():
-        print(f"{PROG} migrate: {src}: not found", file=sys.stderr)
+        print(f"{APP} migrate: {src}: not found", file=sys.stderr)
         return EXIT_USAGE
     project = args.project
     if not project:
@@ -289,10 +289,10 @@ def migrate_main(argv):
     try:
         old = read_bash_config(src)
     except ActionFailed as exc:
-        print(f"{PROG}: {exc}", file=sys.stderr)
+        print(f"{APP}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     if not old:
-        print(f"{PROG} migrate: {src}: no known variables found, is this a kwbackup config?",
+        print(f"{APP} migrate: {src}: no known variables found, is this a kwBackup config?",
               file=sys.stderr)
         return EXIT_CONFIG
     text = build_yaml(old, project, src)
@@ -300,7 +300,7 @@ def migrate_main(argv):
     if args.output:
         dst = Path(args.output)
         if dst.exists() and not args.force:
-            print(f"{PROG} migrate: {dst} exists, use --force to overwrite", file=sys.stderr)
+            print(f"{APP} migrate: {dst} exists, use --force to overwrite", file=sys.stderr)
             return EXIT_USAGE
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(text, encoding="utf-8")

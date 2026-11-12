@@ -13,7 +13,7 @@ Depends: python3 (>= 3.10), ${misc:Depends}
 Recommends: rclone
 Suggests: default-mysql-client | mariadb-client, postgresql-client, zstd | gzip, pigz, rar
 Description: backup tool for databases, file storage and archives
- kwbackup dumps databases, syncs directories and packs file archives, then
+ kwBackup dumps databases, syncs directories and packs file archives, then
  uploads the result to any rclone remote (S3, WebDAV, SFTP, ...).
  .
  Three scenarios: mysqldump/mariadb-dump/pg_dump/sqlite3 piped through
