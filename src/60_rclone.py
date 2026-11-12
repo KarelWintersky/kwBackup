@@ -61,3 +61,30 @@ class Rclone:
         return "/".join([self.cfg.remote.rstrip("/")] + [p.strip("/") for p in parts if p])
 
 
+
+
+def upload_file(rclone, src_path, remote_dir, mode, workdir):
+    """Put one finished file into remote_dir.
+
+    copy - rclone copyto: the file is added/updated, older copies stay.
+    sync - mirror the directory: the file is uploaded and EVERYTHING else in
+           remote_dir is deleted. Reachable only through an explicit -m sync,
+           never through the config (the validator allows `copy` only).
+    """
+    src_path = Path(src_path)
+    if mode == "copy":
+        rclone.copyto(str(src_path), f"{remote_dir}/{src_path.name}")
+        return
+    if DRY:
+        LOG.info("dry-run: rclone sync (mirror) %s -> %s", src_path.name, remote_dir)
+        return
+    staging = Path(tempfile.mkdtemp(prefix=".sync-", dir=str(workdir)))
+    try:
+        staged = staging / src_path.name
+        try:
+            os.link(src_path, staged)          # cheap when temp_dir == workdir
+        except OSError:
+            shutil.copy2(src_path, staged)
+        rclone.run("sync", str(staging), remote_dir)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)

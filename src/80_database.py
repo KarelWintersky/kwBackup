@@ -93,6 +93,7 @@ def action_database(cfg, args):
                         raise CommandError("dump produced an empty file", 1)
                     LOG.info("[%s] dump ready: %s", dbname, fmt_bytes(size))
 
+                mode = args.mode or db.mode
                 for cls in RETENTION_CLASSES:
                     retention = db.retention.get(cls)
                     if retention is None:
@@ -101,12 +102,16 @@ def action_database(cfg, args):
                     existing = uploader.lsf(remote_dir)
                     if not class_due(cls, existing, db.catch_up, now):
                         continue
-                    dest = f"{remote_dir}/{out_name}"
-                    uploader.copyto(str(out_path), dest)
+                    if mode == "sync":
+                        LOG.debug("[%s] -m sync: %s is mirrored, older copies are deleted",
+                                  dbname, remote_dir)
+                    upload_file(uploader, out_path, remote_dir, mode, cfg.temp_dir)
                     total["uploaded"] += 1
-                    LOG.info("[%s] %s -> %s (%s)", dbname,
-                             "would upload" if DRY else "uploaded", dest,
-                             retention.describe())
+                    LOG.info("[%s] %s -> %s/%s (%s)", dbname,
+                             "would upload" if DRY else "uploaded", remote_dir,
+                             out_name, "mirror" if mode == "sync" else retention.describe())
+                    if mode == "sync":
+                        continue
                     files = uploader.lsf(remote_dir)
                     for stale in plan_prune(files, retention, now):
                         uploader.deletefile(f"{remote_dir}/{stale}")

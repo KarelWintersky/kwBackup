@@ -17,11 +17,12 @@ SECTIONS = {
     "runtime": {"temp_dir", "keep_temp"},
     "rclone": {"binary", "config", "remote", "args", "env"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
-                 "args", "compressor", "compressor_args", "target",
+                 "args", "compressor", "compressor_args", "target", "mode",
                  "databases", "retention", "retention_mode", "catch_up"},
     "storage": {"enabled", "mode", "target", "sources"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
-                "include", "exclude", "target", "retention", "retention_mode"},
+                "include", "exclude", "target", "mode", "retention",
+                "retention_mode"},
     "security": {"check_excessive_access_rights"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
@@ -106,6 +107,7 @@ class RcloneCfg:
 @dataclass
 class DatabaseCfg:
     enabled: bool = False
+    mode: str = _default("database", "mode")
     type: str = _default("database", "type")
     host: str = _default("database", "host")
     port: int | None = None
@@ -131,6 +133,7 @@ class StorageCfg:
 @dataclass
 class ArchiveCfg:
     enabled: bool = False
+    mode: str = _default("archive", "mode")
     compressor: str = _default("archive", "compressor")
     compressor_args: list = field(default_factory=list)
     name: str = _default("archive", "name")
@@ -438,6 +441,12 @@ def load_config(path, env=None, defaults=None):
     if retention_mode not in (None, "keep", "max_age"):
         errors.append("config.database.retention_mode: expected keep or max_age")
         retention_mode = None
+    db_mode = (_as_str(db.get("mode"), "config.database.mode", errors,
+                       _default("database", "mode")) or "copy").lower()
+    if db_mode != "copy":
+        errors.append(f"config.database.mode: only 'copy' is supported in the config "
+                      f"(use -m sync on the command line), got {db_mode!r}")
+        db_mode = "copy"
     db_type = (_as_str(db.get("type"), "config.database.type", errors,
                        _default("database", "type")) or "mysql").lower()
     if db_type not in DB_TYPES:
@@ -463,6 +472,7 @@ def load_config(path, env=None, defaults=None):
                                           errors, retention_mode)
     cfg.database = DatabaseCfg(
         enabled=_as_bool(db.get("enabled"), "config.database.enabled", errors),
+        mode=db_mode,
         type=db_type,
         host=_as_str(db.get("host"), "config.database.host", errors,
                      _default("database", "host")) or "localhost",
@@ -504,12 +514,19 @@ def load_config(path, env=None, defaults=None):
         errors.append("config.archive: expected a mapping")
         ar = {}
     _check_keys(ar, "archive", "config.archive", errors)
+    archive_mode = (_as_str(ar.get("mode"), "config.archive.mode", errors,
+                            _default("archive", "mode")) or "copy").lower()
+    if archive_mode != "copy":
+        errors.append(f"config.archive.mode: only 'copy' is supported in the config "
+                      f"(use -m sync on the command line), got {archive_mode!r}")
+        archive_mode = "copy"
     ar_mode = _as_str(ar.get("retention_mode"), "config.archive.retention_mode", errors)
     if ar_mode not in (None, "keep", "max_age"):
         errors.append("config.archive.retention_mode: expected keep or max_age")
         ar_mode = None
     cfg.archive = ArchiveCfg(
         enabled=_as_bool(ar.get("enabled"), "config.archive.enabled", errors),
+        mode=archive_mode,
         compressor=(_as_str(ar.get("compressor"), "config.archive.compressor", errors,
                             _default("archive", "compressor")) or "zstd").lower(),
         compressor_args=_as_list(ar.get("compressor_args"), "config.archive.compressor_args", errors),

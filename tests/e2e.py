@@ -720,6 +720,96 @@ def test_build_version_and_shebang():
         env.cleanup()
 
 
+def test_mode_copy_in_config():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  mode: copy
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {daily: {keep: 2}}
+archive:
+  enabled: true
+  mode: copy
+  name: site
+  root: /tmp
+  target: "fake:/ARCHIVE"
+""")
+        out = env.run("-c", env.config, "--check-config")
+        assert "mode copy" in out.stdout, out.stdout
+    finally:
+        env.cleanup()
+
+
+def test_mode_sync_rejected_in_config():
+    env = Env()
+    try:
+        base = """
+version: 1
+project: mirror
+rclone: {binary: %s, remote: fake}
+""" % (env.bin / "rclone")
+        task = env.dir / "task.yaml"
+        task.write_text(base + """
+database:
+  enabled: true
+  mode: sync
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {daily: {keep: 2}}
+""", encoding="utf-8")
+        res = env.run("-c", task, "--check-config", expect=2)
+        assert "only 'copy' is supported" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def test_archive_sync_mirrors():
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        env.base_config(extra=f"""
+archive:
+  enabled: true
+  compressor: zstd
+  name: site
+  root: {root}
+  target: "fake:/ARCHIVE"
+  retention: {{keep: 5}}
+""")
+        env.run("-c", env.config, "-a")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-a", "-m", "sync")
+        files = env.cloud_tree()
+        assert len(files) == 1, files          # mirror deleted the older archive
+        env.run("-c", env.config, "--verify")  # and the survivor is valid
+    finally:
+        env.cleanup()
+
+
+def test_database_sync_mirrors():
+    env = Env()
+    try:
+        env.base_config(extra="""
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {daily: {keep: 5}}
+""")
+        env.run("-c", env.config, "-d")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-d", "-m", "sync")
+        files = env.cloud_tree()
+        assert len(files) == 1, files          # one copy per class dir
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -727,7 +817,9 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_restore_archive_and_storage, test_restore_at_filter,
          test_migrate_old_config, test_migrate_uses_keep_by_default,
          test_documented_examples_validate, test_defaults_file_layer,
-         test_builtin_defaults_only, test_build_version_and_shebang]
+         test_builtin_defaults_only, test_build_version_and_shebang,
+         test_mode_copy_in_config, test_mode_sync_rejected_in_config,
+         test_archive_sync_mirrors, test_database_sync_mirrors]
 
 
 def main():

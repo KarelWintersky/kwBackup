@@ -28,6 +28,7 @@ BUILTIN_DEFAULTS = {
     },
     "database": {
         "type": "mysql",
+        "mode": "copy",
         "host": "localhost",
         "compressor": "zstd",
         "compressor_args": [],
@@ -38,6 +39,7 @@ BUILTIN_DEFAULTS = {
     },
     "archive": {
         "compressor": "zstd",
+        "mode": "copy",
         "name": "archive",
         "include": ["*"],
         "exclude": [],

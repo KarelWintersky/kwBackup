@@ -1,3 +1,21 @@
+kwbackup (0.0.19) unstable; urgency=medium
+
+  * feat: explicit copy mode for database and archive, -m sync mirrors
+
+    Built-in defaults get mode: copy for database and archive. The config accepts
+    only 'copy' there: mode: sync is rejected with a pointer to -m sync, so the
+    destructive path is reachable only from the command line.
+
+    -m sync now works for all three actions. A staging directory with a hardlink
+    to the finished file is uploaded with rclone sync, so the target keeps only
+    the newest file; retention is skipped because there is nothing to prune. The
+    explanation is logged at debug level, i.e. visible only with --verbose.
+
+    tests: config accepts copy and rejects sync, archive and database mirroring
+    (23/23).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:31:46 +0300
+
 kwbackup (0.0.18) unstable; urgency=medium
 
   * refactor(config): keep the whole validation schema in one dict

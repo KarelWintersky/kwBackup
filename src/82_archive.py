@@ -46,9 +46,10 @@ def action_archive(cfg, args):
     if not ar.root or not Path(ar.root).is_dir():
         raise ActionFailed(f"archive: root is not a directory: {ar.root!r}")
 
-    if args.mode:
-        LOG.warning("archive: -m/--mode has no effect, archives are always "
-                    "uploaded and pruned by retention")
+    mode = args.mode or ar.mode
+    if mode == "sync":
+        LOG.debug("archive: -m sync: %s is mirrored, previous archives are deleted",
+                  ar.target)
 
     rclone = Rclone(cfg.rclone)
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -81,11 +82,12 @@ def action_archive(cfg, args):
             stats["bytes"] = size
             LOG.info("archive: packed %s", fmt_bytes(size))
 
-            rclone.copyto(str(out_path), f"{remote_dir}/{out_name}")
+            upload_file(rclone, out_path, remote_dir, mode, cfg.temp_dir)
             stats["uploaded"] = 1
-            LOG.info("archive: uploaded -> %s/%s", remote_dir, out_name)
+            LOG.info("archive: uploaded -> %s/%s%s", remote_dir, out_name,
+                     " (mirror)" if mode == "sync" else "")
 
-            if ar.retention:
+            if ar.retention and mode == "copy":
                 files = rclone.lsf(remote_dir)
                 for stale in plan_prune(files, ar.retention, now):
                     rclone.deletefile(f"{remote_dir}/{stale}")

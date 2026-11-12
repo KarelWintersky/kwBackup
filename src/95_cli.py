@@ -16,7 +16,8 @@ def build_parser():
     p.add_argument("-s", "--storage", action="store_true", help="backup file storage")
     p.add_argument("-a", "--archive", action="store_true", help="backup file archive")
     p.add_argument("-m", "--mode", choices=("copy", "sync"),
-                   help="override upload algorithm for storage/archive")
+                   help="override the upload algorithm (storage, database, "
+                        "archive); sync mirrors the target directory")
     p.add_argument("-f", "--force", action="store_true",
                    help="run actions even if disabled in config")
     p.add_argument("--dry-run", action="store_true", help="show what would be done")
@@ -142,7 +143,8 @@ def check_config(cfg, args):
     print(f"  rclone:  {cfg.rclone.remote} via {cfg.rclone.config or 'default config'}")
     if cfg.database.enabled:
         print(f"  database: {cfg.database.type}, {len(cfg.database.databases)} db(s), "
-              f"compressor {cfg.database.compressor}, target {cfg.database.target}")
+              f"compressor {cfg.database.compressor}, mode {cfg.database.mode}, "
+              f"target {cfg.database.target}")
         for cls in RETENTION_CLASSES:
             ret = cfg.database.retention.get(cls)
             print(f"    {cls:8} {ret.describe() if ret else 'disabled'}")
@@ -156,7 +158,8 @@ def check_config(cfg, args):
     if cfg.archive.enabled:
         ret = cfg.archive.retention
         print(f"  archive: {cfg.archive.compressor}, root {cfg.archive.root}, "
-              f"target {cfg.archive.target}, retention {ret.describe() if ret else 'none'}")
+              f"mode {cfg.archive.mode}, target {cfg.archive.target}, "
+              f"retention {ret.describe() if ret else 'none'}")
     problems = preflight_problems(cfg, requested_actions(cfg, args, silent=True))
     if problems:
         print("  preflight: warnings")
