@@ -1,3 +1,24 @@
+kwbackup (0.0.28) unstable; urgency=medium
+
+  * feat(logging): the terminal is quiet unless asked otherwise
+
+    A backup run without flags used to print four INFO lines. In cron and
+    systemd that is noise, and the useful information belongs in log.file.
+
+      no flags   terminal: warnings and errors only; file: log.level
+      --verbose  terminal: info; file: info; rclone --progress streams
+      --debug    terminal and file: debug
+      --dry-run  terminal: info (the plan is the output)
+
+    'disabled in config' for an explicitly requested action is now a warning, so
+    it stays visible in the quiet mode. Actions, --list, --verify, --check-config
+    and migrate keep printing to stdout as before.
+
+    tests: quiet default + info in the log file, verbose on the terminal,
+    dry-run plan visible (27/27).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:42:52 +0300
+
 kwbackup (0.0.27) unstable; urgency=medium
 
   * fix(rclone): stream rclone output under --verbose so --progress is visible

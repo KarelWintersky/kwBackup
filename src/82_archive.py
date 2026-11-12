@@ -40,7 +40,7 @@ def tar_command(cfg, root):
 def action_archive(cfg, args):
     ar = cfg.archive
     if not ar.enabled and not args.force:
-        LOG.info("archive backup is disabled in config (use --force to override)")
+        LOG.warning("archive backup is disabled in config (use --force to override)")
         return {"skipped": True}
 
     if not ar.root or not Path(ar.root).is_dir():

@@ -897,6 +897,41 @@ database:
         env.cleanup()
 
 
+def test_quiet_by_default():
+    """No flags: the terminal is silent, info lands in the log file."""
+    env = Env()
+    try:
+        logfile = env.dir / "kwbackup.log"
+        env.write_config(f"""
+version: 1
+project: quiet
+log: {{level: info, file: {logfile}}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        res = env.run("-c", env.config, "-d")
+        assert "dumping" not in res.stderr, res.stderr
+        assert "done in" not in res.stderr, res.stderr
+        log = logfile.read_text(encoding="utf-8")
+        assert "dumping" in log, log
+        assert "done in" in log, log
+
+        res = env.run("-c", env.config, "-d", "--verbose")
+        assert "dumping" in res.stderr, res.stderr
+        assert "done in" in res.stderr, res.stderr
+
+        # dry-run prints the plan even without --verbose
+        res = env.run("-c", env.config, "-d", "--dry-run")
+        assert "dry-run:" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -908,7 +943,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
          test_archive_sync_mirrors, test_database_sync_mirrors,
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
-         test_verbose_reaches_rclone]
+         test_verbose_reaches_rclone, test_quiet_by_default]
 
 
 def main():

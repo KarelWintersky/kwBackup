@@ -12,7 +12,7 @@ def source_dest(path, dest):
 def action_storage(cfg, args):
     st = cfg.storage
     if not st.enabled and not args.force:
-        LOG.info("storage backup is disabled in config (use --force to override)")
+        LOG.warning("storage backup is disabled in config (use --force to override)")
         return {"skipped": True}
 
     mode = args.mode or st.mode

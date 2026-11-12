@@ -12,25 +12,34 @@ class _Fmt(logging.Formatter):
         return f"{color}{msg}\033[0m" if color and sys.stderr.isatty() else msg
 
 
-def setup_logging(cfg, verbose=False, debug=False):
+def setup_logging(cfg, verbose=False, debug=False, dry_run=False):
+    """The terminal is quiet by default: info goes to the log file only.
+
+    no flags      terminal: warnings and errors, file: info
+    --verbose     terminal: info (plus rclone --progress), file: info
+    --debug       terminal and file: debug (every external command)
+    --dry-run     terminal: info, because the plan itself is the output
+    """
+    base = getattr(logging, cfg.log_level.upper())
+    if debug:
+        console_level, file_level = logging.DEBUG, logging.DEBUG
+    elif verbose or dry_run:
+        console_level, file_level = min(base, logging.INFO), base
+    else:
+        console_level, file_level = max(base, logging.WARNING), base
+
     LOG.handlers.clear()
     LOG.propagate = False
-    if debug:
-        level = logging.DEBUG
-    elif verbose:
-        level = logging.INFO        # --debug is the one that prints everything
-    else:
-        level = getattr(logging, cfg.log_level.upper())
     LOG.setLevel(logging.DEBUG)
     console = logging.StreamHandler(sys.stderr)
-    console.setLevel(level)
+    console.setLevel(console_level)
     console.setFormatter(_Fmt("%(asctime)s %(levelname)-7s %(message)s", "%H:%M:%S"))
     LOG.addHandler(console)
     if cfg.log_file:
         try:
             Path(cfg.log_file).parent.mkdir(parents=True, exist_ok=True)
             fh = logging.FileHandler(cfg.log_file, encoding="utf-8")
-            fh.setLevel(logging.DEBUG)
+            fh.setLevel(file_level)
             fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(message)s"))
             LOG.addHandler(fh)
         except OSError as exc:

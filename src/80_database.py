@@ -58,7 +58,7 @@ def action_database(cfg, args):
     """Dump every database, upload to the class folders, prune old copies."""
     db = cfg.database
     if not db.enabled and not args.force:
-        LOG.info("database backup is disabled in config (use --force to override)")
+        LOG.warning("database backup is disabled in config (use --force to override)")
         return {"skipped": True}
 
     uploader = Rclone(cfg.rclone)

@@ -32,7 +32,7 @@ def build_parser():
                                                     "a live database (needs --yes)")
     p.add_argument("--yes", action="store_true", help="confirm destructive operations")
     p.add_argument("--verbose", action="store_true",
-                   help="script messages at info level and rclone --progress")
+                   help="info messages on the terminal and rclone --progress")
     p.add_argument("--debug", action="store_true", help="debug messages, print every command")
     p.add_argument("--selftest", action="store_true", help="run internal tests and exit")
     p.add_argument("--version", action="store_true", help="print version and exit")
@@ -63,9 +63,9 @@ def main(argv=None):
         print(f"{PROG}: {exc}", file=sys.stderr)
         return EXIT_CONFIG
 
-    setup_logging(cfg, args.verbose, args.debug)
     DRY = args.dry_run
     VERBOSE = args.verbose or args.debug
+    setup_logging(cfg, args.verbose, args.debug, dry_run=args.dry_run)
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
 
