@@ -899,6 +899,18 @@ database:
         env.cleanup()
 
 
+def test_no_args_shows_banner():
+    env = Env()
+    try:
+        res = env.run(expect=3)
+        out = res.stdout + res.stderr
+        assert "kwbackup " in out, out
+        assert "Backup tool over rclone: database dumps, file storage, archives" in out, out
+        assert "-c/--config is required" in out, out
+    finally:
+        env.cleanup()
+
+
 def test_quiet_by_default():
     """No flags: the terminal is silent, info lands in the log file."""
     env = Env()
@@ -945,7 +957,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
          test_archive_sync_mirrors, test_database_sync_mirrors,
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
-         test_verbose_reaches_rclone, test_quiet_by_default]
+         test_verbose_reaches_rclone, test_quiet_by_default,
+         test_no_args_shows_banner]
 
 
 def main():

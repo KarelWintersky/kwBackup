@@ -1,3 +1,15 @@
+kwbackup (0.0.30) unstable; urgency=medium
+
+  * style(cli): introduce the tool when it is started without a config
+
+    'kwbackup' with no arguments printed only the argparse usage and 'config is
+    required'. Now it first says what it is and which version is running, then
+    the usage and the error, all on stderr, exit code 3.
+
+    The same description is used in --help.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:52:47 +0300
+
 kwbackup (0.0.29) unstable; urgency=medium
 
   * style(cli): separate streamed rclone output with empty lines

@@ -4,7 +4,8 @@
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog=PROG, description="Backup tool: database dumps, file storage, archives.",
+        prog=PROG,
+        description="Backup tool over rclone: database dumps, file storage, archives.",
         epilog="Exit codes: 0 ok, 1 error, 2 config error, 3 usage, 4 locked, 5 verify failed.\n"
                "Subcommands: migrate OLD.conf [-o OUT.yaml]  (convert the legacy bash config)",
     )
@@ -53,7 +54,11 @@ def main(argv=None):
         print(f"{PROG} {VERSION}")
         return EXIT_OK
     if not args.config:
-        parser.print_usage()
+        print(f"{PROG} {VERSION}", file=sys.stderr)
+        print("Backup tool over rclone: database dumps, file storage, archives",
+              file=sys.stderr)
+        print(file=sys.stderr)
+        parser.print_usage(sys.stderr)
         print(f"{PROG}: error: -c/--config is required", file=sys.stderr)
         return EXIT_USAGE
 
