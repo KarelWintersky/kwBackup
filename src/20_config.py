@@ -127,7 +127,7 @@ class ArchiveCfg:
     mode: str = _default("archive", "mode")
     compressor: str = _default("archive", "compressor")
     compressor_args: list = field(default_factory=list)
-    name: str = _default("archive", "name")
+    name: str = ""          # defaults to the project name, set in load_config
     root: str = ""
     include: list = field(default_factory=lambda: _default("archive", "include"))
     exclude: list = field(default_factory=list)
@@ -469,8 +469,7 @@ def load_config(path, env=None, defaults=None):
         compressor=(_as_str(ar.get("compressor"), "config.archive.compressor", errors,
                             _default("archive", "compressor")) or "zstd").lower(),
         compressor_args=_as_list(ar.get("compressor_args"), "config.archive.compressor_args", errors),
-        name=_as_str(ar.get("name"), "config.archive.name", errors,
-                     _default("archive", "name")) or "archive",
+        name=_as_str(ar.get("name"), "config.archive.name", errors) or cfg.project,
         root=_as_str(ar.get("root"), "config.archive.root", errors) or "",
         include=_as_list(ar.get("include"), "config.archive.include", errors),
         exclude=_as_list(ar.get("exclude"), "config.archive.exclude", errors),

@@ -190,8 +190,9 @@ def check_config(cfg, args):
             print(f"    {src} -> {source_dest(src, dest) or '.'}")
     if cfg.archive.enabled:
         ret = cfg.archive.retention
-        print(f"  archive: {cfg.archive.compressor}, root {cfg.archive.root}, "
-              f"mode {cfg.archive.mode}, target {cfg.archive.target}, "
+        print(f"  archive: {cfg.archive.compressor}, name {cfg.archive.name}, "
+              f"root {cfg.archive.root}, mode {cfg.archive.mode}, "
+              f"target {cfg.archive.target}, "
               f"retention {ret.describe() if ret else 'none'}")
     problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:

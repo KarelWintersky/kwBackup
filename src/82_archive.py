@@ -89,7 +89,8 @@ def action_archive(cfg, args):
 
             if ar.retention and mode == "copy":
                 files = rclone.lsf(remote_dir)
-                for stale in plan_prune(files, ar.retention, now):
+                for stale in plan_prune(files, ar.retention, now,
+                                        prefix=f"{ar.name}_"):
                     rclone.deletefile(f"{remote_dir}/{stale}")
                     stats["deleted"] += 1
                     LOG.info("archive: pruned %s", stale)

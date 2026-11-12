@@ -95,7 +95,7 @@ def _select_database_copy(uploader, cfg, dbname, at):
     candidates = []
     for cls in RETENTION_CLASSES:
         remote_dir = class_path(cfg, dbname, cls)
-        for rf in uploader.lsf(remote_dir):
+        for rf in owned(uploader.lsf(remote_dir), f"{dbname}_"):
             if not rf.ts:
                 continue
             if at and at not in rf.name:
@@ -158,7 +158,8 @@ def action_restore(cfg, args):
 
     if "archive" in what:
         remote_dir = cfg.archive.target.rstrip("/")
-        files = sorted((f for f in uploader.lsf(remote_dir)
+        files = sorted((f for f in owned(uploader.lsf(remote_dir),
+                                         f"{cfg.archive.name}_")
                         if f.ts and (not args.at or args.at in f.name)),
                        key=lambda f: f.ts)
         if not files:

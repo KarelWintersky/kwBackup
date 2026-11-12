@@ -9,7 +9,7 @@ rclone:
 
 archive:
   enabled: true
-  name: site
+  # name: site            # по умолчанию = project (здесь "site")
   root: /srv/site
   include: ["*"]          # весь корень, включая dotfiles (.env)
   exclude: ["*.mp4", "*/cache/*"]

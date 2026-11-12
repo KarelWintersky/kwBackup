@@ -911,6 +911,92 @@ def test_no_args_shows_banner():
         env.cleanup()
 
 
+def test_archive_name_defaults_to_project():
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        env.base_config(extra=f"""
+archive:
+  enabled: true
+  compressor: zstd
+  root: {root}
+  target: "fake:/A"
+""")
+        out = env.run("-c", env.config, "--check-config")
+        assert "name e2e" in out.stdout, out.stdout        # project: e2e
+        env.run("-c", env.config, "-a")
+        assert env.cloud_tree()[0].startswith("A/e2e_"), env.cloud_tree()
+    finally:
+        env.cleanup()
+
+
+def test_shared_target_keeps_foreign_archives():
+    """Rotation must only touch files with our own <name>_ prefix."""
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+
+        def config(project):
+            path = env.dir / f"{project}.yaml"
+            path.write_text(f"""
+version: 1
+project: {project}
+rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+archive:
+  enabled: true
+  compressor: zstd
+  root: {root}
+  target: "fake:/SHARED"
+  retention: {{keep: 1}}
+""", encoding="utf-8")
+            return path
+
+        alpha, beta = config("alpha"), config("beta")
+        env.run("-c", alpha, "-a")
+        env.run("-c", beta, "-a")
+        time.sleep(1.1)
+        env.run("-c", alpha, "-a")
+        names = [Path(item).name for item in env.cloud_tree()]
+        assert sum(n.startswith("alpha_") for n in names) == 1, names
+        assert sum(n.startswith("beta_") for n in names) == 1, names
+    finally:
+        env.cleanup()
+
+
+def test_shared_target_keeps_foreign_databases():
+    """Same for dumps: two single-db configs share <target>/DAILY."""
+    env = Env()
+    try:
+        def config(dbname):
+            path = env.dir / f"{dbname}.yaml"
+            path.write_text(f"""
+version: 1
+project: {dbname}
+rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [{dbname}]
+  retention: {{daily: {{keep: 1}}}}
+""", encoding="utf-8")
+            return path
+
+        one, two = config("db1"), config("db2")
+        env.run("-c", one, "-d")
+        env.run("-c", two, "-d")
+        time.sleep(1.1)
+        env.run("-c", one, "-d")
+        names = [Path(item).name for item in env.cloud_tree()]
+        assert sum(n.startswith("db1_") for n in names) == 1, names
+        assert sum(n.startswith("db2_") for n in names) == 1, names
+    finally:
+        env.cleanup()
+
+
 def test_quiet_by_default():
     """No flags: the terminal is silent, info lands in the log file."""
     env = Env()
@@ -958,7 +1044,9 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_archive_sync_mirrors, test_database_sync_mirrors,
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
          test_verbose_reaches_rclone, test_quiet_by_default,
-         test_no_args_shows_banner]
+         test_no_args_shows_banner, test_archive_name_defaults_to_project,
+         test_shared_target_keeps_foreign_archives,
+         test_shared_target_keeps_foreign_databases]
 
 
 def main():

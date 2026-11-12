@@ -40,7 +40,6 @@ BUILTIN_DEFAULTS = {
     "archive": {
         "compressor": "zstd",
         "mode": "copy",
-        "name": "archive",
         "include": ["*"],
         "exclude": [],
     }

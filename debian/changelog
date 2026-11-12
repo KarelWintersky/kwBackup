@@ -1,3 +1,23 @@
+kwbackup (0.0.33) unstable; urgency=medium
+
+  * feat(retention): prune only the files this config owns; archive name defaults to project
+
+    Rotation used to delete every file with a parseable timestamp in the target
+    directory. Two projects sharing an archive target - or two single-db configs
+    sharing <target>/DAILY - deleted each other's copies.
+
+    plan_prune takes a prefix now: <db>_ for dumps and <name>_ for archives.
+    --list, --verify and --restore apply the same ownership filter, so a shared
+    directory shows only what this config owns.
+
+    archive.name no longer defaults to the literal 'archive': it defaults to the
+    project name, which removes the project/name duplication from task files.
+    Renaming it stops old files from being rotated, which is documented.
+
+    tests: shared archive target, shared DAILY directory, default name (31/31).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:20:24 +0300
+
 kwbackup (0.0.32) unstable; urgency=medium
 
   * style: the product is kwBackup, the command stays kwbackup

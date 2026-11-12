@@ -99,7 +99,7 @@ def action_database(cfg, args):
                     if retention is None:
                         continue
                     remote_dir = class_path(cfg, dbname, cls)
-                    existing = uploader.lsf(remote_dir)
+                    existing = owned(uploader.lsf(remote_dir), f"{dbname}_")
                     if not class_due(cls, existing, db.catch_up, now):
                         continue
                     if mode == "sync":
@@ -113,7 +113,8 @@ def action_database(cfg, args):
                     if mode == "sync":
                         continue
                     files = uploader.lsf(remote_dir)
-                    for stale in plan_prune(files, retention, now):
+                    for stale in plan_prune(files, retention, now,
+                                            prefix=f"{dbname}_"):
                         uploader.deletefile(f"{remote_dir}/{stale}")
                         total["deleted"] += 1
                         LOG.info("[%s] pruned %s/%s", dbname, cls.upper(), stale)

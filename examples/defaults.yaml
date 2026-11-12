@@ -55,7 +55,7 @@ storage:
 archive:
   compressor: zstd          # zstd | gzip | pigz | rar | none
   compressor_args: ["-9"]
-  name: archive             # к имени добавляется _<timestamp>
+  # name: site              # префикс файла; по умолчанию = project
   include: ["*"]            # "*" = весь root, включая dotfiles
   exclude: []
   mode: copy                # в конфиге допустим только copy; -m sync — из CLI

@@ -17,7 +17,8 @@ def action_list(cfg, args):
                 if not retention:
                     print(f"  {label} disabled")
                     continue
-                files = [f for f in uploader.lsf(remote_dir) if f.ts]
+                files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                              f"{dbname}_")
                 files.sort(key=lambda f: f.ts)
                 if not files:
                     print(f"  {label} 0 files  ⚠ empty  ({retention.describe()})")
@@ -53,7 +54,8 @@ def action_list(cfg, args):
         ar = cfg.archive
         remote_dir = ar.target.rstrip("/")
         print(f"\nARCHIVE  ->  {remote_dir}  ({ar.compressor})")
-        files = [f for f in uploader.lsf(remote_dir) if f.ts]
+        files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                      f"{ar.name}_")
         files.sort(key=lambda f: f.ts)
         if not files:
             print("  0 files  ⚠ empty")
@@ -167,8 +169,8 @@ def action_verify(cfg, args):
         for dbname in cfg.database.databases:
             for cls in RETENTION_CLASSES:
                 remote_dir = class_path(cfg, dbname, cls)
-                files = sorted((f for f in uploader.lsf(remote_dir) if f.ts),
-                               key=lambda f: f.ts)
+                files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                                     f"{dbname}_"), key=lambda f: f.ts)
                 if not files:
                     continue
                 picked = files if args.all else files[-1:]
@@ -180,7 +182,8 @@ def action_verify(cfg, args):
 
     if (cfg.archive.enabled or args.force) and cfg.archive.target:
         remote_dir = cfg.archive.target.rstrip("/")
-        files = sorted((f for f in uploader.lsf(remote_dir) if f.ts), key=lambda f: f.ts)
+        files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                             f"{cfg.archive.name}_"), key=lambda f: f.ts)
         if files:
             for rf in (files if args.all else files[-1:]):
                 label = f"archive/{rf.name}"

@@ -198,7 +198,9 @@ dump  →  zstd/gzip/rar  →  файл в temp_dir  →  rclone copyto  →  о
 ```
 
 Если баз несколько, добавляется уровень с именем БД:
-`<target>/<db>/DAILY/...`. Архивы: `<target>/<name>_<timestamp>.tar.zst`.
+`<target>/<db>/DAILY/...`. Архивы: `<target>/<name>_<timestamp>.tar.zst`, где `name` по умолчанию — имя
+проекта. Ротация удаляет только файлы своего префикса, поэтому общий `target`
+безопасен для нескольких проектов.
 Storage: `<target>/<dest>/...`, где `dest` — `basename` источника или явное
 значение из конфига.
 

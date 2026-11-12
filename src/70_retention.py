@@ -15,10 +15,19 @@ def parse_ts(name):
         return None
 
 
-def plan_prune(files, retention, now=None):
+def owned(files, prefix):
+    """Only files that belong to this config: named <prefix><timestamp>..."""
+    if not prefix:
+        return list(files)
+    return [f for f in files if f.name.startswith(prefix)]
+
+
+def plan_prune(files, retention, now=None, prefix=None):
     """Return names to delete. Files without a parseable timestamp are never
-    touched: they were not created by us as far as we can tell."""
+    touched, and with `prefix` only our own files are considered: a shared
+    target directory must not lose another project's archives."""
     now = now or dt.datetime.now()
+    files = owned(files, prefix)
     dated = [(f.ts, f.name) for f in files if f.ts]
     dated.sort(key=lambda item: item[0], reverse=True)
     if retention.keep is not None:
