@@ -21,6 +21,15 @@ log:
 runtime:
   temp_dir: /tmp/kwbackup
 
+# Проверка прав на файлы, где лежат ключи доступа: если файл читаем группой
+# или остальными, --check-config и каждый запуск печатают предупреждение
+# с предложением chmod 600. Проверяются файл задачи, файл дефолтов и
+# rclone.config (если в нём есть access_key_id/secret_access_key).
+# false — отключить, например когда конфиги лежат на read-only монтировании
+# с правами, которые вы всё равно не можете изменить.
+security:
+  check_excessive_access_rights: true
+
 rclone:
   config: /etc/kwbackup/rclone_beget.conf
   remote: beget

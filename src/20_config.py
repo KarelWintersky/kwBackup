@@ -8,7 +8,8 @@ class ConfigError(Exception):
 
 SECTIONS = {
     "root": {"version", "project", "log", "runtime", "rclone",
-             "database", "storage", "archive"},
+             "database", "storage", "archive", "security"},
+    "security": {"check_excessive_access_rights"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
     "rclone": {"binary", "config", "remote", "args", "env"},
@@ -77,6 +78,14 @@ def fmt_age(td):
 
 
 @dataclass
+class SecurityCfg:
+    # Warn when a file that carries S3 credentials is readable by
+    # group/other. Some setups mount configs read-only with fixed modes;
+    # they can switch this off.
+    check_excessive_access_rights: bool = True
+
+
+@dataclass
 class RcloneCfg:
     binary: str = "rclone"
     config: str | None = None
@@ -134,6 +143,7 @@ class Config:
     temp_dir: Path = Path("/tmp/kwbackup")
     keep_temp: bool = False
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
+    security: SecurityCfg = field(default_factory=SecurityCfg)
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
@@ -188,6 +198,24 @@ def _read_yaml(path):
     return data
 
 
+RCLONE_CONF_KEY_RE = re.compile(r"^\s*(access_key_id|secret_access_key)\s*=\s*\S+", re.I)
+
+
+def _rclone_conf_has_keys(path):
+    """Does an rclone.conf keep credentials in plain text?"""
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if RCLONE_CONF_KEY_RE.match(line):
+            return True
+    return False
+
+
 def _has_credentials(data):
     """Does THIS file (before merging) carry S3 keys in rclone.args?"""
     rclone = data.get("rclone") or {}
@@ -199,10 +227,21 @@ def _has_credentials(data):
 
 
 def secret_warnings(cfg):
-    """S3 per-bucket credentials are passed as rclone flags (Beget style):
-    the file that carries them must not be readable by group/other."""
+    """Files that carry S3 credentials must not be readable by group/other.
+
+    Controlled by security.check_excessive_access_rights (default: on).
+    """
+    if not cfg.security.check_excessive_access_rights:
+        return []
+    files = list(cfg.secret_files)
+    if cfg.rclone.config and _rclone_conf_has_keys(cfg.rclone.config):
+        files.append(("rclone config", cfg.rclone.config))
     warnings = []
-    for label, path in cfg.secret_files:
+    seen = set()
+    for label, path in files:
+        if str(path) in seen:
+            continue
+        seen.add(str(path))
         try:
             mode = Path(path).stat().st_mode & 0o777
         except OSError:
@@ -370,6 +409,17 @@ def load_config(path, env=None, defaults=None):
         level = "info"
     cfg.log_level = level
     cfg.log_file = _as_str(log_raw.get("file"), "config.log.file", errors)
+
+    sec = data.get("security") or {}
+    if not isinstance(sec, dict):
+        errors.append("config.security: expected a mapping")
+        sec = {}
+    _check_keys(sec, "security", "config.security", errors)
+    cfg.security = SecurityCfg(
+        check_excessive_access_rights=_as_bool(
+            sec.get("check_excessive_access_rights"),
+            "config.security.check_excessive_access_rights", errors, True),
+    )
 
     rt = data.get("runtime") or {}
     if not isinstance(rt, dict):

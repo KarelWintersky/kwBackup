@@ -164,9 +164,8 @@ def check_config(cfg, args):
             print(f"    ! {problem}")
     else:
         print("  preflight: ok")
-    security = secret_warnings(cfg)
-    if security:
-        print("  security: warnings")
-        for warning in security:
-            print(f"    ! {warning}")
+    check = cfg.security.check_excessive_access_rights
+    print(f"  security: permissions check {'on' if check else 'off'}")
+    for warning in secret_warnings(cfg):
+        print(f"    ! {warning}")
     return EXIT_OK

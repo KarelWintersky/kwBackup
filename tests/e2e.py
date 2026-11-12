@@ -664,7 +664,29 @@ database:
         defaults.chmod(0o600)
         task.chmod(0o600)
         out = env.run("-c", task, "--check-config")
-        assert "security:" not in out.stdout, out.stdout
+        assert "chmod 600" not in out.stdout, out.stdout
+        assert "permissions check on" in out.stdout, out.stdout
+
+        # rclone.conf with plaintext keys is checked too
+        rclone_conf = env.dir / "rclone.conf"
+        rclone_conf.write_text("[beget]\naccess_key_id = AAAA\nsecret_access_key = BBBB\n",
+                               encoding="utf-8")
+        rclone_conf.chmod(0o644)
+        task.write_text(task.read_text(encoding="utf-8").replace(
+            "rclone:\n  args:",
+            f"rclone:\n  config: {rclone_conf}\n  args:"), encoding="utf-8")
+        out = env.run("-c", task, "--check-config")
+        assert "rclone config" in out.stdout and "chmod 600" in out.stdout, out.stdout
+
+        # the check can be switched off in config
+        task.write_text(task.read_text(encoding="utf-8").replace(
+            "version: 1\nproject: layered",
+            "version: 1\nproject: layered\nsecurity: {check_excessive_access_rights: false}"),
+            encoding="utf-8")
+        task.chmod(0o644)
+        out = env.run("-c", task, "--check-config")
+        assert "chmod 600" not in out.stdout, out.stdout
+        assert "permissions check off" in out.stdout, out.stdout
 
         env.run("-c", task, "--check-config", "--defaults",
                 env.dir / "missing.yaml", expect=2)

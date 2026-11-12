@@ -148,8 +148,10 @@ database:
 * **Ключи S3-бакета** (BEGET и подобные провайдеры) в `rclone.conf` не
   работают: там `env_auth = false`, поэтому ключи передаются флагами
   `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
-  Файл с ключами — `0600`, `--check-config` предупредит, если права шире.
-  Можно подставлять из окружения: `--s3-access-key-id=${BEGET_SHOP_KEY}`.
+  Файл с ключами — `0600`, `--check-config` предупредит, если права шире
+  (проверка включается ключом `security.check_excessive_access_rights`,
+  обычно в `kwbackup_defaults.yaml`). Можно подставлять из окружения:
+  `--s3-access-key-id=${BEGET_SHOP_KEY}`.
 * **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).
 
 ## Как это работает
