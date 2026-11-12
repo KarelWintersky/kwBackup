@@ -1,3 +1,14 @@
+kwbackup (0.0.16) unstable; urgency=medium
+
+  * docs: update installation, CLI and versioning for packaging
+
+    The canonical command line uses long options (--config/--database/...),
+    short aliases stay documented. Installation goes through the .deb into
+    /usr/bin with /etc/kwbackup/defaults.yaml, or make dist for the bare
+    artifact. Documented the version scheme (commit subject) and make targets.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:07 +0300
+
 kwbackup (0.0.15) unstable; urgency=medium
 
   * feat(packaging): debian package, MIT license and Makefile
@@ -15,7 +26,7 @@ kwbackup (0.0.15) unstable; urgency=medium
 
     LICENSE: MIT.
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:56:54 +0300
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:57:42 +0300
 
 kwbackup (0.0.14) unstable; urgency=medium
 

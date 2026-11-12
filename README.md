@@ -41,16 +41,31 @@
 
 ## Установка
 
+Готовый пакет:
+
 ```bash
-git clone https://github.com/KarelWintersky/kwBackup.git
-cd kwBackup
-python3 build.py --test                       # собрать dist/kwbackup и прогнать тесты
-sudo install -m 755 dist/kwbackup /usr/local/bin/kwbackup
+sudo dpkg -i kwbackup_<version>_all.deb
 kwbackup --version
 ```
 
-`dist/kwbackup` — один файл с шебангом. Если у вас уже есть готовая сборка,
-достаточно `sudo install -m 755 dist/kwbackup /usr/local/bin/kwbackup`.
+Пакет ставит `/usr/bin/kwbackup` (один файл с шебангом), conffile
+`/etc/kwbackup/defaults.yaml` и документацию в `/usr/share/doc/kwbackup/`.
+
+Из исходников (нужен `python3` 3.10+; для пакета — debhelper на Debian):
+
+```bash
+git clone https://github.com/KarelWintersky/kwBackup.git
+cd kwBackup
+make build                    # dist/kwbackup + ../kwbackup_<version>_all.deb
+make test                     # встроенные и сквозные тесты
+```
+
+Без пакета достаточно артефакта:
+
+```bash
+make dist
+sudo install -m 755 dist/kwbackup /usr/bin/kwbackup
+```
 
 ## Быстрый старт
 
@@ -74,12 +89,12 @@ sudoedit /etc/kwbackup/secrets.env
 # 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
 sudo -s
 set -a; . /etc/kwbackup/secrets.env; set +a
-kwbackup -c /etc/kwbackup/shop.yaml --check-config
-kwbackup -c /etc/kwbackup/shop.yaml --dry-run
+kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
 # 6. боевой запуск и проверка результата
-kwbackup -c /etc/kwbackup/shop.yaml
-kwbackup -c /etc/kwbackup/shop.yaml --list
+kwbackup --config /etc/kwbackup/shop.yaml
+kwbackup --config /etc/kwbackup/shop.yaml --list
 ```
 
 Дальше — расписание: [`examples/systemd/`](examples/systemd) или
@@ -89,18 +104,18 @@ kwbackup -c /etc/kwbackup/shop.yaml --list
 
 | Команда | Что делает |
 |---|---|
-| `kwbackup -c FILE -d` | бэкап баз данных из конфига |
-| `kwbackup -c FILE -s` | синхронизация storage |
-| `kwbackup -c FILE -a` | упаковка и заливка архива |
-| `kwbackup -c FILE` | все действия, включённые в конфиге |
-| `kwbackup -c FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup -c FILE --check-config` | проверить конфиг и наличие бинарников |
-| `kwbackup -c FILE --list` | что лежит в облаке, где пропуски |
-| `kwbackup -c FILE --verify [--all]` | скачать и проверить копию |
-| `kwbackup -c FILE --restore -d --to DIR [--at 2026-11-09]` | достать дамп |
-| `kwbackup -c FILE --restore -a --to DIR` | распаковать архив |
-| `kwbackup -c FILE --restore -s --to DIR` | скачать storage |
-| `kwbackup -c FILE --restore -d --into-db db --yes` | залить в живую БД |
+| `kwbackup --config FILE --database` | бэкап баз данных из конфига |
+| `kwbackup --config FILE --storage` | синхронизация storage |
+| `kwbackup --config FILE --archive` | упаковка и заливка архива |
+| `kwbackup --config FILE` | все действия, включённые в конфиге |
+| `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
+| `kwbackup --config FILE --check-config` | проверить конфиг и наличие бинарников |
+| `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |
+| `kwbackup --config FILE --verify [--all]` | скачать и проверить копию |
+| `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |
+| `kwbackup --config FILE --restore --archive --to DIR` | распаковать архив |
+| `kwbackup --config FILE --restore --storage --to DIR` | скачать storage |
+| `kwbackup --config FILE --restore --database --into-db db --yes` | залить в живую БД |
 | `kwbackup migrate old.conf -o new.yaml` | конвертировать bash-конфиг |
 | `kwbackup --selftest` | встроенные тесты |
 
@@ -156,6 +171,18 @@ database:
 * **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
   флаги в `rclone.args` перекрывают их для конкретного бакета.
 * **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).
+
+## Версионирование
+
+Версия проекта — это subject текущего коммита (`0.0.15`, `0.0.16`, …).
+`build.py` подставляет её в `VERSION` при сборке артефакта, а
+`debian/changelog` содержит по записи на каждый коммит. Проверка согласия:
+
+```bash
+make check-version
+```
+
+`kwbackup --version` показывает версию, с которой собран бинарник.
 
 ## Как это работает
 
@@ -223,6 +250,10 @@ python3 tests/e2e.py        # сквозные тесты на фейковом 
 Единственное правило: **все `import` живут в `src/00_header.py`**, сборщик
 падает на импорте в другом файле. Благодаря этому нет бандлера, нет рерайта
 импортов, и `dist/kwbackup` ровно соответствует `src/`.
+
+## Лицензия
+
+MIT, см. [`LICENSE`](LICENSE).
 
 ## Legacy
 

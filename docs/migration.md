@@ -2,8 +2,8 @@
 
 ```bash
 kwbackup migrate /etc/kwbackup/_config.conf -o /etc/kwbackup/shop.yaml -p shop
-kwbackup -c /etc/kwbackup/shop.yaml --check-config
-kwbackup -c /etc/kwbackup/shop.yaml --dry-run
+kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 ```
 
 Без `-o` результат печатается в stdout. Существующий файл не перезаписывается

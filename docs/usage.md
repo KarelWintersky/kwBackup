@@ -3,11 +3,13 @@
 ## Установка и первая проверка
 
 ```bash
-python3 build.py --test
-sudo install -m 755 dist/kwbackup /usr/local/bin/kwbackup
+sudo dpkg -i kwbackup_<version>_all.deb     # /usr/bin/kwbackup + /etc/kwbackup/defaults.yaml
 kwbackup --version
 kwbackup --selftest
 ```
+
+Из исходников: `make build` (артефакт + пакет) или `make dist` и
+`sudo install -m 755 dist/kwbackup /usr/bin/kwbackup`.
 
 Дальше нужен remote в rclone (`rclone config`) и файл секретов:
 
@@ -33,11 +35,11 @@ sudoedit /etc/kwbackup/secrets.env
 ```bash
 sudo -s
 set -a; . /etc/kwbackup/secrets.env; set +a
-kwbackup -c /etc/kwbackup/shop.yaml --check-config
-kwbackup -c /etc/kwbackup/shop.yaml --dry-run
-kwbackup -c /etc/kwbackup/shop.yaml
-kwbackup -c /etc/kwbackup/shop.yaml --list
-kwbackup -c /etc/kwbackup/shop.yaml --verify
+kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --dry-run
+kwbackup --config /etc/kwbackup/shop.yaml
+kwbackup --config /etc/kwbackup/shop.yaml --list
+kwbackup --config /etc/kwbackup/shop.yaml --verify
 ```
 
 Секреты должны быть в окружении процесса: их загружает `EnvironmentFile=`
@@ -59,7 +61,7 @@ kwbackup -c /etc/kwbackup/shop.yaml --verify
 ### Ежедневный бэкап всего
 
 ```bash
-kwbackup -c /etc/kwbackup/shop.yaml      # все enabled: из конфига
+kwbackup --config /etc/kwbackup/shop.yaml      # все enabled: из конфига
 ```
 
 Если в конфиге ничего не включено, команда скажет об этом и выйдет с кодом 0.
@@ -67,10 +69,12 @@ kwbackup -c /etc/kwbackup/shop.yaml      # все enabled: из конфига
 ### Явный набор действий
 
 ```bash
-kwbackup -c shop.yaml -d            # БД
-kwbackup -c shop.yaml -d -s -a      # БД + storage + архив за один прогон
-kwbackup -c shop.yaml -s -m copy    # storage в режиме copy
-kwbackup -c shop.yaml -d -f         # даже если enabled: false
+kwbackup --config shop.yaml --database
+kwbackup --config shop.yaml --database --storage --archive   # всё за прогон
+kwbackup --config shop.yaml --storage --mode copy
+kwbackup --config shop.yaml --database --force               # даже если enabled: false
+
+# короткие алиасы существуют: -c, -d, -s, -a, -m, -f
 ```
 
 `-f/--force` игнорирует `enabled: false`, но не отменяет preflight.
@@ -81,8 +85,8 @@ kwbackup -c shop.yaml -d -f         # даже если enabled: false
 разные задачи могут идти параллельно:
 
 ```bash
-kwbackup -c /etc/kwbackup/shop.yaml -d &
-kwbackup -c /etc/kwbackup/blog.yaml -d &
+kwbackup --config /etc/kwbackup/shop.yaml --database &
+kwbackup --config /etc/kwbackup/blog.yaml --database &
 ```
 
 Один и тот же проект параллельно не запустится: второй процесс получит
@@ -124,7 +128,7 @@ sudo install -m 644 examples/cron/kwbackup /etc/cron.d/kwbackup
 ### `--list` — что реально лежит в облаке
 
 ```bash
-kwbackup -c shop.yaml --list
+kwbackup --config shop.yaml --list
 ```
 
 ```
@@ -145,8 +149,8 @@ STORAGE  ->  beget:/STORAGE  (sync)
 ### `--verify` — копия действительно читается
 
 ```bash
-kwbackup -c shop.yaml --verify          # по последней копии каждого класса
-kwbackup -c shop.yaml --verify --all    # по всем копиям (долго и дорого)
+kwbackup --config shop.yaml --verify          # по последней копии каждого класса
+kwbackup --config shop.yaml --verify --all    # по всем копиям (долго и дорого)
 ```
 
 Что проверяется: файл скачивается, размер совпадает с размером в облаке,
@@ -164,10 +168,10 @@ kwbackup -c shop.yaml --verify --all    # по всем копиям (долго
 
 ```bash
 # самая свежая копия (ищется по всем классам: MONTHLY/DAILY/WEEKLY)
-kwbackup -c shop.yaml --restore -d --to /srv/restore
+kwbackup --config shop.yaml --restore --database --to /srv/restore
 
 # конкретная дата (подстрока имени файла)
-kwbackup -c shop.yaml --restore -d --at 2026-11-09 --to /srv/restore
+kwbackup --config shop.yaml --restore --database --at 2026-11-09 --to /srv/restore
 ```
 
 В каталоге появится `shop_2026-11-09-03-30-00.sql` — уже распакованный.
@@ -175,7 +179,7 @@ kwbackup -c shop.yaml --restore -d --at 2026-11-09 --to /srv/restore
 Заливка в живую БД — только с подтверждением:
 
 ```bash
-kwbackup -c shop.yaml --restore -d --at 2026-11-09 --into-db shop_test --yes
+kwbackup --config shop.yaml --restore --database --at 2026-11-09 --into-db shop_test --yes
 ```
 
 Без `--yes` команда откажется (код 1). Для mysql используется `mysql`,
@@ -187,7 +191,7 @@ kwbackup -c shop.yaml --restore -d --at 2026-11-09 --into-db shop_test --yes
 ### Архив
 
 ```bash
-kwbackup -c site.yaml --restore -a --to /srv/restore --at 2026-11-10
+kwbackup --config site.yaml --restore --archive --to /srv/restore --at 2026-11-10
 ```
 
 tar-поток распаковывается в каталог; `.rar` — через `rar x`.
@@ -196,7 +200,7 @@ tar-поток распаковывается в каталог; `.rar` — че
 ### Storage
 
 ```bash
-kwbackup -c uploads.yaml --restore -s --to /srv/restore
+kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 ```
 
 Используется `rclone copy` (никогда не `sync`): в локальном каталоге ничего

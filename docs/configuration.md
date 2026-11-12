@@ -1,7 +1,7 @@
 # Справочник по конфигу
 
 Полный пример со всеми ключами: [`examples/full.yaml`](../examples/full.yaml).
-Проверка файла: `kwbackup -c FILE --check-config`.
+Проверка файла: `kwbackup --config FILE --check-config`.
 
 ## Слои конфигурации
 
