@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	python3 build.py --version $(shell dpkg-parsechangelog -S Version)
+
+override_dh_auto_test:
+	python3 tests/e2e.py
+
+override_dh_auto_install:
+	# debian/kwbackup.install and dh_installdocs do the work
+
+override_dh_auto_clean:
+	rm -rf dist

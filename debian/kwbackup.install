@@ -1,0 +1,2 @@
+dist/kwbackup usr/bin/
+examples/defaults.yaml etc/kwbackup/

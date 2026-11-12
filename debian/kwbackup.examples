@@ -1,0 +1,5 @@
+examples/database-only.yaml
+examples/storage-only.yaml
+examples/archive-only.yaml
+examples/full.yaml
+examples/secrets.env.example

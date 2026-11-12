@@ -6,3 +6,12 @@ __pycache__/
 secrets.env
 dist/
 
+debian/files
+debian/.debhelper/
+debian/kwbackup/
+debian/*.substvars
+debian/debhelper-build-stamp
+*.deb
+*.changes
+*.buildinfo
+*.dsc

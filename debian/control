@@ -1,0 +1,25 @@
+Source: kwbackup
+Section: admin
+Priority: optional
+Maintainer: Karel Wintersky <karel.wintersky@gmail.com>
+Build-Depends: debhelper-compat (= 13), python3
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/KarelWintersky/kwBackup
+
+Package: kwbackup
+Architecture: all
+Depends: python3 (>= 3.10), ${misc:Depends}
+Recommends: rclone
+Suggests: default-mysql-client | mariadb-client, postgresql-client, zstd | gzip, pigz, rar
+Description: backup tool for databases, file storage and archives
+ kwbackup dumps databases, syncs directories and packs file archives, then
+ uploads the result to any rclone remote (S3, WebDAV, SFTP, ...).
+ .
+ Three scenarios: mysqldump/mariadb-dump/pg_dump/sqlite3 piped through
+ zstd/gzip/rar, rclone sync or copy of local directories, and tar archives
+ with include/exclude patterns.
+ .
+ Retention is counted per class (daily, weekly, monthly), either as a number
+ of copies to keep or as an age window. The command line can list and verify
+ what is really stored, and restore a database, an archive or a storage tree.
