@@ -1,3 +1,12 @@
+kwbackup (0.0.17) unstable; urgency=medium
+
+  * chore: stop tracking IDE files
+
+    .idea/ is in .gitignore since 0.0.12; the files were committed earlier by
+    mistake. They stay on disk but leave the repository and the history.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:49 +0300
+
 kwbackup (0.0.16) unstable; urgency=medium
 
   * docs: update installation, CLI and versioning for packaging
@@ -7,7 +16,7 @@ kwbackup (0.0.16) unstable; urgency=medium
     /usr/bin with /etc/kwbackup/defaults.yaml, or make dist for the bare
     artifact. Documented the version scheme (commit subject) and make targets.
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:07 +0300
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:13 +0300
 
 kwbackup (0.0.15) unstable; urgency=medium
 
