@@ -3,11 +3,11 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [1.0.0] — 2026-11-12
+## [Unreleased]
 
 Первая версия на Python. Заменяет `kwbackup.sh` 0.9.0: те же три сценария
 и та же схема ротации, но с валидируемым конфигом, честными кодами возврата
-и проверкой копий.
+и проверкой копий. При выпуске раздел станет `[1.0.0] — <дата>` и получит тег.
 
 ### Added
 
@@ -109,5 +109,3 @@
 - Зависимость от `pv`.
 - Списки include/exclude для `rar` отдельным форматом: используются общие
   `include`/`exclude`, работающие с любым компрессором.
-
-[1.0.0]: https://github.com/KarelWintersky/kwBackup/releases/tag/v1.0.0
