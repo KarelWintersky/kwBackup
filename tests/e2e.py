@@ -904,9 +904,9 @@ def test_no_args_shows_banner():
     try:
         res = env.run(expect=3)
         out = res.stdout + res.stderr
-        assert "kwbackup " in out, out
-        assert "Backup tool over rclone: database dumps, file storage, archives" in out, out
-        assert "-c/--config is required" in out, out
+        assert "kwBackup: Backup tool over RClone: database dumps, file storage, archives" in out, out
+        assert "Version: " in out, out
+        assert "ERROR: -c/--config is required" in out, out
     finally:
         env.cleanup()
 

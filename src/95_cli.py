@@ -54,12 +54,13 @@ def main(argv=None):
         print(f"{PROG} {VERSION}")
         return EXIT_OK
     if not args.config:
-        print(f"{PROG} {VERSION}", file=sys.stderr)
-        print("Backup tool over rclone: database dumps, file storage, archives",
+        print("kwBackup: Backup tool over RClone: database dumps, file storage, archives",
               file=sys.stderr)
+        print(f"Version: {VERSION}", file=sys.stderr)
         print(file=sys.stderr)
         parser.print_usage(sys.stderr)
-        print(f"{PROG}: error: -c/--config is required", file=sys.stderr)
+        print(file=sys.stderr)
+        print("ERROR: -c/--config is required", file=sys.stderr)
         return EXIT_USAGE
 
     try:

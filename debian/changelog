@@ -1,3 +1,18 @@
+kwbackup (0.0.31) unstable; urgency=medium
+
+  * style(cli): reformat the no-config banner
+
+        kwBackup: Backup tool over RClone: database dumps, file storage, archives
+        Version: 0.0.31
+
+        usage: ...
+
+        ERROR: -c/--config is required
+
+    Everything on stderr, exit code 3 unchanged.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:01:57 +0300
+
 kwbackup (0.0.30) unstable; urgency=medium
 
   * style(cli): introduce the tool when it is started without a config
