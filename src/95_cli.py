@@ -133,18 +133,31 @@ def enabled_actions(cfg):
     return [name for name in ACTIONS if getattr(cfg, name).enabled]
 
 
+def _ansi(code):
+    """ANSI colour, disabled for non-TTY and when NO_COLOR is set."""
+    if os.environ.get("NO_COLOR") is not None or not sys.stdout.isatty():
+        return ""
+    return code
+
+
 def show_available_actions(cfg):
-    print(f"No action requested. Actions in {cfg.path}:")
+    """Same shape as the legacy shell script: one line per action, the
+    option name highlighted, plus whether the action is usable in this file."""
+    yellow = _ansi("\033[33m")
+    green = _ansi("\033[32m")
+    dim = _ansi("\033[2m")
+    reset = _ansi("\033[0m")
+    print("No one backup action(s) requested. Allowed:")
     for name in ACTIONS:
         if getattr(cfg, name).enabled:
-            state = "enabled"
+            state = f"{green}enabled{reset}"
         elif name in cfg.present_sections:
-            state = "disabled"
+            state = f"{dim}disabled{reset}"
         else:
-            state = "not configured"
-        print(f"  --{name:<9} {state}")
+            state = f"{dim}not configured{reset}"
+        option = f"{yellow}{('--' + name):<10}{reset}"
+        print(f"... {name:<9} (use {option} option)  {state}")
     print()
-    print(f"Run one explicitly, for example: kwbackup --config {cfg.path} --database")
     print("Nothing has been done.")
 
 

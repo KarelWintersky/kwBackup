@@ -843,10 +843,10 @@ storage:
   sources: [{src}]
 """)
         out = env.run("-c", env.config)
-        assert "No action requested" in out.stdout, out.stdout
-        assert "--storage   enabled" in out.stdout, out.stdout
-        assert "--database  not configured" in out.stdout, out.stdout
-        assert "--archive   not configured" in out.stdout, out.stdout
+        assert "No one backup action(s) requested. Allowed:" in out.stdout, out.stdout
+        assert "(use --storage  option)  enabled" in out.stdout, out.stdout
+        assert "(use --database option)  not configured" in out.stdout, out.stdout
+        assert "(use --archive  option)  not configured" in out.stdout, out.stdout
         assert env.cloud_tree() == [], "nothing must be uploaded"
 
         # a section that exists but is switched off is "disabled", not "not configured"
@@ -858,7 +858,7 @@ database:
   retention: {daily: {keep: 1}}
 """, encoding="utf-8")
         out = env.run("-c", env.config)
-        assert "--database  disabled" in out.stdout, out.stdout
+        assert "(use --database option)  disabled" in out.stdout, out.stdout
     finally:
         env.cleanup()
 

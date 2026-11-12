@@ -1,13 +1,29 @@
+kwbackup (0.0.25) unstable; urgency=medium
+
+  * style(cli): legacy layout for the action list, option name in yellow
+
+    Same shape as kwbackup.sh: 'No one backup action(s) requested. Allowed:'
+    followed by one line per action with the option name highlighted. The state
+    (enabled / disabled / not configured) is appended, because the new tool lists
+    all three actions while the old script listed enabled ones only.
+
+    Colours are emitted only when stdout is a TTY and NO_COLOR is unset.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:22:22 +0300
+
 kwbackup (0.0.24) unstable; urgency=medium
 
   * fix(cli): distinguish 'not configured' from 'disabled' in the action list
 
-    A section that is absent from the task and the system defaults is now shown
-    as 'not configured'; 'disabled' means the section exists with enabled: false.
-    The presence is taken from the files before the built-in defaults are merged,
-    because BUILTIN_DEFAULTS always defines every section.
+    A section absent from the task and the system defaults is shown as
+    'not configured'; 'disabled' means the section exists with enabled: false.
+    Presence is taken from the files before BUILTIN_DEFAULTS is merged, because
+    the built-ins always define every section.
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:19:49 +0300
+    Also restores the specific debian/ build-output ignores: the bare 'debian'
+    pattern hid the packaging directory and blocked 'git add'.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:20:07 +0300
 
 kwbackup (0.0.23) unstable; urgency=medium
 

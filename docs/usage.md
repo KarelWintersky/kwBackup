@@ -72,12 +72,11 @@ kwbackup --config /etc/kwbackup/shop.yaml --database --storage --archive
 
 ```
 $ kwbackup --config shop.yaml
-No action requested. Actions in shop.yaml:
-  --database  enabled
-  --storage   disabled
-  --archive   not configured
+No one backup action(s) requested. Allowed:
+... database  (use --database option)  enabled
+... storage   (use --storage  option)  disabled
+... archive   (use --archive  option)  not configured
 
-Run one explicitly, for example: kwbackup --config shop.yaml --database
 Nothing has been done.
 ```
 
