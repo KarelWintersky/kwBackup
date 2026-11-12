@@ -11,6 +11,7 @@ debian/.debhelper/
 debian/kwbackup/
 debian/*.substvars
 debian/debhelper-build-stamp
+debian/*.debhelper.log
 *.deb
 *.changes
 *.buildinfo

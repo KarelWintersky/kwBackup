@@ -1,3 +1,23 @@
+kwbackup (0.1.0) stable; urgency=medium
+
+  * First public release of kwBackup: backups of databases, file storage and
+    archives over rclone, as a single Python file with no dependencies.
+
+    Scenarios: mysqldump/mariadb-dump/pg_dump/sqlite3 piped through zstd, gzip or
+    rar with daily/weekly/monthly retention; rclone sync or copy of directories;
+    tar archives with include/exclude patterns.
+
+    Safety: flock per project and task, a quiet terminal with info in log.file,
+    --list and --verify to check what is really stored, --restore including
+    --into-db behind an explicit --yes.
+
+    Configuration: /etc/kwbackup/defaults.yaml over built-in defaults, with
+    unknown keys reported as warnings. A Debian package installs
+    /usr/bin/kwbackup and the defaults conffile; migrate converts the legacy
+    bash configuration.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:25:23 +0300
+
 kwbackup (0.0.37) unstable; urgency=medium
 
   * style(cli): one-line banner with the version in parentheses

@@ -13,6 +13,10 @@ text.
 The file is tracked in git: the distribution field decides which part of the
 repository the resulting .deb belongs to, so it is a deliberate edit, not a
 side effect of a build.
+
+Bootstrap only: the generator assigns the same distribution to every
+historical entry (git does not remember it). Once released, maintain
+debian/changelog by hand or with dch; do not regenerate it.
 """
 
 import argparse
@@ -70,6 +74,9 @@ def main(argv=None):
                     help="prepend an entry for a commit that does not exist yet")
     ap.add_argument("--pending-message", default="",
                     help="text of the pending entry")
+    ap.add_argument("--pending-distribution", default=None,
+                    help="suite of the pending entry (default: --distribution); "
+                         "used to mark the release entry stable")
     args = ap.parse_args(argv)
 
     entries = history()
@@ -82,8 +89,12 @@ def main(argv=None):
         stamp = dt.datetime.now().astimezone().strftime("%a, %d %b %Y %H:%M:%S %z")
         entries.append((args.pending_version, args.pending_message, stamp))
 
-    text = "\n\n".join(format_entry(v, t, d, args.distribution)
-                       for v, t, d in reversed(entries))
+    pending_dist = args.pending_distribution or args.distribution
+    rendered = []
+    for version, text_body, date in reversed(entries):
+        dist = pending_dist if version == args.pending_version else args.distribution
+        rendered.append(format_entry(version, text_body, date, dist))
+    text = "\n\n".join(rendered)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text + "\n", encoding="utf-8")

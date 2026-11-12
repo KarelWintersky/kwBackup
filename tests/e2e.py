@@ -700,11 +700,16 @@ def _artifact():
     """Import the built single-file tool as a module (main() is guarded)."""
     import importlib.util
     from importlib.machinery import SourceFileLoader
-    loader = SourceFileLoader("kwbackup_built", str(DIST))
-    spec = importlib.util.spec_from_loader("kwbackup_built", loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
+    saved = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True          # never leave dist/__pycache__
+    try:
+        loader = SourceFileLoader("kwbackup_built", str(DIST))
+        spec = importlib.util.spec_from_loader("kwbackup_built", loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        return module
+    finally:
+        sys.dont_write_bytecode = saved
 
 
 def _key_paths(data, prefix=""):
