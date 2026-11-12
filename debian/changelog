@@ -1,3 +1,13 @@
+kwbackup (0.0.36) unstable; urgency=medium
+
+  * style(cli): show the banner in the action list too
+
+    The list of available actions printed its header without saying what program
+    the user just started. The same kwBackup/version banner is now printed before
+    it, via one print_banner() helper shared with the no-config error path.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:17:39 +0300
+
 kwbackup (0.0.35) unstable; urgency=medium
 
   * feat(config): an unknown key is a warning, not a fatal error

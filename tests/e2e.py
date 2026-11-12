@@ -841,6 +841,8 @@ storage:
   sources: [{src}]
 """)
         out = env.run("-c", env.config)
+        assert "kwBackup: Backup tool over rclone" in out.stdout, out.stdout
+        assert "Version: " in out.stdout, out.stdout
         assert "No one backup action(s) requested. Allowed:" in out.stdout, out.stdout
         assert "(use --storage  option)  enabled" in out.stdout, out.stdout
         assert "(use --database option)  not configured" in out.stdout, out.stdout

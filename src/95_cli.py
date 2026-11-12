@@ -54,9 +54,7 @@ def main(argv=None):
         print(f"{APP} {VERSION}")
         return EXIT_OK
     if not args.config:
-        print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives",
-              file=sys.stderr)
-        print(f"Version: {VERSION}", file=sys.stderr)
+        print_banner(sys.stderr)
         print(file=sys.stderr)
         parser.print_usage(sys.stderr)
         print(file=sys.stderr)
@@ -151,9 +149,17 @@ def _ansi(code):
     return code
 
 
+def print_banner(stream=sys.stdout):
+    print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives",
+          file=stream)
+    print(f"Version: {VERSION}", file=stream)
+
+
 def show_available_actions(cfg):
     """Same shape as the legacy shell script: one line per action, the
     option name highlighted, plus whether the action is usable in this file."""
+    print_banner()
+    print()
     yellow = _ansi("\033[33m")
     green = _ansi("\033[32m")
     dim = _ansi("\033[2m")
