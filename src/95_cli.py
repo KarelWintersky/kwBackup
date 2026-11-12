@@ -66,8 +66,6 @@ def main(argv=None):
     DRY = args.dry_run
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
-    for warning in secret_warnings(cfg):
-        LOG.warning("%s", warning)
 
     if args.check_config:
         return check_config(cfg, args)
@@ -167,8 +165,4 @@ def check_config(cfg, args):
             print(f"    ! {problem}")
     else:
         print("  preflight: ok")
-    check = cfg.security.check_excessive_access_rights
-    print(f"  security: permissions check {'on' if check else 'off'}")
-    for warning in secret_warnings(cfg):
-        print(f"    ! {warning}")
     return EXIT_OK

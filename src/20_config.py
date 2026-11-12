@@ -12,7 +12,7 @@ class ConfigError(Exception):
 # would run with no databases at all).
 SECTIONS = {
     "root": {"version", "project", "log", "runtime", "rclone",
-             "database", "storage", "archive", "security"},
+             "database", "storage", "archive"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
     "rclone": {"binary", "config", "remote", "args", "env"},
@@ -23,7 +23,6 @@ SECTIONS = {
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "target", "mode", "retention",
                 "retention_mode"},
-    "security": {"check_excessive_access_rights"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
 }
@@ -88,14 +87,6 @@ def fmt_age(td):
 
 
 @dataclass
-class SecurityCfg:
-    # Warn when a file that carries S3 credentials is readable by
-    # group/other. Some setups mount configs read-only with fixed modes;
-    # they can switch this off.
-    check_excessive_access_rights: bool = _default("security", "check_excessive_access_rights")
-
-
-@dataclass
 class RcloneCfg:
     binary: str = _default("rclone", "binary")
     config: str | None = None
@@ -149,13 +140,11 @@ class Config:
     path: Path
     project: str
     defaults_path: Path | None = None
-    secret_files: list = field(default_factory=list)   # [(label, path)]
     log_level: str = _default("log", "level")
     log_file: str | None = None
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
     keep_temp: bool = _default("runtime", "keep_temp")
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
-    security: SecurityCfg = field(default_factory=SecurityCfg)
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
@@ -202,44 +191,6 @@ def _read_yaml(path):
     if not isinstance(data, dict):
         raise ConfigError(f"{path}: top level must be a mapping")
     return data
-
-
-def _has_credentials(data):
-    """Does THIS file (before merging) carry S3 keys in rclone.args?"""
-    rclone = data.get("rclone") or {}
-    args = rclone.get("args") if isinstance(rclone, dict) else None
-    if not isinstance(args, list):
-        return False
-    return any("secret" in str(arg).lower() or "access-key" in str(arg).lower()
-               for arg in args)
-
-
-def secret_warnings(cfg):
-    """Files that pass S3 credentials as rclone flags must not be readable
-    by group/other.
-
-    Keys inside rclone.conf are a normal setup (account-level credentials);
-    they are not flagged: rclone flags in the task config override them.
-
-    Controlled by security.check_excessive_access_rights (default: on).
-    """
-    if not cfg.security.check_excessive_access_rights:
-        return []
-    files = list(cfg.secret_files)
-    warnings = []
-    seen = set()
-    for label, path in files:
-        if str(path) in seen:
-            continue
-        seen.add(str(path))
-        try:
-            mode = Path(path).stat().st_mode & 0o777
-        except OSError:
-            continue
-        if mode & 0o077:
-            warnings.append(f"{label} {path} contains credentials but its mode is "
-                            f"{mode:03o}; chmod 600 {path}")
-    return warnings
 
 
 def _check_keys(data, section, path, errors):
@@ -363,15 +314,11 @@ def load_config(path, env=None, defaults=None):
 
     task = _read_yaml(path)
     chosen = find_defaults(defaults)
-    secret_files = [("config", path)] if _has_credentials(task) else []
     data = BUILTIN_DEFAULTS
     if chosen is not None:
         if not chosen.is_file():
             raise ConfigError(f"{chosen}: defaults file not found")
-        defaults_data = _read_yaml(chosen)
-        if _has_credentials(defaults_data):
-            secret_files.append(("defaults", chosen))
-        data = deep_merge(BUILTIN_DEFAULTS, defaults_data)
+        data = deep_merge(BUILTIN_DEFAULTS, _read_yaml(chosen))
     data = deep_merge(data, task)
 
     errors = []
@@ -382,7 +329,7 @@ def load_config(path, env=None, defaults=None):
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
                                             errors, required=True) or path.stem,
-                 defaults_path=chosen, secret_files=secret_files)
+                 defaults_path=chosen)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):
@@ -396,18 +343,6 @@ def load_config(path, env=None, defaults=None):
         level = "info"
     cfg.log_level = level
     cfg.log_file = _as_str(log_raw.get("file"), "config.log.file", errors)
-
-    sec = data.get("security") or {}
-    if not isinstance(sec, dict):
-        errors.append("config.security: expected a mapping")
-        sec = {}
-    _check_keys(sec, "security", "config.security", errors)
-    cfg.security = SecurityCfg(
-        check_excessive_access_rights=_as_bool(
-            sec.get("check_excessive_access_rights"),
-            "config.security.check_excessive_access_rights", errors,
-            _default("security", "check_excessive_access_rights")),
-    )
 
     rt = data.get("runtime") or {}
     if not isinstance(rt, dict):

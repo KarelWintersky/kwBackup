@@ -43,10 +43,7 @@ BUILTIN_DEFAULTS = {
         "name": "archive",
         "include": ["*"],
         "exclude": [],
-    },
-    "security": {
-        "check_excessive_access_rights": True,
-    },
+    }
 }
 
 # The only defaults file the tool looks at (overridable for tests and for

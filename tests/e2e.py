@@ -646,35 +646,12 @@ database:
         out = env.run(*base, "--check-config")
         assert "defaults.yaml" in out.stdout, out.stdout
         assert "keep 1" in out.stdout, out.stdout
-        assert "chmod 600" in out.stdout, out.stdout        # 0644 + credentials
-        assert "defaults.yaml contains credentials" not in out.stdout, out.stdout
 
         env.run(*base, "-d")
         log = (env.dir / "rclone.log").read_text()
         assert "--s3-no-check-bucket" in log, log           # from defaults
         assert "--s3-access-key-id=KEY1" in log, log        # from the task, appended
         assert "--s3-secret-access-key=SECRET1" in log, log
-
-        # rclone.conf with account-level keys is normal, never flagged
-        rclone_conf = env.dir / "rclone.conf"
-        rclone_conf.write_text("[beget]\naccess_key_id = AAAA\nsecret_access_key = BBBB\n",
-                               encoding="utf-8")
-        rclone_conf.chmod(0o644)
-        task.write_text(task.read_text(encoding="utf-8").replace(
-            "rclone:\n  args:",
-            f"rclone:\n  config: {rclone_conf}\n  args:"), encoding="utf-8")
-        out = env.run(*base, "--check-config")
-        assert "rclone.conf contains credentials" not in out.stdout, out.stdout
-
-        # the check can be switched off in config
-        task.write_text(task.read_text(encoding="utf-8").replace(
-            "version: 1\nproject: layered",
-            "version: 1\nproject: layered\nsecurity: {check_excessive_access_rights: false}"),
-            encoding="utf-8")
-        task.chmod(0o644)
-        out = env.run(*base, "--check-config")
-        assert "rclone.conf contains credentials" not in out.stdout, out.stdout
-        assert "permissions check off" in out.stdout, out.stdout
 
         env.run("-c", task, "--defaults", env.dir / "missing.yaml",
                 "--check-config", expect=2)
@@ -756,7 +733,6 @@ def test_defaults_file_covers_builtins():
     assert not missing, f"examples/defaults.yaml misses built-in keys: {sorted(missing)}"
     for path in ("runtime.temp_dir", "runtime.keep_temp", "rclone.binary",
                  "database.mode", "archive.mode", "storage.mode",
-                 "security.check_excessive_access_rights",
                  "archive.include", "archive.exclude"):
         assert _value(raw, path) == _value(kw.BUILTIN_DEFAULTS, path), path
     assert "retention" in raw["database"], "database retention must be a host default"

@@ -1,3 +1,18 @@
+kwbackup (0.0.21) unstable; urgency=medium
+
+  * revert: drop the credentials permission check
+
+    The warning fired on every run for task files that pass bucket keys as rclone
+    flags, and those keys are the only way BEGET-style per-bucket credentials
+    work. The file mode is the operator's business, and the tool should not nag
+    about it. Keys in rclone.conf were already exempt.
+
+    Removed: the security section, SecurityCfg, secret_files bookkeeping,
+    secret_warnings, the per-run LOG.warning and the --check-config block.
+    Configs that still carry a security: section must drop it (unknown key).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:10:52 +0300
+
 kwbackup (0.0.20) unstable; urgency=medium
 
   * docs: the shipped defaults file covers every built-in default
