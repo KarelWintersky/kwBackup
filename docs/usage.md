@@ -61,10 +61,25 @@ kwbackup --config /etc/kwbackup/shop.yaml --verify
 ### Ежедневный бэкап всего
 
 ```bash
-kwbackup --config /etc/kwbackup/shop.yaml      # все enabled: из конфига
+kwbackup --config /etc/kwbackup/shop.yaml --database --storage --archive
 ```
 
-Если в конфиге ничего не включено, команда скажет об этом и выйдет с кодом 0.
+Действие всегда указывается явно. Список `--database --storage --archive`
+безопасен и для выключенных секций: они пишут `disabled` и пропускаются.
+
+Если не указать ни одного действия, программа **ничего не запускает**,
+печатает доступные действия из конфига и выходит с кодом 0:
+
+```
+$ kwbackup --config shop.yaml
+No action requested. Actions in shop.yaml:
+  --database  enabled
+  --storage   disabled in config
+  --archive   disabled in config
+
+Run one explicitly, for example: kwbackup --config shop.yaml --database
+Nothing has been done.
+```
 
 ### Явный набор действий
 

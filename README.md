@@ -93,7 +93,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --check-config
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
 # 6. боевой запуск и проверка результата
-kwbackup --config /etc/kwbackup/shop.yaml
+kwbackup --config /etc/kwbackup/shop.yaml --database
 kwbackup --config /etc/kwbackup/shop.yaml --list
 ```
 
@@ -108,7 +108,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --storage` | синхронизация storage |
 | `kwbackup --config FILE --archive` | упаковка и заливка архива |
 | `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
-| `kwbackup --config FILE` | все действия, включённые в конфиге |
+| `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
 | `kwbackup --config FILE --check-config` | проверить конфиг и наличие бинарников |
 | `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |

@@ -86,9 +86,9 @@ def main(argv=None):
         LOG.info("restore: %d file(s), %s", stats["files"], fmt_bytes(stats["bytes"]))
         return EXIT_OK
 
-    actions = requested_actions(cfg, args)
+    actions = requested_actions(args)
     if not actions:
-        print("Nothing to do. Enable an action in config or pass -d/-s/-a.")
+        show_available_actions(cfg)
         return EXIT_OK
 
     if not preflight(cfg, actions):
@@ -120,18 +120,27 @@ def main(argv=None):
     return rc
 
 
-def requested_actions(cfg, args, silent=False):
-    actions = [name for name, flag in (("database", args.database),
-                                       ("storage", args.storage),
-                                       ("archive", args.archive)) if flag]
-    if actions:
-        return actions
-    actions = [name for name, enabled in (("database", cfg.database.enabled),
-                                          ("storage", cfg.storage.enabled),
-                                          ("archive", cfg.archive.enabled)) if enabled]
-    if actions and not silent:
-        LOG.info("no action requested, running enabled ones: %s", ", ".join(actions))
-    return actions
+ACTIONS = ("database", "storage", "archive")
+
+
+def requested_actions(args):
+    """Only what was asked on the command line. Nothing is implicit: a run
+    without an action flag must never start a backup."""
+    return [name for name in ACTIONS if getattr(args, name)]
+
+
+def enabled_actions(cfg):
+    return [name for name in ACTIONS if getattr(cfg, name).enabled]
+
+
+def show_available_actions(cfg):
+    print(f"No action requested. Actions in {cfg.path}:")
+    for name in ACTIONS:
+        state = "enabled" if getattr(cfg, name).enabled else "disabled in config"
+        print(f"  --{name:<9} {state}")
+    print()
+    print(f"Run one explicitly, for example: kwbackup --config {cfg.path} --database")
+    print("Nothing has been done.")
 
 
 def check_config(cfg, args):
@@ -158,7 +167,7 @@ def check_config(cfg, args):
         print(f"  archive: {cfg.archive.compressor}, root {cfg.archive.root}, "
               f"mode {cfg.archive.mode}, target {cfg.archive.target}, "
               f"retention {ret.describe() if ret else 'none'}")
-    problems = preflight_problems(cfg, requested_actions(cfg, args, silent=True))
+    problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:
         print("  preflight: warnings")
         for problem in problems:

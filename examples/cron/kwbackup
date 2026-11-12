@@ -5,7 +5,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=root
 
 # ежедневный бэкап
-30 3 * * *   root  . /etc/kwbackup/secrets.env; /usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml >> /var/log/kwbackup/cron.log 2>&1
+30 3 * * *   root  . /etc/kwbackup/secrets.env; /usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --database --storage --archive >> /var/log/kwbackup/cron.log 2>&1
 
 # еженедельная проверка последней копии (exit 5 = проблема, cron пришлёт письмо)
 0  5 * * 0   root  . /etc/kwbackup/secrets.env; /usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --verify >> /var/log/kwbackup/verify.log 2>&1

@@ -1,5 +1,6 @@
 # /etc/systemd/system/kwbackup.service
-# Ежедневный прогон: все действия, включённые в конфиге.
+# Ежедневный прогон. Действия указываются явно: без флагов программа
+# ничего не запускает, а только печатает список доступных действий.
 [Unit]
 Description=kwbackup: backup to S3
 After=network-online.target
@@ -9,7 +10,8 @@ Wants=network-online.target
 Type=oneshot
 # Секреты (ключи S3, пароли БД) — отдельным файлом с правами 0600.
 EnvironmentFile=/etc/kwbackup/secrets.env
-ExecStart=/usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml
+ExecStart=/usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml \
+    --database --storage --archive
 
 # Бэкап не должен душить прод
 Nice=10

@@ -829,6 +829,28 @@ database:
         env.cleanup()
 
 
+def test_no_action_does_nothing():
+    """No action flag: print the list, run nothing, touch nothing."""
+    env = Env()
+    try:
+        src = env.dir / "files"
+        src.mkdir()
+        (src / "a.txt").write_text("a")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  target: "fake:/S"
+  sources: [{src}]
+""")
+        out = env.run("-c", env.config)
+        assert "No action requested" in out.stdout, out.stdout
+        assert "--storage" in out.stdout, out.stdout
+        assert "enabled" in out.stdout, out.stdout
+        assert env.cloud_tree() == [], "nothing must be uploaded"
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -839,7 +861,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_builtin_defaults_only, test_build_version_and_shebang,
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
          test_archive_sync_mirrors, test_database_sync_mirrors,
-         test_defaults_file_covers_builtins]
+         test_defaults_file_covers_builtins, test_no_action_does_nothing]
 
 
 def main():
