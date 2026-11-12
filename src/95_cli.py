@@ -136,7 +136,12 @@ def enabled_actions(cfg):
 def show_available_actions(cfg):
     print(f"No action requested. Actions in {cfg.path}:")
     for name in ACTIONS:
-        state = "enabled" if getattr(cfg, name).enabled else "disabled in config"
+        if getattr(cfg, name).enabled:
+            state = "enabled"
+        elif name in cfg.present_sections:
+            state = "disabled"
+        else:
+            state = "not configured"
         print(f"  --{name:<9} {state}")
     print()
     print(f"Run one explicitly, for example: kwbackup --config {cfg.path} --database")

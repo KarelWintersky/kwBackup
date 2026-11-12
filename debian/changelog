@@ -1,3 +1,14 @@
+kwbackup (0.0.24) unstable; urgency=medium
+
+  * fix(cli): distinguish 'not configured' from 'disabled' in the action list
+
+    A section that is absent from the task and the system defaults is now shown
+    as 'not configured'; 'disabled' means the section exists with enabled: false.
+    The presence is taken from the files before the built-in defaults are merged,
+    because BUILTIN_DEFAULTS always defines every section.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:19:49 +0300
+
 kwbackup (0.0.23) unstable; urgency=medium
 
   * chore: ignore the local test sandbox

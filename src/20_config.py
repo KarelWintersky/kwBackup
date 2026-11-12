@@ -140,6 +140,7 @@ class Config:
     path: Path
     project: str
     defaults_path: Path | None = None
+    present_sections: set = field(default_factory=set)   # seen in defaults/task, not builtins
     log_level: str = _default("log", "level")
     log_file: str | None = None
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
@@ -314,12 +315,15 @@ def load_config(path, env=None, defaults=None):
 
     task = _read_yaml(path)
     chosen = find_defaults(defaults)
-    data = BUILTIN_DEFAULTS
+    raw = task
     if chosen is not None:
         if not chosen.is_file():
             raise ConfigError(f"{chosen}: defaults file not found")
-        data = deep_merge(BUILTIN_DEFAULTS, _read_yaml(chosen))
-    data = deep_merge(data, task)
+        raw = deep_merge(_read_yaml(chosen), task)
+    # What the user actually wrote (built-ins excluded): lets the CLI tell
+    # "the section is absent" from "the section is present but disabled".
+    present_sections = set(raw)
+    data = deep_merge(BUILTIN_DEFAULTS, raw)
 
     errors = []
     _check_keys(data, "root", "config", errors)
@@ -329,7 +333,7 @@ def load_config(path, env=None, defaults=None):
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
                                             errors, required=True) or path.stem,
-                 defaults_path=chosen)
+                 defaults_path=chosen, present_sections=present_sections)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):
