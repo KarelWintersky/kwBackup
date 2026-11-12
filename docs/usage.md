@@ -257,7 +257,7 @@ kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 
 | Симптом | Причина | Что делать |
 |---|---|---|
-| код 2, `unknown key` | опечатка в конфиге | сверить с `docs/configuration.md` |
+| предупреждение `unknown key, ignored` | опечатка или лишний ключ | ключ проигнорирован, запуск продолжается; сверить с `docs/configuration.md` |
 | код 2, `environment variable X is not set` | не загружен secrets.env | `EnvironmentFile=` / `. secrets.env` |
 | код 2, `defaults file not found` | указан несуществующий `--defaults` | поправить путь |
 | конфиг «дополняется» не тем, что вы ждёте | сработал `/etc/kwbackup/defaults.yaml` | смотреть строку `defaults:` в `--check-config` |

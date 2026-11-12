@@ -114,12 +114,17 @@ database:
         good = base.replace("type: maria", "type: mysql")
         cfg = load_config(write(good))
         check("config loads", cfg.project == "t" and cfg.database.retention["daily"].keep == 8)
-        bogus = good.replace("databases: [db1]", "databeses: [db1]")
+        warned = good.replace("project: t", "project: t\nnonsense: 1")
+        cfg_w = load_config(write(warned))
+        check("unknown key warns", any("nonsense" in w for w in cfg_w.warnings),
+              cfg_w.warnings)
+
+        typo = good.replace("databases: [db1]", "databeses: [db1]")
         try:
-            load_config(write(bogus))
-            check("unknown key", False, "accepted")
+            load_config(write(typo))
+            check("typo still fatal", False, "accepted a config without databases")
         except ConfigError as exc:
-            check("unknown key", "unknown key" in str(exc), str(exc))
+            check("typo still fatal", "databases: required" in str(exc), str(exc))
 
     if failures:
         for f in failures:

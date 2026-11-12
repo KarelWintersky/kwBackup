@@ -72,6 +72,9 @@ def main(argv=None):
     DRY = args.dry_run
     VERBOSE = args.verbose or args.debug
     setup_logging(cfg, args.verbose, args.debug, dry_run=args.dry_run)
+    if not args.check_config:
+        for warning in cfg.warnings:
+            LOG.warning("%s", warning)
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
 
@@ -194,6 +197,10 @@ def check_config(cfg, args):
               f"root {cfg.archive.root}, mode {cfg.archive.mode}, "
               f"target {cfg.archive.target}, "
               f"retention {ret.describe() if ret else 'none'}")
+    if cfg.warnings:
+        print("  config: warnings")
+        for warning in cfg.warnings:
+            print(f"    ! {warning}")
     problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:
         print("  preflight: warnings")

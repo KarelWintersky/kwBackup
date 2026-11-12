@@ -1,3 +1,21 @@
+kwbackup (0.0.35) unstable; urgency=medium
+
+  * feat(config): an unknown key is a warning, not a fatal error
+
+    Strict rejection protected against typos but broke a run over a harmless
+    leftover key (the removed version: 1 did exactly that). Unknown keys are now
+    reported as warnings - visible on the terminal, in log.file and in
+    --check-config - and the configuration keeps working.
+
+    Still fatal: an invalid value (enum, type), a missing required field, a
+    retention conflict, mutually exclusive rules. A mistyped 'databeses:' is
+    still caught, because 'databases' is required when database.enabled is true.
+
+    tests: unknown key warns, --check-config prints it, the backup still runs
+    (32/32).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:03:06 +0300
+
 kwbackup (0.0.34) unstable; urgency=medium
 
   * feat(config): drop the version field entirely

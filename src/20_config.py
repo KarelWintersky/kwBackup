@@ -7,9 +7,8 @@ class ConfigError(Exception):
 
 
 # Validation schema: the allowed keys of every section. Anything else is a
-# config error with the list of valid keys, so a typo cannot silently
-# disable a section (`databeses:` would otherwise be ignored and the backup
-# would run with no databases at all).
+# warning with the list of valid keys - a typo stays visible, but an old file
+# with a leftover key still runs. Missing or invalid values remain fatal.
 SECTIONS = {
     "root": {"project", "log", "runtime", "rclone",
              "database", "storage", "archive"},
@@ -141,6 +140,7 @@ class Config:
     project: str
     defaults_path: Path | None = None
     present_sections: set = field(default_factory=set)   # seen in defaults/task, not builtins
+    warnings: list = field(default_factory=list)         # unknown keys and the like
     log_level: str = _default("log", "level")
     log_file: str | None = None
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
@@ -194,11 +194,12 @@ def _read_yaml(path):
     return data
 
 
-def _check_keys(data, section, path, errors):
+def _check_keys(data, section, path, warnings):
     allowed = SECTIONS[section]
     for key in data:
         if key not in allowed:
-            errors.append(f"{path}.{key}: unknown key (allowed: {', '.join(sorted(allowed))})")
+            warnings.append(f"{path}.{key}: unknown key, ignored "
+                            f"(allowed: {', '.join(sorted(allowed))})")
 
 
 def _as_str(value, path, errors, default=None, required=False):
@@ -266,7 +267,7 @@ def _expand_env(value, path, errors):
     return value
 
 
-def _parse_retention(value, path, errors, mode_hint=None):
+def _parse_retention(value, path, errors, warnings, mode_hint=None):
     """Parse one retention class. Returns Retention or None (class disabled)."""
     if value is None or value is False:
         return None
@@ -276,7 +277,7 @@ def _parse_retention(value, path, errors, mode_hint=None):
     if not isinstance(value, dict):
         errors.append(f"{path}: expected {{keep: N}} or {{max_age: 7d}}")
         return None
-    _check_keys(value, "retention", path, errors)
+    _check_keys(value, "retention", path, warnings)
     has_keep, has_age = "keep" in value, "max_age" in value
     if has_keep and has_age:
         errors.append(f"{path}: 'keep' and 'max_age' are mutually exclusive, pick one")
@@ -325,19 +326,20 @@ def load_config(path, env=None, defaults=None):
     present_sections = set(raw)
     data = deep_merge(BUILTIN_DEFAULTS, raw)
 
-    errors = []
-    _check_keys(data, "root", "config", errors)
+    errors, warnings = [], []
+    _check_keys(data, "root", "config", warnings)
     data = _expand_env(data, "config", errors)
 
     cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
                                             errors, required=True) or path.stem,
-                 defaults_path=chosen, present_sections=present_sections)
+                 defaults_path=chosen, present_sections=present_sections,
+                 warnings=warnings)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):
         errors.append("config.log: expected a mapping")
         log_raw = {}
-    _check_keys(log_raw, "log", "config.log", errors)
+    _check_keys(log_raw, "log", "config.log", warnings)
     level = (_as_str(log_raw.get("level"), "config.log.level", errors,
                      _default("log", "level")) or "info").lower()
     if level not in ("debug", "info", "warning", "error"):
@@ -350,7 +352,7 @@ def load_config(path, env=None, defaults=None):
     if not isinstance(rt, dict):
         errors.append("config.runtime: expected a mapping")
         rt = {}
-    _check_keys(rt, "runtime", "config.runtime", errors)
+    _check_keys(rt, "runtime", "config.runtime", warnings)
     cfg.temp_dir = Path(_as_str(rt.get("temp_dir"), "config.runtime.temp_dir", errors,
                                 _default("runtime", "temp_dir")))
     cfg.keep_temp = _as_bool(rt.get("keep_temp"), "config.runtime.keep_temp", errors)
@@ -359,7 +361,7 @@ def load_config(path, env=None, defaults=None):
     if not isinstance(rl, dict):
         errors.append("config.rclone: expected a mapping")
         rl = {}
-    _check_keys(rl, "rclone", "config.rclone", errors)
+    _check_keys(rl, "rclone", "config.rclone", warnings)
     cfg.rclone = RcloneCfg(
         binary=_as_str(rl.get("binary"), "config.rclone.binary", errors,
                        _default("rclone", "binary")),
@@ -373,7 +375,7 @@ def load_config(path, env=None, defaults=None):
     if not isinstance(db, dict):
         errors.append("config.database: expected a mapping")
         db = {}
-    _check_keys(db, "database", "config.database", errors)
+    _check_keys(db, "database", "config.database", warnings)
     retention_mode = _as_str(db.get("retention_mode"), "config.database.retention_mode", errors)
     if retention_mode not in (None, "keep", "max_age"):
         errors.append("config.database.retention_mode: expected keep or max_age")
@@ -405,8 +407,9 @@ def load_config(path, env=None, defaults=None):
             errors.append(f"config.database.retention.{key}: unknown class "
                           f"(allowed: {', '.join(RETENTION_CLASSES)})")
     for cls in RETENTION_CLASSES:
-        retention[cls] = _parse_retention(ret_raw.get(cls), f"config.database.retention.{cls}",
-                                          errors, retention_mode)
+        retention[cls] = _parse_retention(ret_raw.get(cls),
+                                          f"config.database.retention.{cls}",
+                                          errors, warnings, retention_mode)
     cfg.database = DatabaseCfg(
         enabled=_as_bool(db.get("enabled"), "config.database.enabled", errors),
         mode=db_mode,
@@ -435,13 +438,14 @@ def load_config(path, env=None, defaults=None):
     if not isinstance(st, dict):
         errors.append("config.storage: expected a mapping")
         st = {}
-    _check_keys(st, "storage", "config.storage", errors)
+    _check_keys(st, "storage", "config.storage", warnings)
     cfg.storage = StorageCfg(
         enabled=_as_bool(st.get("enabled"), "config.storage.enabled", errors),
         mode=_as_str(st.get("mode"), "config.storage.mode", errors,
                      _default("storage", "mode")) or "sync",
         target=_as_str(st.get("target"), "config.storage.target", errors) or "",
-        sources=_as_sources(st.get("sources"), "config.storage.sources", errors),
+        sources=_as_sources(st.get("sources"), "config.storage.sources",
+                            errors, warnings),
     )
     if cfg.storage.enabled and (not cfg.storage.target or not cfg.storage.sources):
         errors.append("config.storage: target and sources are required when enabled")
@@ -450,7 +454,7 @@ def load_config(path, env=None, defaults=None):
     if not isinstance(ar, dict):
         errors.append("config.archive: expected a mapping")
         ar = {}
-    _check_keys(ar, "archive", "config.archive", errors)
+    _check_keys(ar, "archive", "config.archive", warnings)
     archive_mode = (_as_str(ar.get("mode"), "config.archive.mode", errors,
                             _default("archive", "mode")) or "copy").lower()
     if archive_mode != "copy":
@@ -472,7 +476,8 @@ def load_config(path, env=None, defaults=None):
         include=_as_list(ar.get("include"), "config.archive.include", errors),
         exclude=_as_list(ar.get("exclude"), "config.archive.exclude", errors),
         target=_as_str(ar.get("target"), "config.archive.target", errors) or "",
-        retention=_parse_retention(ar.get("retention"), "config.archive.retention", errors, ar_mode),
+        retention=_parse_retention(ar.get("retention"), "config.archive.retention",
+                                   errors, warnings, ar_mode),
     )
     if cfg.archive.enabled and (not cfg.archive.target or not cfg.archive.root):
         errors.append("config.archive: target and root are required when enabled")
@@ -482,7 +487,7 @@ def load_config(path, env=None, defaults=None):
     return cfg
 
 
-def _as_sources(value, path, errors):
+def _as_sources(value, path, errors, warnings):
     """Storage sources: "path" or {path: ..., dest: ...}."""
     if value is None:
         return []
@@ -497,7 +502,7 @@ def _as_sources(value, path, errors):
         if isinstance(item, str):
             out.append((item, None))
         elif isinstance(item, dict):
-            _check_keys(item, "source", item_path, errors)
+            _check_keys(item, "source", item_path, warnings)
             src = _as_str(item.get("path"), f"{item_path}.path", errors, required=True)
             dest = _as_str(item.get("dest"), f"{item_path}.dest", errors)
             if src:

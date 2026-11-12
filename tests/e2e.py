@@ -991,6 +991,29 @@ database:
         env.cleanup()
 
 
+def test_unknown_key_is_a_warning():
+    """A leftover key must not stop a backup; it is reported and ignored."""
+    env = Env()
+    try:
+        env.base_config(extra="""
+version: 1
+database:
+  enabled: true
+  target: "fake:/DB"
+  databases: [db1]
+  retention: {daily: {keep: 2}}
+""")
+        out = env.run("-c", env.config, "--check-config")
+        assert "unknown key, ignored" in out.stdout, out.stdout
+        assert "config.version" in out.stdout, out.stdout
+
+        res = env.run("-c", env.config, "-d")
+        assert "unknown key, ignored" in res.stderr, res.stderr   # warning is visible
+        assert len(env.cloud_tree()) == 1, env.cloud_tree()
+    finally:
+        env.cleanup()
+
+
 def test_quiet_by_default():
     """No flags: the terminal is silent, info lands in the log file."""
     env = Env()
@@ -1039,7 +1062,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_verbose_reaches_rclone, test_quiet_by_default,
          test_no_args_shows_banner, test_archive_name_defaults_to_project,
          test_shared_target_keeps_foreign_archives,
-         test_shared_target_keeps_foreign_databases]
+         test_shared_target_keeps_foreign_databases,
+         test_unknown_key_is_a_warning]
 
 
 def main():

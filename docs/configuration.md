@@ -54,8 +54,11 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 
 ## Общие правила
 
-* Неизвестный ключ — ошибка с указанием пути (`config.database.databeses:
-  unknown key`). Опечатка не пройдёт молча.
+* Неизвестный ключ — **предупреждение** с указанием пути и перечнем
+  допустимых (`config.database.databeses: unknown key, ignored`). Опечатка
+  видна в логе, но старый файл с лишним ключом продолжает работать.
+  Фатальными остаются неверное значение, отсутствие обязательного поля и
+  конфликт правил ротации.
 * `${ENV_VAR}` подставляется из окружения; если переменной нет — ошибка
   конфига с именем переменной. Экранирования нет: `${...}` всегда подстановка.
 * Пустое значение (`key:` без значения) равно «не задано».
@@ -351,7 +354,7 @@ storage:
 |---|---|
 | `'keep' and 'max_age' are mutually exclusive` | оставить одно правило в классе |
 | `retention_mode is 'keep', so 'max_age' is not allowed` | привести все классы к одному режиму |
-| `unknown key (allowed: ...)` | опечатка в имени ключа |
+| `unknown key, ignored (allowed: ...)` | предупреждение: опечатка в имени ключа, ключ проигнорирован |
 | `environment variable X is not set` | добавить переменную (secrets.env) |
 | `database.target: required when database.enabled is true` | задать `target` |
 | `config.database.retention: at least one class must be configured` | включить хотя бы один класс |
