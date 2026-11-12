@@ -886,6 +886,8 @@ database:
         res = env.run("-c", env.config, "-d", "--verbose")
         assert "--progress" in rlog.read_text(), "--verbose must reach rclone"
         assert "Transferred:" in res.stderr, "rclone progress must reach the terminal"
+        assert "\n\nTransferred:" in res.stderr, "empty line before rclone output"
+        assert "100%\n\n" in res.stderr, "empty line after rclone output"
         assert "run:" not in res.stderr, "--verbose must not turn on debug logging"
 
         rlog.unlink()

@@ -1,3 +1,17 @@
+kwbackup (0.0.29) unstable; urgency=medium
+
+  * style(cli): separate streamed rclone output with empty lines
+
+    Under --verbose rclone writes straight to the terminal, so its stats glued to
+    the script's log lines. A transfer command (copyto, sync, copy) is now framed
+    by one empty line before and after; deletefile and lsf are not framed, since
+    they produce nothing to show.
+
+    tests: the verbose run must contain a blank line before and after the
+    progress line (27/27).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:48:19 +0300
+
 kwbackup (0.0.28) unstable; urgency=medium
 
   * feat(logging): the terminal is quiet unless asked otherwise
@@ -17,7 +31,7 @@ kwbackup (0.0.28) unstable; urgency=medium
     tests: quiet default + info in the log file, verbose on the terminal,
     dry-run plan visible (27/27).
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:42:52 +0300
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:42:53 +0300
 
 kwbackup (0.0.27) unstable; urgency=medium
 

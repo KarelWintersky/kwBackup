@@ -180,7 +180,7 @@ def action_restore(cfg, args):
             remote_dir = cfg.storage.target.rstrip("/") + (f"/{sub}" if sub else "")
             local_dir = dest_dir / (sub or ".")
             LOG.info("restore: %s -> %s", remote_dir, local_dir)
-            uploader.run("copy", remote_dir, str(local_dir))
+            uploader.run("copy", remote_dir, str(local_dir), banner=True)
             stats["files"] += 1
 
     return stats

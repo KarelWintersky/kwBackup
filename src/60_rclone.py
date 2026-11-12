@@ -26,13 +26,13 @@ class Rclone:
             cmd.append("--progress")
         return cmd + list(self.cfg.args)
 
-    def run(self, *args, check=True, capture=None):
+    def run(self, *args, check=True, capture=None, banner=False):
         """Rclone talks directly to the terminal when --verbose is on,
         except for commands whose output we have to parse (lsf)."""
         if capture is None:
             capture = not VERBOSE
         return run(self._base() + list(args), env=self.env, check=check,
-                   capture=capture)
+                   capture=capture, banner=banner)
 
     def lsf(self, path):
         """List files under remote:path as RemoteFile objects (empty if missing)."""
@@ -62,7 +62,7 @@ class Rclone:
         return files
 
     def copyto(self, src, dst):
-        return self.run("copyto", src, dst, check=True)
+        return self.run("copyto", src, dst, check=True, banner=True)
 
     def deletefile(self, path):
         return self.run("deletefile", path, check=True)
@@ -95,6 +95,6 @@ def upload_file(rclone, src_path, remote_dir, mode, workdir):
             os.link(src_path, staged)          # cheap when temp_dir == workdir
         except OSError:
             shutil.copy2(src_path, staged)
-        rclone.run("sync", str(staging), remote_dir)
+        rclone.run("sync", str(staging), remote_dir, banner=True)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

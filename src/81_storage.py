@@ -31,7 +31,8 @@ def action_storage(cfg, args):
                 remote_dir = f"{remote_dir}/{sub}"
             try:
                 LOG.info("storage: %s %s -> %s", mode, path, remote_dir)
-                rclone.run(mode, "--copy-links", "--update", path, remote_dir)
+                rclone.run(mode, "--copy-links", "--update", path, remote_dir,
+                           banner=True)
                 files = rclone.lsf(remote_dir)
                 stats["sources"] += 1
                 stats["remote_files"] += len(files)
