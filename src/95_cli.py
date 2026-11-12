@@ -51,7 +51,7 @@ def main(argv=None):
     if args.selftest:
         return selftest()
     if args.version:
-        print(f"{APP} {VERSION}")
+        print(f"{APP} (Version: {VERSION})")
         return EXIT_OK
     if not args.config:
         print_banner(sys.stderr)
@@ -150,9 +150,8 @@ def _ansi(code):
 
 
 def print_banner(stream=sys.stdout):
-    print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives",
-          file=stream)
-    print(f"Version: {VERSION}", file=stream)
+    print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives "
+          f"(Version: {VERSION})", file=stream)
 
 
 def show_available_actions(cfg):

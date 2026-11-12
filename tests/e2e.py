@@ -691,7 +691,7 @@ def test_build_version_and_shebang():
         assert res.returncode == 0, res.stderr
         assert out.read_text(encoding="utf-8").splitlines()[0] == "#!/usr/bin/python3 -B"
         ver = subprocess.run([str(out), "--version"], capture_output=True, text=True)
-        assert ver.stdout.strip() == "kwBackup 9.9.9", ver.stdout
+        assert ver.stdout.strip() == "kwBackup (Version: 9.9.9)", ver.stdout
     finally:
         env.cleanup()
 

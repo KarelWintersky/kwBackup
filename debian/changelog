@@ -1,3 +1,14 @@
+kwbackup (0.0.37) unstable; urgency=medium
+
+  * style(cli): one-line banner with the version in parentheses
+
+        kwBackup: Backup tool over rclone: database dumps, file storage, archives (Version: 0.0.37)
+
+    The version is no longer a second line, in both banner call sites, and
+    --version uses the same 'Version:' label: 'kwBackup (Version: 0.0.37)'.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:21:15 +0300
+
 kwbackup (0.0.36) unstable; urgency=medium
 
   * style(cli): show the banner in the action list too
