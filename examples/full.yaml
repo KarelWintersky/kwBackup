@@ -30,15 +30,20 @@ rclone:
   binary: rclone          # путь или имя в PATH
   config: /etc/kwbackup/rclone.conf   # --config для rclone; пусто = системный
   remote: beget           # имя remote, как в [beget] в rclone.conf
-  args:                   # добавляются к каждому вызову rclone
-    - --s3-no-check-bucket
-    # BEGET выдаёт ключи на бакет, а в rclone.conf стоит env_auth = false,
-    # поэтому ключи передаются именно флагами (в этом файле или в файле
-    # задачи). Права на файл с ключами — 0600.
+  args:                   # простой путь: флаги как есть, к каждому вызову
     # - "--s3-access-key-id=..."
-    # - "--s3-secret-access-key=..."
-    # - "--transfers=4"
+    # - "--s3-no-check-bucket"
+    - --transfers=4
     # - "--bwlimit=10M"
+
+  # Расширенный путь: флаги бэкенда без "--", с типами. Перекрываются в
+  # секциях database/storage/archive; null убирает унаследованный флаг.
+  s3-custom-options:
+    s3-access-key-id: ${RCLONE_KEY_ID}
+    s3-secret-access-key: ${RCLONE_SECRET}
+    s3-chunk-size: 5M
+    s3-upload-cutoff: 200M
+    s3-no-check-bucket: true
   env:                    # переменные окружения для rclone
     AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
     AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
@@ -96,6 +101,7 @@ storage:
   enabled: false
   mode: sync              # sync — зеркало (удаляет лишнее в облаке)
                           # copy — только добавляет/обновляет
+  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть rclone.* для storage
   target: "beget:/STORAGE"
   sources:
     # короткая форма: каталог в облаке = basename
@@ -120,6 +126,7 @@ archive:
   #   include: ["www/*", "conf/**/*.ini"]
   include: ["*"]
   exclude: ["*.mp4", "*.tmp", "*/cache/*"]
+  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть rclone.* для архива
   target: "beget:/ARCHIVE"
   retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
   # retention_mode: keep

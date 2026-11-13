@@ -177,11 +177,19 @@ def show_available_actions(cfg):
     print("Nothing has been done.")
 
 
+def _print_s3(cfg, section):
+    options = effective_s3_options(cfg, section)
+    if options:
+        print(f"    s3-custom-options: {', '.join(sorted(options))}")
+
+
 def check_config(cfg, args):
     print(f"config OK: {cfg.path}")
     print(f"  defaults: {cfg.defaults_path or 'none (built-in defaults only)'}")
     print(f"  project: {cfg.project}")
     print(f"  rclone:  {cfg.rclone.remote} via {cfg.rclone.config or 'default config'}")
+    if cfg.rclone.s3_options:
+        print(f"    s3-custom-options: {', '.join(sorted(cfg.rclone.s3_options))}")
     if cfg.database.enabled:
         print(f"  database: {cfg.database.type}, {len(cfg.database.databases)} db(s), "
               f"compressor {cfg.database.compressor}, mode {cfg.database.mode}, "
@@ -191,11 +199,13 @@ def check_config(cfg, args):
             print(f"    {cls:8} {ret.describe() if ret else 'disabled'}")
         if cfg.database.catch_up:
             print("    catch_up: on (missing weekly/monthly copies are created on the next run)")
+        _print_s3(cfg, cfg.database)
     if cfg.storage.enabled:
         print(f"  storage: {cfg.storage.mode}, {len(cfg.storage.sources)} source(s), "
               f"target {cfg.storage.target}")
         for src, dest in cfg.storage.sources:
             print(f"    {src} -> {source_dest(src, dest) or '.'}")
+        _print_s3(cfg, cfg.storage)
     if cfg.archive.enabled:
         ret = cfg.archive.retention
         print(f"  archive: {cfg.archive.compressor}, name {cfg.archive.name}, "

@@ -39,6 +39,10 @@
   не просматриваются. Карты сливаются, списки опций (`rclone.args`,
   `database.args`, `*_compressor_args`, `archive.exclude`) дополняются,
   остальные списки заменяются.
+- **`s3-custom-options`**: флаги бэкенда S3 картой без `--`, с типами
+  (bool/число/строка) и перекрытием на уровне `rclone` / `database` /
+  `storage` / `archive`; `null` снимает унаследованный флаг. Простой путь
+  через `rclone.args` сохранён.
 - **Ключи S3 по бакету** (BEGET, minio-подобные провайдеры): поддерживаются
   флаги `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`,
   потому что при `env_auth = false` переменные `AWS_*` игнорируются.

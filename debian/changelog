@@ -1,3 +1,30 @@
+kwbackup (0.1.1) unstable; urgency=medium
+
+  * feat(config): typed rclone backend flags via s3-custom-options
+
+    rclone accepts hundreds of backend flags; passing them as a list of
+    '--s3-...' strings works, but a typed map is easier to override per action:
+
+      rclone:
+        s3-custom-options:
+          s3-chunk-size: 5M
+          s3-no-check-bucket: true
+          s3-server-side-encryption: AES256
+
+    Each entry becomes --<key>=<value>. Booleans render as --key (true) and
+    --key=false (false); null removes an option inherited from rclone. Option
+    names are not validated against a list, only their shape (no spaces, no
+    leading dash). The same map is accepted in database, storage and archive,
+    where it overrides rclone.s3-custom-options for that action only. The flags
+    are appended after rclone.args, so the extended form wins.
+
+    The simple path through rclone.args is unchanged.
+
+    tests: global options, section override, boolean rendering, null removal,
+    --check-config output (33/33).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:39:56 +0300
+
 kwbackup (0.1.0) stable; urgency=medium
 
   * First public release of kwBackup: backups of databases, file storage and

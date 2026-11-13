@@ -10,9 +10,20 @@ class RemoteFile:
     mtime: dt.datetime | None = None   # from the remote, display only
 
 
+def effective_s3_options(cfg, section):
+    """rclone.s3-custom-options merged with the section's own options.
+
+    A null value in the section removes a global option.
+    """
+    merged = dict(cfg.rclone.s3_options)
+    merged.update(getattr(section, "s3_options", {}) or {})
+    return {key: value for key, value in merged.items() if value is not None}
+
+
 class Rclone:
-    def __init__(self, cfg: RcloneCfg):
+    def __init__(self, cfg: RcloneCfg, s3_options=None):
         self.cfg = cfg
+        self.s3_options = dict(s3_options or {})
         self.env = dict(os.environ)
         self.env.update(cfg.env)
 
@@ -24,7 +35,15 @@ class Rclone:
             # --verbose / --debug also make rclone talk: transfer stats and
             # a progress line. Without the flag rclone stays quiet in cron.
             cmd.append("--progress")
-        return cmd + list(self.cfg.args)
+        cmd += list(self.cfg.args)
+        # Backend flags go last: a section's s3-custom-options override both
+        # rclone.args and rclone.s3-custom-options for the same flag.
+        for key, value in self.s3_options.items():
+            if isinstance(value, bool):
+                cmd.append(f"--{key}" if value else f"--{key}=false")
+            else:
+                cmd.append(f"--{key}={value}")
+        return cmd
 
     def run(self, *args, check=True, capture=None, banner=False):
         """Rclone talks directly to the terminal when --verbose is on,

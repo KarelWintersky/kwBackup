@@ -14,14 +14,15 @@ SECTIONS = {
              "database", "storage", "archive"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
-    "rclone": {"binary", "config", "remote", "args", "env"},
+    "rclone": {"binary", "config", "remote", "args", "env", "s3-custom-options"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
                  "args", "compressor", "compressor_args", "target", "mode",
-                 "databases", "retention", "retention_mode", "catch_up"},
-    "storage": {"enabled", "mode", "target", "sources"},
+                 "databases", "retention", "retention_mode", "catch_up",
+                 "s3-custom-options"},
+    "storage": {"enabled", "mode", "target", "sources", "s3-custom-options"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "target", "mode", "retention",
-                "retention_mode"},
+                "retention_mode", "s3-custom-options"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
 }
@@ -92,6 +93,7 @@ class RcloneCfg:
     remote: str = ""
     args: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
+    s3_options: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -110,6 +112,7 @@ class DatabaseCfg:
     databases: list = field(default_factory=list)
     retention: dict = field(default_factory=dict)      # class -> Retention | None
     catch_up: bool = _default("database", "catch_up")
+    s3_options: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -118,6 +121,7 @@ class StorageCfg:
     mode: str = _default("storage", "mode")
     target: str = ""
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
+    s3_options: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -132,6 +136,7 @@ class ArchiveCfg:
     exclude: list = field(default_factory=list)
     target: str = ""
     retention: Retention | None = None
+    s3_options: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -369,6 +374,8 @@ def load_config(path, env=None, defaults=None):
         remote=_as_str(rl.get("remote"), "config.rclone.remote", errors, required=True) or "",
         args=_as_list(rl.get("args"), "config.rclone.args", errors),
         env=_as_env(rl.get("env"), "config.rclone.env", errors),
+        s3_options=_as_s3_options(rl.get("s3-custom-options"),
+                                  "config.rclone.s3-custom-options", errors),
     )
 
     db = data.get("database") or {}
@@ -426,6 +433,8 @@ def load_config(path, env=None, defaults=None):
         databases=_as_list(db.get("databases"), "config.database.databases", errors),
         retention=retention,
         catch_up=_as_bool(db.get("catch_up"), "config.database.catch_up", errors),
+        s3_options=_as_s3_options(db.get("s3-custom-options"),
+                                  "config.database.s3-custom-options", errors),
     )
     if cfg.database.enabled and not cfg.database.databases:
         errors.append("config.database.databases: required when database.enabled is true")
@@ -446,6 +455,8 @@ def load_config(path, env=None, defaults=None):
         target=_as_str(st.get("target"), "config.storage.target", errors) or "",
         sources=_as_sources(st.get("sources"), "config.storage.sources",
                             errors, warnings),
+        s3_options=_as_s3_options(st.get("s3-custom-options"),
+                                  "config.storage.s3-custom-options", errors),
     )
     if cfg.storage.enabled and (not cfg.storage.target or not cfg.storage.sources):
         errors.append("config.storage: target and sources are required when enabled")
@@ -478,6 +489,8 @@ def load_config(path, env=None, defaults=None):
         target=_as_str(ar.get("target"), "config.archive.target", errors) or "",
         retention=_parse_retention(ar.get("retention"), "config.archive.retention",
                                    errors, warnings, ar_mode),
+        s3_options=_as_s3_options(ar.get("s3-custom-options"),
+                                  "config.archive.s3-custom-options", errors),
     )
     if cfg.archive.enabled and (not cfg.archive.target or not cfg.archive.root):
         errors.append("config.archive: target and root are required when enabled")
@@ -509,6 +522,34 @@ def _as_sources(value, path, errors, warnings):
                 out.append((src, dest))
         else:
             errors.append(f"{item_path}: expected a string or a mapping")
+    return out
+
+
+S3_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _as_s3_options(value, path, errors):
+    """rclone backend flags: s3-chunk-size: 5M -> --s3-chunk-size=5M.
+
+    The set of flags is open (rclone has hundreds), so names are not checked
+    against a list - only the shape: no spaces, no leading dash. A null value
+    removes an option inherited from rclone.s3-custom-options.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        errors.append(f"{path}: expected a mapping of rclone flags")
+        return {}
+    out = {}
+    for key, val in value.items():
+        if not isinstance(key, str) or not S3_KEY_RE.match(key):
+            errors.append(f"{path}: bad option name {key!r} "
+                          f"(letters, digits, dot, dash and underscore)")
+            continue
+        if isinstance(val, bool) or isinstance(val, (int, float, str)) or val is None:
+            out[key] = val
+        else:
+            errors.append(f"{path}.{key}: expected a string, number, boolean or null")
     return out
 
 

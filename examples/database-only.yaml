@@ -10,6 +10,8 @@ rclone:
     #   "--s3-access-key-id=${BEGET_SHOP_KEY}"
     - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SHOP>"
     - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SHOP>"
+    # Альтернатива с типами и перекрытием по секциям — s3-custom-options,
+    # см. examples/storage-only.yaml и examples/full.yaml.
 
 database:
   enabled: true

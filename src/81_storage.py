@@ -19,7 +19,7 @@ def action_storage(cfg, args):
     if mode not in ("sync", "copy"):
         raise ActionFailed(f"storage: unsupported mode {mode!r}, expected sync or copy")
 
-    rclone = Rclone(cfg.rclone)
+    rclone = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
     stats = {"sources": 0, "remote_files": 0}
     failures = []
 

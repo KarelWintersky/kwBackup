@@ -3,11 +3,11 @@
 # ============================================================================
 
 def action_list(cfg, args):
-    uploader = Rclone(cfg.rclone)
     now = dt.datetime.now()
     rc = EXIT_OK
 
     if cfg.database.enabled or args.force:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
         for dbname in cfg.database.databases:
             print(f"\nDATABASE {dbname}  ->  {cfg.database.target}")
             for cls in RETENTION_CLASSES:
@@ -36,6 +36,7 @@ def action_list(cfg, args):
                         print(f"  {'':7} ⚠ gap: {gap:%Y-%m-%d}")
 
     if cfg.storage.enabled or args.force:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
         print(f"\nSTORAGE  ->  {cfg.storage.target}  ({cfg.storage.mode})")
         for src, dest in cfg.storage.sources:
             sub = source_dest(src, dest)
@@ -52,6 +53,7 @@ def action_list(cfg, args):
 
     if cfg.archive.enabled or args.force:
         ar = cfg.archive
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
         remote_dir = ar.target.rstrip("/")
         print(f"\nARCHIVE  ->  {remote_dir}  ({ar.compressor})")
         files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
@@ -152,7 +154,6 @@ def _tar_readable(path):
 
 
 def action_verify(cfg, args):
-    uploader = Rclone(cfg.rclone)
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     rc = EXIT_OK
     checked = 0
@@ -166,6 +167,7 @@ def action_verify(cfg, args):
             print(f"  ✓ {label}")
 
     if (cfg.database.enabled or args.force) and (cfg.database.databases):
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
         for dbname in cfg.database.databases:
             for cls in RETENTION_CLASSES:
                 remote_dir = class_path(cfg, dbname, cls)
@@ -181,6 +183,7 @@ def action_verify(cfg, args):
                     checked += 1
 
     if (cfg.archive.enabled or args.force) and cfg.archive.target:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
         remote_dir = cfg.archive.target.rstrip("/")
         files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
                              f"{cfg.archive.name}_"), key=lambda f: f.ts)

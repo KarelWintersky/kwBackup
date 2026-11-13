@@ -122,9 +122,42 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | `remote` | str | **обязательно** | имя remote (`[beget]` в `rclone.conf`) |
 | `args` | list | `[]` | добавляются к **каждому** вызову rclone |
 | `env` | map | `{}` | переменные окружения для rclone |
+| `s3-custom-options` | map | `{}` | флаги бэкенда S3 без `--`; перекрываются в секциях |
 
 `args` попадают и в `lsf`, и в `copyto`, и в `deletefile` — годится для
 `--s3-no-check-bucket`, `--transfers`, `--bwlimit`.
+
+### `s3-custom-options`
+
+Карта флагов бэкенда rclone, записанная без префикса `--`:
+
+```yaml
+rclone:
+  s3-custom-options:
+    s3-chunk-size: 5M              # -> --s3-chunk-size=5M
+    s3-upload-cutoff: 200M
+    s3-no-check-bucket: true       # -> --s3-no-check-bucket
+    s3-server-side-encryption: AES256
+    s3-access-key-id: ${BEGET_KEY_ID}
+```
+
+Правила:
+
+| Значение | Во что превращается |
+|---|---|
+| строка, число | `--<ключ>=<значение>` |
+| `true` | `--<ключ>` |
+| `false` | `--<ключ>=false` (явное выключение) |
+| `null` | флаг не передаётся, унаследованное значение снимается |
+
+* `${ENV}` подставляется как везде;
+* имена **не** проверяются по списку — у rclone их сотни; контролируется
+  только форма: без пробелов, без ведущего дефиса;
+* тот же ключ можно задать в `database`, `storage`, `archive`: он
+  перекрывает `rclone.s3-custom-options` и действует только для этого
+  действия;
+* в командной строке `s3-custom-options` идут **после** `rclone.args`,
+  поэтому расширенная форма выигрывает у простой при конфликте.
 
 ### Ключи S3-провайдера
 
@@ -148,9 +181,9 @@ rclone:
 * Если бакет один на весь хост, ключи удобно положить в `/etc/kwbackup/defaults.yaml`
   (тоже `0600`) и не повторять в каждой задаче.
 * Ключи, которые провайдер выдал на **аккаунт**, можно держать прямо
-  в `rclone.conf` — это штатный вариант. Флаги в `rclone.args` имеют
-  приоритет над значениями из `rclone.conf`, поэтому бакетные ключи
-  в задаче перекрывают аккаунтные, не ломая остальные remote.
+  в `rclone.conf` — это штатный вариант. Флаги в `rclone.args` (или
+  `s3-custom-options`) имеют приоритет над значениями из `rclone.conf`,
+  поэтому бакетные ключи в задаче перекрывают аккаунтные.
 * `rclone.env` (`AWS_ACCESS_KEY_ID` и т.п.) работает только когда в rclone
   включён `env_auth` (`env_auth = true` в `rclone.conf` или флаг
   `--s3-env-auth`). С настройками BEGET по умолчанию — не работает.
@@ -172,6 +205,7 @@ rclone:
 | `target` | str | обяз. при `enabled` | `remote:path` |
 | `databases` | list | обяз. при `enabled` | имена БД (для sqlite — не используется) |
 | `catch_up` | bool | `false` | догонять пропущенные weekly/monthly |
+| `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для БД |
 | `retention_mode` | enum | нет | `keep` \| `max_age`: запрет смешивать |
 | `retention` | map | обяз. при `enabled` | см. «Ротация» |
 
@@ -290,6 +324,7 @@ weekly при следующем запуске. По умолчанию вык�
 | `mode` | enum | `sync` | `sync` — зеркало; `copy` — только добавлять |
 | `target` | str | обяз. при `enabled` | `remote:path` |
 | `sources` | list | обяз. при `enabled` | источники, см. ниже |
+| `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для storage |
 
 Источник — строка или мапа:
 
@@ -323,6 +358,7 @@ storage:
 | `target` | str | обяз. при `enabled` | `remote:path` |
 | `retention` | map | нет | `{keep: N}` или `{max_age: 7d}` |
 | `retention_mode` | enum | нет | `keep` \| `max_age` |
+| `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для архива |
 
 * `include: ["*"]` (по умолчанию) — весь каталог, **включая dotfiles**
   на верхнем уровне: `.env`, `.git`, `.htaccess`. Именно то, чего не хватало

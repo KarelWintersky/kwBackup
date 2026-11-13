@@ -127,11 +127,11 @@ def action_restore(cfg, args):
         raise ActionFailed("restore: --to DIR is required")
 
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
-    uploader = Rclone(cfg.rclone)
     dest_dir = Path(args.to) if args.to else None
     stats = {"files": 0, "bytes": 0}
 
     if "database" in what:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
         for dbname in cfg.database.databases:
             picked = _select_database_copy(uploader, cfg, dbname, args.at)
             if picked is None:
@@ -157,6 +157,7 @@ def action_restore(cfg, args):
                 local.unlink(missing_ok=True)
 
     if "archive" in what:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
         remote_dir = cfg.archive.target.rstrip("/")
         files = sorted((f for f in owned(uploader.lsf(remote_dir),
                                          f"{cfg.archive.name}_")
@@ -176,6 +177,7 @@ def action_restore(cfg, args):
             local.unlink(missing_ok=True)
 
     if "storage" in what:
+        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
         for src, dest in cfg.storage.sources:
             sub = source_dest(src, dest)
             remote_dir = cfg.storage.target.rstrip("/") + (f"/{sub}" if sub else "")

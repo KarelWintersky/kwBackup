@@ -166,6 +166,9 @@ database:
   `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
   Файл с ключами держите с правами `0600`. Можно подставлять из окружения:
   `--s3-access-key-id=${BEGET_SHOP_KEY}`.
+* **Флаги бэкенда** удобнее задавать картой `s3-custom-options`
+  (`s3-chunk-size: 5M`, `s3-no-check-bucket: true`), она перекрывается
+  в каждой секции; `rclone.args` остаётся простым путём.
 * **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
   флаги в `rclone.args` перекрывают их для конкретного бакета.
 * **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).

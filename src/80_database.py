@@ -61,7 +61,7 @@ def action_database(cfg, args):
         LOG.warning("database backup is disabled in config (use --force to override)")
         return {"skipped": True}
 
-    uploader = Rclone(cfg.rclone)
+    uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now()
     stamp = now.strftime(TS_FORMAT)

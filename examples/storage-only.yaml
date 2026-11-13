@@ -2,9 +2,14 @@
 project: uploads
 
 rclone:
-  args:
-    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_UPLOADS>"
-    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_UPLOADS>"
+  # Ключи бакета можно флагами (простой путь) или через s3-custom-options:
+  #   args: ["--s3-access-key-id=...", "--s3-secret-access-key=..."]
+  # Здесь показан расширенный путь. Значения перекрывают rclone.s3-custom-options
+  # и rclone.args для этого действия.
+  s3-custom-options:
+    s3-access-key-id: <ACCESS_KEY_BUCKET_UPLOADS>
+    s3-secret-access-key: <SECRET_KEY_BUCKET_UPLOADS>
+    s3-chunk-size: 5M
 
 storage:
   enabled: true

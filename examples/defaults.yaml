@@ -26,6 +26,14 @@ rclone:
   args:
     - --s3-no-check-bucket
   env: {}
+  # Расширенный путь: флаги бэкенда без "--". Перекрываются в секциях
+  # database/storage/archive; null убирает унаследованный флаг.
+  # s3-custom-options:
+  #   s3-access-key-id: ${BEGET_KEY_ID}
+  #   s3-secret-access-key: ${BEGET_SECRET}
+  #   s3-chunk-size: 5M
+  #   s3-upload-cutoff: 200M
+  #   s3-no-check-bucket: true
 
 database:
   type: mariadb             # mysql | mariadb | postgres | sqlite

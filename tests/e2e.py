@@ -1021,6 +1021,56 @@ database:
         env.cleanup()
 
 
+def test_s3_custom_options():
+    """Global flags, section overrides, booleans and null removal."""
+    env = Env()
+    try:
+        src = env.dir / "files"
+        src.mkdir()
+        (src / "a.txt").write_text("a")
+        env.write_config(f"""
+project: s3opts
+log: {{level: warning}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone:
+  binary: {env.bin / "rclone"}
+  remote: fake
+  args: ["--s3-upload-cutoff=1G"]
+  s3-custom-options:
+    s3-upload-cutoff: 200M
+    s3-chunk-size: 5M
+    s3-no-check-bucket: true
+    s3-server-side-encryption: AES256
+storage:
+  enabled: true
+  target: "fake:/S"
+  sources: [{src}]
+  s3-custom-options:
+    s3-access-key-id: KEY2
+    s3-secret-access-key: SECRET2
+    s3-server-side-encryption: null
+    s3-no-check-bucket: false
+""")
+        out = env.run("-c", env.config, "--check-config")
+        assert "s3-custom-options: s3-chunk-size, s3-no-check-bucket" in out.stdout, out.stdout
+
+        env.run("-c", env.config, "-s")
+        line = [l for l in (env.dir / "rclone.log").read_text().splitlines()
+                if " sync " in l][-1]
+        argv = line.split()
+        assert "--s3-upload-cutoff=200M" in argv, argv       # overrides args
+        assert "--s3-upload-cutoff=1G" in argv, argv         # simple path kept
+        assert argv.index("--s3-upload-cutoff=200M") > argv.index("--s3-upload-cutoff=1G")
+        assert "--s3-chunk-size=5M" in argv, argv
+        assert "--s3-no-check-bucket=false" in argv, argv    # boolean false is explicit
+        assert "--s3-no-check-bucket" not in argv, argv
+        assert "--s3-access-key-id=KEY2" in argv, argv       # section keys
+        assert "--s3-secret-access-key=SECRET2" in argv, argv
+        assert not any(a.startswith("--s3-server-side-encryption") for a in argv), argv
+    finally:
+        env.cleanup()
+
+
 def test_quiet_by_default():
     """No flags: the terminal is silent, info lands in the log file."""
     env = Env()
@@ -1070,7 +1120,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_no_args_shows_banner, test_archive_name_defaults_to_project,
          test_shared_target_keeps_foreign_archives,
          test_shared_target_keeps_foreign_databases,
-         test_unknown_key_is_a_warning]
+         test_unknown_key_is_a_warning, test_s3_custom_options]
 
 
 def main():

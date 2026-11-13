@@ -51,7 +51,7 @@ def action_archive(cfg, args):
         LOG.debug("archive: -m sync: %s is mirrored, previous archives are deleted",
                   ar.target)
 
-    rclone = Rclone(cfg.rclone)
+    rclone = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now()
     stamp = now.strftime(TS_FORMAT)
