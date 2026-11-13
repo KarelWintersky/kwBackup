@@ -1,3 +1,16 @@
+kwbackup (0.1.2) unstable; urgency=medium
+
+  * docs: explain ${ENV} substitution in the README
+
+    Where it works (any string value in either config layer, not keys), when it
+    runs (after merging, before validation), the exact error for a missing
+    variable, the limits (no int/bool fields, no escaping of a literal ${...}),
+    how to provide the environment for systemd and cron, the difference from
+    password_env, and the exposure of substituted secrets in ps and in --debug
+    logs.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:52:03 +0300
+
 kwbackup (0.1.1) unstable; urgency=medium
 
   * feat(config): typed rclone backend flags via s3-custom-options
