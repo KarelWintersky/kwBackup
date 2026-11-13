@@ -1,3 +1,13 @@
+kwbackup (0.99.46) unstable; urgency=medium
+
+  * docs(storage): state that sources is a list of any length
+
+    The reference showed a multi-source example but never said it out loud. Each
+    source is a separate rclone call; one failure does not stop the others, and
+    the command reports every failed source at the end.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 05:04:37 +0300
+
 kwbackup (0.99.45) unstable; urgency=medium
 
   * docs(storage): explain what dest means
