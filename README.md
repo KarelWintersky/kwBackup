@@ -197,18 +197,84 @@ rclone:
   именно такой текст (например, шаблон в пути), задайте его через
   переменную окружения с этим значением.
 
-Откуда взять переменные:
+#### Откуда программа берёт окружение
+
+`kwBackup` читает **окружение своего процесса** (`os.environ`) в момент
+загрузки конфига. Своего ключа `env_file:` у конфига нет: переменные
+приходят от того, кто запустил процесс — оболочки, systemd, cron, docker,
+CI.
+
+Следствия, на которых чаще всего спотыкаются:
+
+* `export VAR=...` в интерактивной оболочке — работает;
+* `VAR=... kwbackup ...` (префикс к команде) — тоже работает;
+* **`sudo` по умолчанию окружение сбрасывает** — нужен `sudo -E` или
+  `sudo --preserve-env=VAR`;
+* **в cron логин-окружения нет** — только `PATH`, `HOME`, `SHELL` и то,
+  что задано в самом crontab;
+* **`. secrets.env` без `set -a` переменные не экспортирует**: они станут
+  переменными оболочки, а дочерний процесс их не увидит;
+* systemd даёт юниту своё окружение через `Environment=` и
+  `EnvironmentFile=` — там `set -a` не нужен.
+
+`rclone.env` из конфига — это **не** источник `${...}`: это карта переменных
+для дочернего процесса rclone. `password_env` — имя переменной, значение
+которой читается в момент запуска клиента БД.
+
+#### 1. Файл секретов (рекомендуется)
+
+`/etc/kwbackup/secrets.env`, права `0600`, владелец root:
+
+```ini
+# комментарии разрешены
+RCLONE_KEY_ID=XXXXXXXXXXXXXXXX
+RCLONE_SECRET=YYYYYYYYYYYYYYYY
+MYSQL_PWD=change-me
+DB_HOST=localhost
+```
+
+Формат — простые присваивания `КЛЮЧ=значение`:
+
+* без `export` в начале строки (systemd его не понимает, а для shell
+  экспорт включается через `set -a`);
+* без пробелов вокруг `=`: `MYSQL_PWD = x` даст переменную с именем
+  `MYSQL_PWD ` (с пробелом);
+* кавычки не нужны; если значение содержит `#`, пробелы или кавычки —
+  заключите его в кавычки, systemd и shell разберут их одинаково;
+* пустая строка после `=` — переменная задана и пуста (это не ошибка).
+
+#### 2. systemd
+
+```ini
+[Service]
+EnvironmentFile=/etc/kwbackup/secrets.env
+# или отдельные значения:
+# Environment=DB_HOST=localhost RCLONE_KEY_ID=...
+ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
+```
+
+`EnvironmentFile=-/path` (с минусом) не считает отсутствие файла ошибкой.
+Проверить, что реально попало в юнит: `systemctl show kwbackup -p Environment`.
+
+#### 3. cron
 
 ```bash
-# systemd
-EnvironmentFile=/etc/kwbackup/secrets.env
-
-# cron
-. /etc/kwbackup/secrets.env; kwbackup --config /etc/kwbackup/shop.yaml --database
-
-# вручную
-set -a; . /etc/kwbackup/secrets.env; set +a
+30 3 * * * root set -a; . /etc/kwbackup/secrets.env; set +a; /usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
 ```
+
+`set -a` обязателен: без него присваивания из файла останутся переменными
+оболочки и не попадут в окружение `kwBackup`.
+
+#### 4. Вручную и в CI
+
+```bash
+set -a; . /etc/kwbackup/secrets.env; set +a
+kwbackup --config /etc/kwbackup/shop.yaml --check-config
+```
+
+В CI/CD — штатные механизмы секретов раннера (`env:` в GitLab CI,
+`env:`/`secrets` в GitHub Actions, `docker run --env-file`), они выставляют
+переменные в окружение процесса.
 
 `${ENV}` и `password_env` — разные вещи:
 

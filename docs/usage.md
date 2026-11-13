@@ -43,7 +43,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --verify
 ```
 
 Секреты должны быть в окружении процесса: их загружает `EnvironmentFile=`
-в systemd, `. /etc/kwbackup/secrets.env` в cron, либо строка выше в
+в systemd, `set -a; . /etc/kwbackup/secrets.env; set +a` в cron, либо строка выше в
 интерактивной сессии. `sudo` по умолчанию окружение не передаёт — если
 идёте через `sudo -E`, переменные должны быть экспортированы заранее.
 
@@ -139,7 +139,9 @@ sudo install -m 644 examples/cron/kwbackup /etc/cron.d/kwbackup
 ```
 
 Секреты в cron не наследуются: в примере они подхватываются через
-`. /etc/kwbackup/secrets.env`. Файлы в `/etc/cron.d` должны быть `0644`,
+`set -a; . /etc/kwbackup/secrets.env; set +a` — без `set -a` присваивания
+останутся переменными оболочки и не попадут в окружение процесса.
+Файлы в `/etc/cron.d` должны быть `0644`,
 принадлежать root и не иметь точки в имени.
 
 ## Подробность вывода
@@ -258,7 +260,7 @@ kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 | Симптом | Причина | Что делать |
 |---|---|---|
 | предупреждение `unknown key, ignored` | опечатка или лишний ключ | ключ проигнорирован, запуск продолжается; сверить с `docs/configuration.md` |
-| код 2, `environment variable X is not set` | не загружен secrets.env | `EnvironmentFile=` / `. secrets.env` |
+| код 2, `environment variable X is not set` | переменная не попала в окружение процесса | `EnvironmentFile=` в systemd; `set -a; . secrets.env; set +a` в cron; `sudo -E` |
 | код 2, `defaults file not found` | указан несуществующий `--defaults` | поправить путь |
 | конфиг «дополняется» не тем, что вы ждёте | сработал `/etc/kwbackup/defaults.yaml` | смотреть строку `defaults:` в `--check-config` |
 | код 2, `at least one class must be configured` | пустой `retention` | включить класс |

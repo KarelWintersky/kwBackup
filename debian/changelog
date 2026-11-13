@@ -1,3 +1,18 @@
+kwbackup (0.1.3) unstable; urgency=medium
+
+  * docs: explain where the environment comes from
+
+    The README listed three ways to provide variables but never said that the
+    tool reads os.environ of its own process and that the config has no env_file
+    key. Added the source of the environment, the sudo/cron/systemd differences,
+    the secrets.env format, an example per runner, and the rclone.env /
+    password_env distinction.
+
+    Fixed a real mistake in the cron example: '. secrets.env' without 'set -a'
+    does not export the variables to the child process.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:55:59 +0300
+
 kwbackup (0.1.2) unstable; urgency=medium
 
   * docs: explain ${ENV} substitution in the README
