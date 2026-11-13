@@ -852,6 +852,7 @@ storage:
         assert "(use --storage  option)  enabled" in out.stdout, out.stdout
         assert "(use --database option)  not configured" in out.stdout, out.stdout
         assert "(use --archive  option)  not configured" in out.stdout, out.stdout
+        assert "--check" in out.stdout, out.stdout
         assert env.cloud_tree() == [], "nothing must be uploaded"
 
         # a section that exists but is switched off is "disabled", not "not configured"

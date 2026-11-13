@@ -75,7 +75,9 @@ kwBackup: Backup tool over rclone: database dumps, file storage, archives (Versi
     daily      keep 8
     weekly     keep 6
     monthly    keep 12
+
   storage   disabled
+
   archive   disabled
 
   preflight ok
@@ -110,6 +112,7 @@ No one backup action(s) requested. Allowed:
 ... archive   (use --archive  option)  not configured
 
 Nothing has been done.
+Validate the config with: kwbackup --config shop.yaml --check
 ```
 
 ### Явный набор действий

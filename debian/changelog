@@ -1,3 +1,16 @@
+kwbackup (0.99.44) unstable; urgency=medium
+
+  * style(cli): colours and spacing in --check, and a --check hint
+
+    Field names are yellow, 'enabled' is green, disabled states are dim, and the
+    database/storage/archive blocks are separated by empty lines. Colours follow
+    the rule used everywhere else: only on a TTY and when NO_COLOR is unset.
+
+    The action list now ends with a hint on how to validate the config without
+    running anything: --config FILE --check.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:35:36 +0300
+
 kwbackup (0.99.43) unstable; urgency=medium
 
   * feat(cli): --check instead of --check-config, readable report

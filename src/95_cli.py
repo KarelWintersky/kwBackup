@@ -176,6 +176,18 @@ def show_available_actions(cfg):
         print(f"... {name:<9} (use {option} option)  {state}")
     print()
     print("Nothing has been done.")
+    print(f"Validate the config with: kwbackup --config {cfg.path} --check")
+
+
+def _color(text, code):
+    """ANSI colour, silently ignored when the output is not a terminal."""
+    prefix = _ansi(code)
+    return f"{prefix}{text}{_ansi(chr(27) + '[0m')}" if prefix else text
+
+
+def _label(text, width=0):
+    """A field name in yellow, padded to `width` visible characters."""
+    return _color(f"{text:<{width}}", chr(27) + "[33m")
 
 
 def _chunks(items, width=58):
@@ -208,7 +220,7 @@ def _s3_overrides(cfg, section):
 
 def _print_section(cfg, name, section):
     def row(label, value):
-        print(f"    {label:<10} {value}")
+        print(f"    {_label(label, 10)} {value}")
 
     if name == "database":
         row("mode", section.mode)
@@ -237,52 +249,59 @@ def _print_section(cfg, name, section):
 
     overrides = _s3_overrides(cfg, section)
     if overrides:
-        row("s3", " ".join(overrides) + "  (override rclone)")
+        colored = " ".join(_color(part, chr(27) + "[33m") for part in overrides)
+        row("s3", colored + "  (override rclone)")
 
 
 def check_config(cfg, args):
+    green = chr(27) + "[32m"
+    red = chr(27) + "[31m"
+    dim = chr(27) + "[2m"
+
     print_banner()
     print()
-    print(f"  {'config':<10} {cfg.path}")
-    print(f"  {'defaults':<10} {cfg.defaults_path or 'none (built-in defaults only)'}")
-    print(f"  {'project':<10} {cfg.project}")
+    print(f"  {_label('config', 10)} {cfg.path}")
+    print(f"  {_label('defaults', 10)} {cfg.defaults_path or 'none (built-in defaults only)'}")
+    print(f"  {_label('project', 10)} {cfg.project}")
     print()
 
-    print("  rclone")
-    print(f"    {'remote':<10} {cfg.rclone.remote}")
-    print(f"    {'config':<10} {cfg.rclone.config or 'default'}")
+    print(f"  {_label('rclone')}")
+    print(f"    {_label('remote', 10)} {cfg.rclone.remote}")
+    print(f"    {_label('config', 10)} {cfg.rclone.config or 'default'}")
     if cfg.rclone.args:
-        print(f"    {'args':<10} {len(cfg.rclone.args)} flag(s) passed as-is")
+        print(f"    {_label('args', 10)} {len(cfg.rclone.args)} flag(s) passed as-is")
     if cfg.rclone.s3_options:
         keys = sorted(cfg.rclone.s3_options)
-        print(f"    {'s3':<10} {len(keys)} flag(s)")
+        print(f"    {_label('s3', 10)} {len(keys)} flag(s)")
         for chunk in _chunks(keys):
-            print(f"    {'':<10} {chunk}")
+            colored = ", ".join(_color(key, chr(27) + "[33m") for key in chunk.split(", "))
+            print(f"    {'':<10} {colored}")
     print()
 
     for name in ACTIONS:
         section = getattr(cfg, name)
         if not section.enabled:
             state = "disabled" if name in cfg.present_sections else "not configured"
-            print(f"  {name:<9} {state}")
-            continue
-        detail = {"database": lambda: section.type,
-                  "storage": lambda: section.mode,
-                  "archive": lambda: section.compressor}[name]()
-        print(f"  {name:<9} enabled ({detail})")
-        _print_section(cfg, name, section)
-    print()
+            print(f"  {_label(name, 9)} {_color(state, dim)}")
+        else:
+            detail = {"database": lambda: section.type,
+                      "storage": lambda: section.mode,
+                      "archive": lambda: section.compressor}[name]()
+            print(f"  {_label(name, 9)} {_color('enabled', green)} "
+                  f"{_color('(' + detail + ')', dim)}")
+            _print_section(cfg, name, section)
+        print()
 
     if cfg.warnings:
-        print(f"  {'warnings':<9} {len(cfg.warnings)}")
+        print(f"  {_label('warnings', 9)} {_color(str(len(cfg.warnings)), chr(27) + '[33m')}")
         for warning in cfg.warnings:
-            print(f"    ! {warning}")
+            print(f"    {_color('!', chr(27) + '[33m')} {warning}")
         print()
     problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:
-        print(f"  {'preflight':<9} problems")
+        print(f"  {_label('preflight', 9)} {_color('problems', red)}")
         for problem in problems:
-            print(f"    ! {problem}")
+            print(f"    {_color('!', red)} {problem}")
     else:
-        print(f"  {'preflight':<9} ok")
+        print(f"  {_label('preflight', 9)} {_color('ok', green)}")
     return EXIT_OK
