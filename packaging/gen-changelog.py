@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Generate debian/changelog from the git history.
 
-Every commit subject is a version (0.0.13, 0.0.14, ...), so the changelog is
+Every commit subject is a version (0.99.0, 0.99.1, ...), so the changelog is
 written one entry per commit, newest first. The commit body becomes the entry
 text.
 
     python3 packaging/gen-changelog.py
     python3 packaging/gen-changelog.py --distribution stable
-    python3 packaging/gen-changelog.py --pending-version 0.0.15 \\
+    python3 packaging/gen-changelog.py --pending-version 0.99.15 \\
         --pending-message "docs: debian packaging"   # for the commit being made
 
 The file is tracked in git: the distribution field decides which part of the

@@ -1,4 +1,19 @@
-kwbackup (0.1.4) unstable; urgency=medium
+kwbackup (0.99.42) unstable; urgency=medium
+
+  * chore(release): renumber the Python line to 0.99.x and drop the release
+
+    Upstream is the existing bash repository, whose latest version is 0.9.0+fix1.
+    The Python rewrite therefore continues at 0.99.0 and is numbered per commit,
+    0.99.0 .. 0.99.42. The v0.1.0 tag and the dated 0.1.0 changelog entry are
+    gone; nothing was released.
+
+    debian/changelog is regenerated from the rewritten history, so every entry
+    matches its commit subject again. The versioning section of the README
+    explains the 0.99.x line.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:19:12 +0300
+
+kwbackup (0.99.41) unstable; urgency=medium
 
   * docs: move the environment file to /etc/default/kwbackup
 
@@ -10,9 +25,9 @@ kwbackup (0.1.4) unstable; urgency=medium
     Corrected the wording as well: secrets in YAML are allowed, just not
     recommended. The documentation no longer claims they are forbidden.
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:05:52 +0300
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:05:58 +0300
 
-kwbackup (0.1.3) unstable; urgency=medium
+kwbackup (0.99.40) unstable; urgency=medium
 
   * docs: explain where the environment comes from
 
@@ -27,7 +42,7 @@ kwbackup (0.1.3) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:55:59 +0300
 
-kwbackup (0.1.2) unstable; urgency=medium
+kwbackup (0.99.39) unstable; urgency=medium
 
   * docs: explain ${ENV} substitution in the README
 
@@ -40,7 +55,7 @@ kwbackup (0.1.2) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:52:03 +0300
 
-kwbackup (0.1.1) unstable; urgency=medium
+kwbackup (0.99.38) unstable; urgency=medium
 
   * feat(config): typed rclone backend flags via s3-custom-options
 
@@ -65,40 +80,25 @@ kwbackup (0.1.1) unstable; urgency=medium
     tests: global options, section override, boolean rendering, null removal,
     --check-config output (33/33).
 
- -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:39:56 +0300
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 03:40:26 +0300
 
-kwbackup (0.1.0) stable; urgency=medium
+kwbackup (0.99.37) unstable; urgency=medium
 
-  * First public release of kwBackup: backups of databases, file storage and
-    archives over rclone, as a single Python file with no dependencies.
 
-    Scenarios: mysqldump/mariadb-dump/pg_dump/sqlite3 piped through zstd, gzip or
-    rar with daily/weekly/monthly retention; rclone sync or copy of directories;
-    tar archives with include/exclude patterns.
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:25:51 +0300
 
-    Safety: flock per project and task, a quiet terminal with info in log.file,
-    --list and --verify to check what is really stored, --restore including
-    --into-db behind an explicit --yes.
-
-    Configuration: /etc/kwbackup/defaults.yaml over built-in defaults, with
-    unknown keys reported as warnings. A Debian package installs
-    /usr/bin/kwbackup and the defaults conffile; migrate converts the legacy
-    bash configuration.
-
- -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:25:23 +0300
-
-kwbackup (0.0.37) unstable; urgency=medium
+kwbackup (0.99.36) unstable; urgency=medium
 
   * style(cli): one-line banner with the version in parentheses
 
-        kwBackup: Backup tool over rclone: database dumps, file storage, archives (Version: 0.0.37)
+        kwBackup: Backup tool over rclone: database dumps, file storage, archives (Version: 0.99.36)
 
     The version is no longer a second line, in both banner call sites, and
-    --version uses the same 'Version:' label: 'kwBackup (Version: 0.0.37)'.
+    --version uses the same 'Version:' label: 'kwBackup (Version: 0.99.36)'.
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:21:15 +0300
 
-kwbackup (0.0.36) unstable; urgency=medium
+kwbackup (0.99.35) unstable; urgency=medium
 
   * style(cli): show the banner in the action list too
 
@@ -108,7 +108,7 @@ kwbackup (0.0.36) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:17:39 +0300
 
-kwbackup (0.0.35) unstable; urgency=medium
+kwbackup (0.99.34) unstable; urgency=medium
 
   * feat(config): an unknown key is a warning, not a fatal error
 
@@ -126,7 +126,7 @@ kwbackup (0.0.35) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 22:03:06 +0300
 
-kwbackup (0.0.34) unstable; urgency=medium
+kwbackup (0.99.33) unstable; urgency=medium
 
   * feat(config): drop the version field entirely
 
@@ -140,7 +140,7 @@ kwbackup (0.0.34) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:58:47 +0300
 
-kwbackup (0.0.33) unstable; urgency=medium
+kwbackup (0.99.32) unstable; urgency=medium
 
   * feat(retention): prune only the files this config owns; archive name defaults to project
 
@@ -160,7 +160,7 @@ kwbackup (0.0.33) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:20:24 +0300
 
-kwbackup (0.0.32) unstable; urgency=medium
+kwbackup (0.99.31) unstable; urgency=medium
 
   * style: the product is kwBackup, the command stays kwbackup
 
@@ -175,12 +175,12 @@ kwbackup (0.0.32) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:04:37 +0300
 
-kwbackup (0.0.31) unstable; urgency=medium
+kwbackup (0.99.30) unstable; urgency=medium
 
   * style(cli): reformat the no-config banner
 
         kwBackup: Backup tool over RClone: database dumps, file storage, archives
-        Version: 0.0.31
+        Version: 0.99.30
 
         usage: ...
 
@@ -190,7 +190,7 @@ kwbackup (0.0.31) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 21:01:57 +0300
 
-kwbackup (0.0.30) unstable; urgency=medium
+kwbackup (0.99.29) unstable; urgency=medium
 
   * style(cli): introduce the tool when it is started without a config
 
@@ -202,7 +202,7 @@ kwbackup (0.0.30) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:52:47 +0300
 
-kwbackup (0.0.29) unstable; urgency=medium
+kwbackup (0.99.28) unstable; urgency=medium
 
   * style(cli): separate streamed rclone output with empty lines
 
@@ -216,7 +216,7 @@ kwbackup (0.0.29) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:48:19 +0300
 
-kwbackup (0.0.28) unstable; urgency=medium
+kwbackup (0.99.27) unstable; urgency=medium
 
   * feat(logging): the terminal is quiet unless asked otherwise
 
@@ -237,13 +237,13 @@ kwbackup (0.0.28) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:42:53 +0300
 
-kwbackup (0.0.27) unstable; urgency=medium
+kwbackup (0.99.26) unstable; urgency=medium
 
   * fix(rclone): stream rclone output under --verbose so --progress is visible
 
     rclone was always started with capture_output=True, so its progress and stats
     went into a captured stderr and were dropped unless the command failed. The
-    --progress flag added in 0.0.26 was therefore invisible.
+    --progress flag added in 0.99.25 was therefore invisible.
 
     run() now has capture=True/False. Rclone.run streams by default when VERBOSE
     is on and keeps capture for lsf, whose stdout must be parsed. A failed
@@ -254,7 +254,7 @@ kwbackup (0.0.27) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:34:10 +0300
 
-kwbackup (0.0.26) unstable; urgency=medium
+kwbackup (0.99.25) unstable; urgency=medium
 
   * feat(cli): --verbose also makes rclone talk, --debug owns the debug log
 
@@ -272,7 +272,7 @@ kwbackup (0.0.26) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:25:54 +0300
 
-kwbackup (0.0.25) unstable; urgency=medium
+kwbackup (0.99.24) unstable; urgency=medium
 
   * style(cli): legacy layout for the action list, option name in yellow
 
@@ -285,7 +285,7 @@ kwbackup (0.0.25) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:22:22 +0300
 
-kwbackup (0.0.24) unstable; urgency=medium
+kwbackup (0.99.23) unstable; urgency=medium
 
   * fix(cli): distinguish 'not configured' from 'disabled' in the action list
 
@@ -299,19 +299,19 @@ kwbackup (0.0.24) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:20:07 +0300
 
-kwbackup (0.0.23) unstable; urgency=medium
+kwbackup (0.99.22) unstable; urgency=medium
 
   * chore: ignore the local test sandbox
 
     _test/ (a migrated config with real bucket keys, rclone.conf and a log) was
-    committed by mistake in 0.0.21 via 'git add -A'. It is removed from the index
+    committed by mistake in 0.99.20 via 'git add -A'. It is removed from the index
     and purged from the whole history; the files stay on disk and are ignored.
 
     No remote is configured, so nothing was published.
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:16:10 +0300
 
-kwbackup (0.0.22) unstable; urgency=medium
+kwbackup (0.99.21) unstable; urgency=medium
 
   * fix(cli): never run a backup without an explicit action
 
@@ -325,12 +325,12 @@ kwbackup (0.0.22) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:15:14 +0300
 
-kwbackup (0.0.21) unstable; urgency=medium
+kwbackup (0.99.20) unstable; urgency=medium
 
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 20:10:57 +0300
 
-kwbackup (0.0.20) unstable; urgency=medium
+kwbackup (0.99.19) unstable; urgency=medium
 
   * docs: the shipped defaults file covers every built-in default
 
@@ -348,7 +348,7 @@ kwbackup (0.0.20) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:34:23 +0300
 
-kwbackup (0.0.19) unstable; urgency=medium
+kwbackup (0.99.18) unstable; urgency=medium
 
   * feat: explicit copy mode for database and archive, -m sync mirrors
 
@@ -366,7 +366,7 @@ kwbackup (0.0.19) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:31:46 +0300
 
-kwbackup (0.0.18) unstable; urgency=medium
+kwbackup (0.99.17) unstable; urgency=medium
 
   * refactor(config): keep the whole validation schema in one dict
 
@@ -377,16 +377,16 @@ kwbackup (0.0.18) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 11:06:59 +0300
 
-kwbackup (0.0.17) unstable; urgency=medium
+kwbackup (0.99.16) unstable; urgency=medium
 
   * chore: stop tracking IDE files
 
-    .idea/ is in .gitignore since 0.0.12; the files were committed earlier by
+    .idea/ is in .gitignore since 0.99.11; the files were committed earlier by
     mistake. They stay on disk but leave the repository and the history.
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:49 +0300
 
-kwbackup (0.0.16) unstable; urgency=medium
+kwbackup (0.99.15) unstable; urgency=medium
 
   * docs: update installation, CLI and versioning for packaging
 
@@ -397,7 +397,7 @@ kwbackup (0.0.16) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:58:13 +0300
 
-kwbackup (0.0.15) unstable; urgency=medium
+kwbackup (0.99.14) unstable; urgency=medium
 
   * feat(packaging): debian package, MIT license and Makefile
 
@@ -416,7 +416,7 @@ kwbackup (0.0.15) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:57:42 +0300
 
-kwbackup (0.0.14) unstable; urgency=medium
+kwbackup (0.99.13) unstable; urgency=medium
 
   * feat(build): take the version from the commit message
 
@@ -429,7 +429,7 @@ kwbackup (0.0.14) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:56:02 +0300
 
-kwbackup (0.0.13) unstable; urgency=medium
+kwbackup (0.99.12) unstable; urgency=medium
 
   * feat(config): built-in defaults and a single system defaults path
 
@@ -449,18 +449,18 @@ kwbackup (0.0.13) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:54:43 +0300
 
-kwbackup (0.0.12) unstable; urgency=medium
+kwbackup (0.99.11) unstable; urgency=medium
 
   * chore: keep build artifacts out of the repository
 
     The single-file artifact is generated by build.py and shipped as a debian
     package or a release asset. dist/ is now ignored, and the previously
     committed build output is purged from the whole history (the file existed
-    in commits 0.0.2 .. 0.0.11).
+    in commits 0.99.1 .. 0.99.10).
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 10:50:23 +0300
 
-kwbackup (0.0.11) unstable; urgency=medium
+kwbackup (0.99.10) unstable; urgency=medium
 
   * docs: mark the changelog entry as Unreleased
 
@@ -470,7 +470,7 @@ kwbackup (0.0.11) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 09:59:12 +0300
 
-kwbackup (0.0.10) unstable; urgency=medium
+kwbackup (0.99.9) unstable; urgency=medium
 
   * fix(config): do not flag rclone.conf, account-level keys are normal
 
@@ -482,7 +482,7 @@ kwbackup (0.0.10) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 07:09:04 +0300
 
-kwbackup (0.0.9) unstable; urgency=medium
+kwbackup (0.99.8) unstable; urgency=medium
 
   * feat(config): make the credentials permission check configurable
 
@@ -495,7 +495,7 @@ kwbackup (0.0.9) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 06:59:56 +0300
 
-kwbackup (0.0.8) unstable; urgency=medium
+kwbackup (0.99.7) unstable; urgency=medium
 
   * fix(config): flag only the file that actually carries credentials
 
@@ -505,7 +505,7 @@ kwbackup (0.0.8) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 02:49:24 +0300
 
-kwbackup (0.0.7) unstable; urgency=medium
+kwbackup (0.99.6) unstable; urgency=medium
 
   * feat(config): layered defaults file and per-bucket S3 keys
 
@@ -526,7 +526,7 @@ kwbackup (0.0.7) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 02:48:54 +0300
 
-kwbackup (0.0.6) unstable; urgency=medium
+kwbackup (0.99.5) unstable; urgency=medium
 
   * docs: add CHANGELOG
 
@@ -539,7 +539,7 @@ kwbackup (0.0.6) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 02:36:08 +0300
 
-kwbackup (0.0.5) unstable; urgency=medium
+kwbackup (0.99.4) unstable; urgency=medium
 
   * docs: publication documentation, examples, systemd/cron units
 
@@ -558,7 +558,7 @@ kwbackup (0.0.5) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Thu, 12 Nov 2026 02:33:05 +0300
 
-kwbackup (0.0.4) unstable; urgency=medium
+kwbackup (0.99.3) unstable; urgency=medium
 
   * feat(migrate): convert legacy bash config into YAML
 
@@ -571,7 +571,7 @@ kwbackup (0.0.4) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 11 Nov 2026 18:45:33 +0300
 
-kwbackup (0.0.3) unstable; urgency=medium
+kwbackup (0.99.2) unstable; urgency=medium
 
   * feat(restore): --restore --to DIR for database, archive and storage
 
@@ -583,7 +583,7 @@ kwbackup (0.0.3) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 11 Nov 2026 18:43:40 +0300
 
-kwbackup (0.0.2) unstable; urgency=medium
+kwbackup (0.99.1) unstable; urgency=medium
 
   * refactor: split into src/ modules, add single-file build
 
@@ -598,7 +598,7 @@ kwbackup (0.0.2) unstable; urgency=medium
 
  -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 11 Nov 2026 18:42:47 +0300
 
-kwbackup (0.0.1) unstable; urgency=medium
+kwbackup (0.99.0) unstable; urgency=medium
 
   * chore: initial import of kwbackup.sh and single-file python prototype
 
