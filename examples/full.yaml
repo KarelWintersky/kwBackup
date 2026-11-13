@@ -5,7 +5,7 @@
 # а здесь только project, target, databases, sources, root и ключи бакета.
 #
 # Проверка после правки:
-#   kwbackup -c full.yaml --check-config
+#   kwbackup -c full.yaml --check
 # Пробный прогон без изменений в облаке:
 #   kwbackup -c full.yaml --dry-run
 #

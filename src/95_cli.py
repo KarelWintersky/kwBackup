@@ -22,7 +22,8 @@ def build_parser():
     p.add_argument("-f", "--force", action="store_true",
                    help="run actions even if disabled in config")
     p.add_argument("--dry-run", action="store_true", help="show what would be done")
-    p.add_argument("--check-config", action="store_true", help="validate config and exit")
+    p.add_argument("--check", action="store_true",
+                   help="validate the config and show what will run")
     p.add_argument("--list", action="store_true", help="show what is stored in the cloud")
     p.add_argument("--verify", action="store_true", help="download and check the newest copy")
     p.add_argument("--all", action="store_true", help="with --verify: check every stored copy")
@@ -70,13 +71,13 @@ def main(argv=None):
     DRY = args.dry_run
     VERBOSE = args.verbose or args.debug
     setup_logging(cfg, args.verbose, args.debug, dry_run=args.dry_run)
-    if not args.check_config:
+    if not args.check:
         for warning in cfg.warnings:
             LOG.warning("%s", warning)
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
 
-    if args.check_config:
+    if args.check:
         return check_config(cfg, args)
 
     if args.list:
@@ -177,50 +178,111 @@ def show_available_actions(cfg):
     print("Nothing has been done.")
 
 
-def _print_s3(cfg, section):
-    options = effective_s3_options(cfg, section)
-    if options:
-        print(f"    s3-custom-options: {', '.join(sorted(options))}")
+def _chunks(items, width=58):
+    """Wrap a list of names into lines of about `width` characters."""
+    lines, current = [], ""
+    for item in items:
+        piece = item if not current else ", " + item
+        if len(current) + len(piece) > width:
+            lines.append(current)
+            current = item
+        else:
+            current += piece
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _s3_overrides(cfg, section):
+    """What this section changes in rclone.s3-custom-options. Values are never
+    printed: they may be credentials."""
+    base = cfg.rclone.s3_options
+    changed = []
+    for key, value in section.s3_options.items():
+        if value is None:
+            changed.append(f"-{key}")
+        elif key not in base or base[key] != value:
+            changed.append(f"+{key}")
+    return sorted(changed)
+
+
+def _print_section(cfg, name, section):
+    def row(label, value):
+        print(f"    {label:<10} {value}")
+
+    if name == "database":
+        row("mode", section.mode)
+        row("target", section.target)
+        row("databases", ", ".join(section.databases) or "(none)")
+        row("compressor", section.compressor)
+        for cls in RETENTION_CLASSES:
+            ret = section.retention.get(cls)
+            row(cls, ret.describe() if ret else "off")
+        if section.catch_up:
+            row("catch_up", "on")
+    elif name == "storage":
+        row("target", section.target)
+        row("sources", len(section.sources))
+        for src, dest in section.sources:
+            print(f"      {src}  ->  {source_dest(src, dest) or '.'}")
+    else:
+        row("name", section.name)
+        row("root", section.root)
+        row("mode", section.mode)
+        row("target", section.target)
+        row("retention", section.retention.describe() if section.retention
+            else "none (never pruned)")
+        row("include", ", ".join(section.include) or "(none)")
+        row("exclude", ", ".join(section.exclude) or "(none)")
+
+    overrides = _s3_overrides(cfg, section)
+    if overrides:
+        row("s3", " ".join(overrides) + "  (override rclone)")
 
 
 def check_config(cfg, args):
-    print(f"config OK: {cfg.path}")
-    print(f"  defaults: {cfg.defaults_path or 'none (built-in defaults only)'}")
-    print(f"  project: {cfg.project}")
-    print(f"  rclone:  {cfg.rclone.remote} via {cfg.rclone.config or 'default config'}")
+    print_banner()
+    print()
+    print(f"  {'config':<10} {cfg.path}")
+    print(f"  {'defaults':<10} {cfg.defaults_path or 'none (built-in defaults only)'}")
+    print(f"  {'project':<10} {cfg.project}")
+    print()
+
+    print("  rclone")
+    print(f"    {'remote':<10} {cfg.rclone.remote}")
+    print(f"    {'config':<10} {cfg.rclone.config or 'default'}")
+    if cfg.rclone.args:
+        print(f"    {'args':<10} {len(cfg.rclone.args)} flag(s) passed as-is")
     if cfg.rclone.s3_options:
-        print(f"    s3-custom-options: {', '.join(sorted(cfg.rclone.s3_options))}")
-    if cfg.database.enabled:
-        print(f"  database: {cfg.database.type}, {len(cfg.database.databases)} db(s), "
-              f"compressor {cfg.database.compressor}, mode {cfg.database.mode}, "
-              f"target {cfg.database.target}")
-        for cls in RETENTION_CLASSES:
-            ret = cfg.database.retention.get(cls)
-            print(f"    {cls:8} {ret.describe() if ret else 'disabled'}")
-        if cfg.database.catch_up:
-            print("    catch_up: on (missing weekly/monthly copies are created on the next run)")
-        _print_s3(cfg, cfg.database)
-    if cfg.storage.enabled:
-        print(f"  storage: {cfg.storage.mode}, {len(cfg.storage.sources)} source(s), "
-              f"target {cfg.storage.target}")
-        for src, dest in cfg.storage.sources:
-            print(f"    {src} -> {source_dest(src, dest) or '.'}")
-        _print_s3(cfg, cfg.storage)
-    if cfg.archive.enabled:
-        ret = cfg.archive.retention
-        print(f"  archive: {cfg.archive.compressor}, name {cfg.archive.name}, "
-              f"root {cfg.archive.root}, mode {cfg.archive.mode}, "
-              f"target {cfg.archive.target}, "
-              f"retention {ret.describe() if ret else 'none'}")
+        keys = sorted(cfg.rclone.s3_options)
+        print(f"    {'s3':<10} {len(keys)} flag(s)")
+        for chunk in _chunks(keys):
+            print(f"    {'':<10} {chunk}")
+    print()
+
+    for name in ACTIONS:
+        section = getattr(cfg, name)
+        if not section.enabled:
+            state = "disabled" if name in cfg.present_sections else "not configured"
+            print(f"  {name:<9} {state}")
+            continue
+        detail = {"database": lambda: section.type,
+                  "storage": lambda: section.mode,
+                  "archive": lambda: section.compressor}[name]()
+        print(f"  {name:<9} enabled ({detail})")
+        _print_section(cfg, name, section)
+    print()
+
     if cfg.warnings:
-        print("  config: warnings")
+        print(f"  {'warnings':<9} {len(cfg.warnings)}")
         for warning in cfg.warnings:
             print(f"    ! {warning}")
+        print()
     problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:
-        print("  preflight: warnings")
+        print(f"  {'preflight':<9} problems")
         for problem in problems:
             print(f"    ! {problem}")
     else:
-        print("  preflight: ok")
+        print(f"  {'preflight':<9} ok")
     return EXIT_OK

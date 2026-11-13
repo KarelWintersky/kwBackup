@@ -35,7 +35,7 @@ sudoedit /etc/default/kwbackup
 ```bash
 sudo -s
 set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --check
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 kwbackup --config /etc/kwbackup/shop.yaml
 kwbackup --config /etc/kwbackup/shop.yaml --list
@@ -47,11 +47,43 @@ kwbackup --config /etc/kwbackup/shop.yaml --verify
 интерактивной сессии. `sudo` по умолчанию окружение не передаёт — если
 идёте через `sudo -E`, переменные должны быть экспортированы заранее.
 
-`--check-config` печатает разобранный конфиг и **preflight**: найден ли
+`--check` печатает разобранный конфиг и **preflight**: найден ли
 `rclone`, `mysqldump`/`pg_dump`, `tar`, компрессор; существует ли
 `rclone.config`; доступны ли источники storage, `root` архива, `temp_dir`;
 задана ли переменная с паролем. Предупреждения не меняют код возврата,
 но при реальном запуске preflight уже блокирует работу.
+
+```
+kwBackup: Backup tool over rclone: database dumps, file storage, archives (Version: 0.99.43)
+
+  config     /etc/kwbackup/shop.yaml
+  defaults   /etc/kwbackup/defaults.yaml
+  project    shop
+
+  rclone
+    remote     beget
+    config     /etc/kwbackup/rclone_beget.conf
+    s3         5 flag(s)
+               s3-access-key-id, s3-chunk-size, s3-no-check-bucket
+               s3-secret-access-key, s3-upload-cutoff
+
+  database  enabled (mariadb)
+    mode       copy
+    target     beget:/DB
+    databases  mediamaker
+    compressor zstd
+    daily      keep 8
+    weekly     keep 6
+    monthly    keep 12
+  storage   disabled
+  archive   disabled
+
+  preflight ok
+```
+
+Флаги S3 печатаются один раз в `rclone`, а у секций — только переопределения:
+`+s3-secret-access-key` (добавлен/изменён) или `-s3-server-side-encryption`
+(снят). Значения флагов не печатаются никогда.
 
 `--dry-run` проходит те же проверки и печатает полный план: команды дампа,
 сжатия и `rclone copyto`. Ничего не скачивается и не заливается.
@@ -262,7 +294,7 @@ kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 | предупреждение `unknown key, ignored` | опечатка или лишний ключ | ключ проигнорирован, запуск продолжается; сверить с `docs/configuration.md` |
 | код 2, `environment variable X is not set` | переменная не попала в окружение процесса | `EnvironmentFile=` в systemd; `set -a; . /etc/default/kwbackup; set +a` в cron; `sudo -E` |
 | код 2, `defaults file not found` | указан несуществующий `--defaults` | поправить путь |
-| конфиг «дополняется» не тем, что вы ждёте | сработал `/etc/kwbackup/defaults.yaml` | смотреть строку `defaults:` в `--check-config` |
+| конфиг «дополняется» не тем, что вы ждёте | сработал `/etc/kwbackup/defaults.yaml` | смотреть строку `defaults:` в `--check` |
 | код 2, `at least one class must be configured` | пустой `retention` | включить класс |
 | код 4, `already running` | параллельный запуск того же проекта | дождаться; проверить `ps` и lock-файл |
 | код 1, `binary not found in PATH` | нет `rclone`/`zstd`/`tar`/дампа | установить пакет |

@@ -6,7 +6,7 @@ Single file, standard library only. Drop-in replacement for kwbackup.sh.
 
     kwbackup -c project.yaml -d              # database backup
     kwbackup -c project.yaml -d -s -a        # all actions
-    kwbackup -c project.yaml --check-config  # validate config, exit
+    kwbackup -c project.yaml --check  # validate config, exit
     kwbackup -c project.yaml --list          # what is in the cloud
     kwbackup -c project.yaml --verify        # download and test the newest copy
     kwbackup -c project.yaml --restore --to DIR [--at TS]

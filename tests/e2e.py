@@ -568,7 +568,7 @@ def test_migrate_old_config():
                          "/srv/files.aait", "name: site", "retention: {keep: 71}",
                          "compressor: zstd"):
             assert expected in text, f"missing {expected!r} in:\n{text}"
-        env.run("-c", out, "--check-config")
+        env.run("-c", out, "--check")
         env.run("migrate", old, "-o", out, expect=3)      # no --force
         env.run("migrate", old, "-o", out, "-f")
     finally:
@@ -596,7 +596,7 @@ def test_migrate_uses_keep_by_default():
 
 
 def test_documented_examples_validate():
-    """Every examples/*.yaml must pass --check-config."""
+    """Every examples/*.yaml must pass --check."""
     env = Env()
     try:
         secret_env = {"RCLONE_KEY_ID": "k", "RCLONE_SECRET": "s", "MYSQL_PWD": "p"}
@@ -604,7 +604,7 @@ def test_documented_examples_validate():
                  if p.name != "defaults.yaml"]   # defaults are not a task
         assert files, "no example configs found"
         for path in files:
-            env.run("-c", path, "--check-config",
+            env.run("-c", path, "--check",
                     "--defaults", ROOT / "examples" / "defaults.yaml",
                     extra_env=secret_env)
     finally:
@@ -642,7 +642,7 @@ database:
 """, encoding="utf-8")
         base = ["-c", task, "--defaults", defaults]
 
-        out = env.run(*base, "--check-config")
+        out = env.run(*base, "--check")
         assert "defaults.yaml" in out.stdout, out.stdout
         assert "keep 1" in out.stdout, out.stdout
 
@@ -653,7 +653,7 @@ database:
         assert "--s3-secret-access-key=SECRET1" in log, log
 
         env.run("-c", task, "--defaults", env.dir / "missing.yaml",
-                "--check-config", expect=2)
+                "--check", expect=2)
     finally:
         env.cleanup()
 
@@ -670,7 +670,7 @@ database:
   retention:
     daily: {keep: 2}
 """)
-        out = env.run("-c", env.config, "--check-config")
+        out = env.run("-c", env.config, "--check")
         assert "built-in defaults only" in out.stdout, out.stdout
         assert "compressor zstd" in out.stdout, out.stdout      # builtin value
         env.run("-c", env.config, "-d")
@@ -760,8 +760,8 @@ archive:
   root: /tmp
   target: "fake:/ARCHIVE"
 """)
-        out = env.run("-c", env.config, "--check-config")
-        assert "mode copy" in out.stdout, out.stdout
+        out = env.run("-c", env.config, "--check")
+        assert "mode" in out.stdout and "copy" in out.stdout, out.stdout
     finally:
         env.cleanup()
 
@@ -782,7 +782,7 @@ database:
   databases: [db1]
   retention: {daily: {keep: 2}}
 """, encoding="utf-8")
-        res = env.run("-c", task, "--check-config", expect=2)
+        res = env.run("-c", task, "--check", expect=2)
         assert "only 'copy' is supported" in res.stderr, res.stderr
     finally:
         env.cleanup()
@@ -927,8 +927,8 @@ archive:
   root: {root}
   target: "fake:/A"
 """)
-        out = env.run("-c", env.config, "--check-config")
-        assert "name e2e" in out.stdout, out.stdout        # project: e2e
+        out = env.run("-c", env.config, "--check")
+        assert "name" in out.stdout and "e2e" in out.stdout  # project: e2e
         env.run("-c", env.config, "-a")
         assert env.cloud_tree()[0].startswith("A/e2e_"), env.cloud_tree()
     finally:
@@ -1010,7 +1010,7 @@ database:
   databases: [db1]
   retention: {daily: {keep: 2}}
 """)
-        out = env.run("-c", env.config, "--check-config")
+        out = env.run("-c", env.config, "--check")
         assert "unknown key, ignored" in out.stdout, out.stdout
         assert "config.version" in out.stdout, out.stdout
 
@@ -1051,8 +1051,10 @@ storage:
     s3-server-side-encryption: null
     s3-no-check-bucket: false
 """)
-        out = env.run("-c", env.config, "--check-config")
-        assert "s3-custom-options: s3-chunk-size, s3-no-check-bucket" in out.stdout, out.stdout
+        out = env.run("-c", env.config, "--check")
+        assert "s3-chunk-size" in out.stdout and "s3-no-check-bucket" in out.stdout, out.stdout
+        assert "+s3-secret-access-key" in out.stdout, out.stdout
+        assert "-s3-server-side-encryption" in out.stdout, out.stdout
 
         env.run("-c", env.config, "-s")
         line = [l for l in (env.dir / "rclone.log").read_text().splitlines()

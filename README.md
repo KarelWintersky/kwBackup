@@ -26,7 +26,7 @@
   в YAML, сохраняя глубину хранения.
 * **Слои конфигурации**: общий `/etc/kwbackup/defaults.yaml` (логи, rclone, глубина
   хранения, компрессоры) + короткий файл задачи на каждый проект.
-* `--dry-run`, `--check-config`, `--selftest`.
+* `--dry-run`, `--check`, `--selftest`.
 
 ## Требования
 
@@ -89,7 +89,7 @@ sudoedit /etc/default/kwbackup
 # 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
 sudo -s
 set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --check
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
 # 6. боевой запуск и проверка результата
@@ -110,7 +110,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
 | `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup --config FILE --check-config` | проверить конфиг и наличие бинарников |
+| `kwbackup --config FILE --check` | проверить конфиг и наличие бинарников |
 | `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |
 | `kwbackup --config FILE --verify [--all]` | скачать и проверить копию |
 | `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |
@@ -269,7 +269,7 @@ ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
 
 ```bash
 set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --check
 ```
 
 В CI/CD — штатные механизмы секретов раннера (`env:` в GitLab CI,

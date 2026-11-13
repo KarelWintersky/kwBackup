@@ -122,7 +122,7 @@ def build_yaml(old, project, source_path):
         add(f"# {'-' * 74}")
 
     add(f"# Сгенерировано kwbackup migrate из {source_path}")
-    add("# Проверьте перед использованием: kwbackup -c <этот файл> --check-config")
+    add("# Проверьте перед использованием: kwbackup -c <этот файл> --check")
     add("")
     add(f"project: {_yaml_value(project)}")
 
@@ -304,7 +304,7 @@ def migrate_main(argv):
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(text, encoding="utf-8")
         print(f"written {dst} ({len(text.splitlines())} lines)")
-        print(f"check it with: {PROG} -c {dst} --check-config")
+        print(f"check it with: {PROG} -c {dst} --check")
     else:
         print(text)
     return EXIT_OK

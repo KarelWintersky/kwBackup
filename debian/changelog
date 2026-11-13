@@ -1,3 +1,18 @@
+kwbackup (0.99.43) unstable; urgency=medium
+
+  * feat(cli): --check instead of --check-config, readable report
+
+    The old output crammed a section into one line and repeated the whole S3 flag
+    list for every action. The report now starts with the banner, shows each
+    action as enabled/disabled/not configured, prints one fact per line for the
+    enabled ones, lists S3 flags once (under rclone) and only the overrides per
+    section (+added, -removed, values never printed), and ends with warnings and
+    preflight.
+
+    --check-config is replaced by --check everywhere: code, help, docs, examples.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:26:33 +0300
+
 kwbackup (0.99.42) unstable; urgency=medium
 
   * chore(release): renumber the Python line to 0.99.x and drop the release

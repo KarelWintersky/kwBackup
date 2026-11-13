@@ -2,7 +2,7 @@
 
 ```bash
 kwbackup migrate /etc/kwbackup/_config.conf -o /etc/kwbackup/shop.yaml -p shop
-kwbackup --config /etc/kwbackup/shop.yaml --check-config
+kwbackup --config /etc/kwbackup/shop.yaml --check
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 ```
 
@@ -97,7 +97,7 @@ retention:
 
 ## Что проверить после миграции
 
-1. `--check-config`. Если в старом конфиге было пусто, конвертер оставит
+1. `--check`. Если в старом конфиге было пусто, конвертер оставит
    пусто и напишет комментарий:
    * `databases: []` → заполнить список БД;
    * `sources: []` → заполнить источники storage;
