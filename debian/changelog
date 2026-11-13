@@ -1,3 +1,14 @@
+kwbackup (0.99.45) unstable; urgency=medium
+
+  * docs(storage): explain what dest means
+
+    dest is the subdirectory inside target for one source; omitted means the
+    basename, an empty string means the target root. Added a table with the
+    resulting rclone commands and a warning that two sources sharing a dest under
+    sync mode delete each other's files.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:37:33 +0300
+
 kwbackup (0.99.44) unstable; urgency=medium
 
   * style(cli): colours and spacing in --check, and a --check hint
