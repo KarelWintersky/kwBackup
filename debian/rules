@@ -6,6 +6,11 @@
 override_dh_auto_build:
 	python3 build.py --version $(shell dpkg-parsechangelog -S Version)
 
+override_dh_fixperms:
+	dh_fixperms
+	# the environment file is meant for secrets
+	chmod 600 debian/kwbackup/etc/default/kwbackup
+
 override_dh_installchangelogs:
 	# CHANGELOG.md is our project changelog, not the upstream one:
 	# keep it as a normal doc file, the Debian changelog stays changelog.gz

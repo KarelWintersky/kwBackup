@@ -1,2 +1,3 @@
 dist/kwbackup usr/bin/
 examples/defaults.yaml etc/kwbackup/
+examples/default/kwbackup etc/default/

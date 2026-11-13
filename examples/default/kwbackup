@@ -1,16 +1,22 @@
-# /etc/kwbackup/secrets.env — режим 0600, владелец root.
+# /etc/default/kwbackup — переменные окружения для kwBackup.
+# Режим 0600, владелец root: файл предназначен для секретов.
 #
 # Формат: простые присваивания КЛЮЧ=значение, без export, без пробелов
 # вокруг "=". Такой файл понимают и systemd (EnvironmentFile=), и shell:
 #
-#   systemd:  EnvironmentFile=/etc/kwbackup/secrets.env
-#   cron:     set -a; . /etc/kwbackup/secrets.env; set +a; kwbackup ...
-#   вручную:  set -a; . /etc/kwbackup/secrets.env; set +a
+#   systemd:  EnvironmentFile=-/etc/default/kwbackup
+#   cron:     set -a; . /etc/default/kwbackup; set +a; kwbackup ...
+#   вручную:  set -a; . /etc/default/kwbackup; set +a
 #
 # Без `set -a` (или export) shell не передаст переменные дочернему процессу.
 #
 # Здесь только то, что можно передать через окружение: пароль БД, и, при
 # желании, ключи бакетов для подстановки в конфиг (${BEGET_SHOP_KEY}).
+# Значения подставляются в конфиг через ${ИМЯ}:
+#   rclone:
+#     s3-custom-options:
+#       s3-access-key-id: ${BEGET_SHOP_KEY}
+#       s3-secret-access-key: ${BEGET_SHOP_SECRET}
 # Ключи BEGET в rclone.conf не работают: env_auth = false, поэтому в итоге
 # они всё равно уходят флагами --s3-access-key-id / --s3-secret-access-key.
 MYSQL_PWD=change-me

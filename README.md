@@ -75,7 +75,7 @@ rclone config
 
 # 2. общие настройки хоста: логи, rclone.config/remote, глубина хранения
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
-sudo install -m 600 examples/defaults.yaml /etc/kwbackup//etc/kwbackup/defaults.yaml
+sudo install -m 600 examples/defaults.yaml /etc/kwbackup/defaults.yaml
 
 # 3. задача: project, target, базы и ключи бакета
 #    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
@@ -83,12 +83,12 @@ sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 sudoedit /etc/kwbackup/shop.yaml
 
 # 4. пароль БД и прочие секреты — в окружение
-sudo install -m 600 examples/secrets.env.example /etc/kwbackup/secrets.env
-sudoedit /etc/kwbackup/secrets.env
+sudo install -m 600 examples/default/kwbackup /etc/default/kwbackup
+sudoedit /etc/default/kwbackup
 
 # 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
 sudo -s
-set -a; . /etc/kwbackup/secrets.env; set +a
+set -a; . /etc/default/kwbackup; set +a
 kwbackup --config /etc/kwbackup/shop.yaml --check-config
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
@@ -212,7 +212,7 @@ CI.
   `sudo --preserve-env=VAR`;
 * **в cron логин-окружения нет** — только `PATH`, `HOME`, `SHELL` и то,
   что задано в самом crontab;
-* **`. secrets.env` без `set -a` переменные не экспортирует**: они станут
+* **`. /etc/default/kwbackup` без `set -a` переменные не экспортирует**: они станут
   переменными оболочки, а дочерний процесс их не увидит;
 * systemd даёт юниту своё окружение через `Environment=` и
   `EnvironmentFile=` — там `set -a` не нужен.
@@ -223,7 +223,7 @@ CI.
 
 #### 1. Файл секретов (рекомендуется)
 
-`/etc/kwbackup/secrets.env`, права `0600`, владелец root:
+`/etc/default/kwbackup`, права `0600`, владелец root:
 
 ```ini
 # комментарии разрешены
@@ -247,7 +247,7 @@ DB_HOST=localhost
 
 ```ini
 [Service]
-EnvironmentFile=/etc/kwbackup/secrets.env
+EnvironmentFile=/etc/default/kwbackup
 # или отдельные значения:
 # Environment=DB_HOST=localhost RCLONE_KEY_ID=...
 ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
@@ -259,7 +259,7 @@ ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
 #### 3. cron
 
 ```bash
-30 3 * * * root set -a; . /etc/kwbackup/secrets.env; set +a; /usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
+30 3 * * * root set -a; . /etc/default/kwbackup; set +a; /usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
 ```
 
 `set -a` обязателен: без него присваивания из файла останутся переменными
@@ -268,7 +268,7 @@ ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
 #### 4. Вручную и в CI
 
 ```bash
-set -a; . /etc/kwbackup/secrets.env; set +a
+set -a; . /etc/default/kwbackup; set +a
 kwbackup --config /etc/kwbackup/shop.yaml --check-config
 ```
 
@@ -291,6 +291,12 @@ kwbackup --config /etc/kwbackup/shop.yaml --check-config
 
 ### Секреты
 
+Писать секреты прямо в YAML **можно** — программа этого не запрещает, —
+но не рекомендуется: файл задачи попадает в резервные копии и репозитории,
+а права у него обычно шире, чем нужно. Предпочтительный способ — `${ИМЯ}`
+и значения в `/etc/default/kwbackup` (0600). Если всё же пишете ключи
+в конфиг, поставьте на файл `chmod 600`.
+
 * **Ключи S3-бакета** (BEGET и подобные провайдеры) в `rclone.conf` не
   работают: там `env_auth = false`, поэтому ключи передаются флагами
   `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
@@ -301,7 +307,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --check-config
   в каждой секции; `rclone.args` остаётся простым путём.
 * **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
   флаги в `rclone.args` перекрывают их для конкретного бакета.
-* **Пароли БД** — через `password_env` и `/etc/kwbackup/secrets.env` (0600).
+* **Пароли БД** — через `password_env` и `/etc/default/kwbackup` (0600).
 
 ## Версионирование
 

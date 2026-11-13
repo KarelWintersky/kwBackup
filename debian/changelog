@@ -1,3 +1,17 @@
+kwbackup (0.1.4) unstable; urgency=medium
+
+  * docs: move the environment file to /etc/default/kwbackup
+
+    Debian convention for service environment variables. The example lives in
+    examples/default/kwbackup and the package installs it as an /etc/default
+    conffile, so EnvironmentFile= works out of the box; the units use the
+    optional form -/etc/default/kwbackup.
+
+    Corrected the wording as well: secrets in YAML are allowed, just not
+    recommended. The documentation no longer claims they are forbidden.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Fri, 13 Nov 2026 04:05:52 +0300
+
 kwbackup (0.1.3) unstable; urgency=medium
 
   * docs: explain where the environment comes from

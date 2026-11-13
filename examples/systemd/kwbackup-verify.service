@@ -8,7 +8,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/kwbackup/secrets.env
+EnvironmentFile=-/etc/default/kwbackup
 ExecStart=/usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --verify
 Nice=10
 IOSchedulingClass=best-effort

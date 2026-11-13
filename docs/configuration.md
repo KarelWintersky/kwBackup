@@ -176,7 +176,7 @@ rclone:
 * Ключи можно писать литералами (так их выдаёт провайдер) — тогда файл
   с ними держите с правами `0600`: `--check-config` и каждый запуск
   предупреждают, если права шире.
-* Либо подставлять `${...}` из `secrets.env` — сами ключи остаются в одном
+* Либо подставлять `${...}` из `/etc/default/kwbackup` — сами ключи остаются в одном
   файле с правами `0600`, а задачи — без секретов.
 * Если бакет один на весь хост, ключи удобно положить в `/etc/kwbackup/defaults.yaml`
   (тоже `0600`) и не повторять в каждой задаче.
@@ -391,6 +391,6 @@ storage:
 | `'keep' and 'max_age' are mutually exclusive` | оставить одно правило в классе |
 | `retention_mode is 'keep', so 'max_age' is not allowed` | привести все классы к одному режиму |
 | `unknown key, ignored (allowed: ...)` | предупреждение: опечатка в имени ключа, ключ проигнорирован |
-| `environment variable X is not set` | добавить переменную (secrets.env) |
+| `environment variable X is not set` | добавить переменную (/etc/default/kwbackup) |
 | `database.target: required when database.enabled is true` | задать `target` |
 | `config.database.retention: at least one class must be configured` | включить хотя бы один класс |
