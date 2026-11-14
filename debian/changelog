@@ -1,3 +1,12 @@
+kwbackup (0.99.54) unstable; urgency=medium
+
+  * docs: point the legacy section at examples/legacy_bash_version
+
+    The bash reference files were moved there; the README still named them at the
+    repository root.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 23:21:03 +0300
+
 kwbackup (0.99.53) unstable; urgency=medium
 
   * feat: incremental task (GNU tar chains)

@@ -466,7 +466,8 @@ MIT, см. [`LICENSE`](LICENSE).
 
 ## Legacy
 
-`kwbackup.sh`, `_config.conf` и `kwbackup-config.md` — старая bash-версия,
+`kwbackup.sh` в корне и каталог [`examples/legacy_bash_version/`](examples/legacy_bash_version)
+(`_config.conf`, `kwbackup-config.md`, `README_DEV.md`) — старая bash-версия,
 оставлена для справки и для миграции. Новые установки используют
 `dist/kwbackup` и YAML. Обе версии нельзя запускать одновременно на один
 и тот же проект: у них разные механизмы блокировок.
