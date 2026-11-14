@@ -1,0 +1,22 @@
+# Инкрементальный tar-бэкап: полный раз в месяц + ежедневные инкременты.
+# Общие настройки — в /etc/kwbackup/defaults.yaml.
+project: data
+
+upstreams:
+  beget:
+    config: /etc/kwbackup/rclone_beget.conf
+    s3-custom-options:
+      s3-access-key-id: <ACCESS_KEY_BUCKET_DATA>
+      s3-secret-access-key: <SECRET_KEY_BUCKET_DATA>
+      s3-no-check-bucket: true
+
+incremental:
+  enabled: true
+  name: data
+  root: /srv/data
+  include: ["*"]
+  exclude: ["*.tmp"]
+  initial_day: 1                    # новая цепочка с 1-го числа
+  snapshot: /var/lib/kwbackup/data.snar
+  targets: ["beget:/INCR"]
+  retention: {keep: 3}              # три последних цепочки (месяца)

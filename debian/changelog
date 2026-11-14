@@ -1,3 +1,17 @@
+kwbackup (0.99.55) unstable; urgency=medium
+
+  * docs: document the incremental task and --at
+
+    README explains chains, initial_day, the mandatory snapshot, chain-based
+    retention, restore order and what --at means with a timeline example; the
+    configuration reference and the usage guide cover the new task, the CLI flag
+    and the restore syntax.
+
+    Added examples/incremental-only.yaml and the section in full.yaml; the deb
+    package ships the new example.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 23:23:04 +0300
+
 kwbackup (0.99.54) unstable; urgency=medium
 
   * docs: point the legacy section at examples/legacy_bash_version

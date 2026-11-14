@@ -97,7 +97,7 @@ kwBackup: Backup tool over rclone: database dumps, file storage, archives (Versi
 ### Ежедневный бэкап всего
 
 ```bash
-kwbackup --config /etc/kwbackup/shop.yaml --database --storage --archive
+kwbackup --config /etc/kwbackup/shop.yaml --database --storage --archive --incremental
 ```
 
 Действие всегда указывается явно. Список `--database --storage --archive`

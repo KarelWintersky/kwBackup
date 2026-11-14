@@ -144,3 +144,17 @@ archive:
     - s3b:/ARCHIVE
   retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
   # retention_mode: keep
+
+# ---------------------------------------------------------------- инкремент
+incremental:
+  enabled: false
+  name: data              # по умолчанию = project
+  root: /srv/data
+  include: ["*"]
+  exclude: ["*/cache/*"]
+  initial_day: 1          # 1..28: с этого дня начинается новая цепочка
+  snapshot: /var/lib/kwbackup/data.snar   # обязателен при enabled: true
+  targets:
+    - s3a:/INCR
+    - s3b:/INCR
+  retention: {keep: 3}    # цепочки (месяцы), не файлы
