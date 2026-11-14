@@ -1,3 +1,16 @@
+kwbackup (0.99.47) unstable; urgency=medium
+
+  * chore: merge the upstream ignore rules, drop rclone.conf.example
+
+    The upstream repository ignores backup.log, credentials*.* and configs; the
+    Python line kept its own .gitignore during the rebase. Both rule sets now live
+    in one file.
+
+    rclone.conf.example duplicated our rclone.conf and is removed. README_DEV.md
+    stays as documentation of the legacy bash version.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 19:17:25 +0300
+
 kwbackup (0.99.46) unstable; urgency=medium
 
   * docs(storage): state that sources is a list of any length
