@@ -1,3 +1,19 @@
+kwbackup (0.99.48) unstable; urgency=medium
+
+  * chore: drop the bootstrap changelog generator, stop advertising systemd
+
+    debian/changelog has been maintained by hand since 0.99.42. The generator
+    rebuilt every entry from the commit bodies with one distribution, could drop
+    manual edits, and was reachable as `make changelog`. Removed the script, the
+    make target and the DISTRIBUTION variable; the file stays in git history if
+    it is ever needed again.
+
+    README no longer points at examples/systemd: the units stay in the repository
+    as an example of a two-file (service + timer) setup, but the quick start only
+    mentions the cron variant.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 19:53:40 +0300
+
 kwbackup (0.99.47) unstable; urgency=medium
 
   * chore: merge the upstream ignore rules, drop rclone.conf.example

@@ -2,13 +2,12 @@
 #
 # kwbackup — build and packaging helpers.
 #
-# The version is the subject of the current git commit (0.0.14, 0.0.15, ...).
+# The version is the subject of the current git commit (0.99.0, 0.99.1, ...).
 # `make dist` bakes it into dist/kwbackup, `make build` also produces the .deb.
 
 SHELL         := /bin/bash
 PACKAGE       := kwbackup
 VERSION       := $(shell git log -1 --format=%s)
-DISTRIBUTION  ?= unstable
 DEB_OPTS      ?=
 
 help: ##@help Show this help
@@ -34,15 +33,12 @@ check-version: ##@test Compare the commit subject with debian/changelog
 		echo "version mismatch: commit=$$v changelog=$$c"; exit 1; \
 	else echo "version ok: $$v"; fi
 
-changelog: ##@build Regenerate debian/changelog from the git history
-	python3 packaging/gen-changelog.py --distribution $(DISTRIBUTION)
-
 clean: ##@build Remove build artifacts
 	rm -rf dist debian/files debian/.debhelper debian/$(PACKAGE) debian/*.substvars
 	rm -f ../$(PACKAGE)_*.deb ../$(PACKAGE)_*.changes ../$(PACKAGE)_*.buildinfo
 	dh_clean
 
-.PHONY: help dist test build deb check-version changelog clean
+.PHONY: help dist test build deb check-version clean
 
 # ------------------------------------------------
 # Add the following 'help' target to your makefile, add help text after each target name starting with '\#\#'

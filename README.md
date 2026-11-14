@@ -97,8 +97,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --database
 kwbackup --config /etc/kwbackup/shop.yaml --list
 ```
 
-Дальше — расписание: [`examples/systemd/`](examples/systemd) или
-[`examples/cron/kwbackup`](examples/cron/kwbackup).
+Дальше — расписание: [`examples/cron/kwbackup`](examples/cron/kwbackup).
 
 ## Команды
 
@@ -365,7 +364,7 @@ Storage: `<target>/<dest>/...`, где `dest` — `basename` источника 
 * [docs/configuration.md](docs/configuration.md) — все ключи, типы, значения
   по умолчанию.
 * [docs/migration.md](docs/migration.md) — из `kwbackup.sh` в YAML.
-* [examples/](examples) — конфиги под каждый сценарий, systemd-юниты, cron.
+* [examples/](examples) — конфиги под каждый сценарий и cron-пример.
 * [CHANGELOG.md](CHANGELOG.md) — что изменилось между версиями.
 
 ## Разработка
