@@ -159,6 +159,74 @@ database:
 [`examples/storage-only.yaml`](examples/storage-only.yaml),
 [`examples/archive-only.yaml`](examples/archive-only.yaml).
 
+### Подключение к БД
+
+Настройки подключения живут в секции `database:`; `upstreams` — это только
+хранилища. Пароль в конфиг не пишется: передаётся имя переменной окружения
+(`password_env`) либо используются штатные файлы клиентов.
+
+#### MySQL / MariaDB
+
+```yaml
+database:
+  enabled: true
+  type: mariadb            # mysql -> mysqldump, mariadb -> mariadb-dump
+  host: localhost
+  port: 3306
+  user: backup
+  password_env: MYSQL_PWD  # имя переменной, не значение
+  args:                    # заменяют дефолты целиком
+    - --single-transaction
+    - --quick
+    - --no-tablespaces
+  targets: [s3a:/DB]
+  databases: [shop]
+  retention: {daily: {keep: 8}}
+```
+
+```bash
+export MYSQL_PWD='...'     # или set -a; . /etc/default/kwbackup; set +a
+```
+
+Без `password_env` клиент возьмёт `~/.my.cnf`. Для сокета вместо TCP:
+`args: ["--socket=/run/mysqld/mysqld.sock", ...]`.
+
+#### PostgreSQL
+
+```yaml
+database:
+  enabled: true
+  type: postgres           # pgsql — тот же путь
+  host: 127.0.0.1
+  port: 5432
+  user: backup
+  password_env: PGPASSWORD # значение переменной уходит в PGPASSWORD
+  args: [--no-owner, --no-privileges]
+  targets: [s3a:/DB]
+  databases: [shop]
+  retention: {daily: {keep: 8}}
+```
+
+Без `password_env` используется `~/.pgpass`. Для peer-аутентификации через
+сокет: `host: /var/run/postgresql`, `password_env` не задаётся.
+
+#### SQLite
+
+```yaml
+database:
+  enabled: true
+  type: sqlite
+  host: /var/lib/app/app.db   # путь к файлу, а не хост
+  targets: [s3a:/DB]
+  databases: [app]            # нужно только для имени дампа
+  retention: {daily: {keep: 8}}
+```
+
+`host` — путь к базе; `databases` не выбирает базу, а задаёт префикс имени
+файла в облаке; `port` и `args` не используются. Восстановление в живую базу
+(`--into-db`) для sqlite пишет в `host`, а не в переданное имя — надёжнее
+восстановить в каталог (`--restore --to DIR`) и подменить файл вручную.
+
 ### Переменные окружения: `${ENV}`
 
 В любом **строковом значении** конфига можно писать `${ИМЯ}` — при загрузке

@@ -1,3 +1,14 @@
+kwbackup (0.99.52) unstable; urgency=medium
+
+  * docs: connection examples for MySQL, PostgreSQL and SQLite
+
+    README now shows the database section for each supported engine: passwords
+    via password_env (MYSQL_PWD / PGPASSWORD) or the client's own file, sockets
+    via args, and the SQLite specifics - host is a file path, databases only
+    names the dump, and --into-db writes to host rather than the given name.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 22:54:15 +0300
+
 kwbackup (0.99.51) unstable; urgency=medium
 
   * feat: multiple upstreams, one dump uploaded to every target
