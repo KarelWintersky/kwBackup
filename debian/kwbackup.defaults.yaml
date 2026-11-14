@@ -22,19 +22,24 @@ runtime:
 
 rclone:
   binary: rclone
-  config: /etc/kwbackup/rclone.conf
-  remote: beget
   args:
     - --s3-no-check-bucket
   env: {}
-  # Расширенный путь: флаги бэкенда без "--". Перекрываются в секциях
-  # database/storage/archive; null убирает унаследованный флаг.
+  # Расширенный путь: флаги бэкенда без "--". Перекрываются в upstreams и в
+  # секциях database/storage/archive; null убирает унаследованный флаг.
   # s3-custom-options:
-  #   s3-access-key-id: ${BEGET_KEY_ID}
-  #   s3-secret-access-key: ${BEGET_SECRET}
   #   s3-chunk-size: 5M
   #   s3-upload-cutoff: 200M
-  #   s3-no-check-bucket: true
+
+# Апстримы (назначения): ключ = имя remote в targets. Хотя бы один обязателен
+# в итоговом конфиге — здесь или в файле задачи.
+# upstreams:
+#   s3a:
+#     config: /etc/kwbackup/rclone_s3a.conf
+#     s3-custom-options:
+#       s3-access-key-id: ${S3A_KEY}
+#       s3-secret-access-key: ${S3A_SECRET}
+#       s3-no-check-bucket: true
 
 database:
   type: mariadb             # mysql | mariadb | postgres | sqlite

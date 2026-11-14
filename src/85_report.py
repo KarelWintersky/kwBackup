@@ -2,73 +2,93 @@
 # REPORT  (--list and --verify)
 # ============================================================================
 
+def _wanted(target, from_name):
+    return not from_name or target.partition(":")[0] == from_name
+
+
 def action_list(cfg, args):
     now = dt.datetime.now()
     rc = EXIT_OK
+    multi = len(cfg.database.databases) > 1
 
     if cfg.database.enabled or args.force:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
         for dbname in cfg.database.databases:
-            print(f"\nDATABASE {dbname}  ->  {cfg.database.target}")
-            for cls in RETENTION_CLASSES:
-                retention = cfg.database.retention.get(cls)
-                remote_dir = class_path(cfg, dbname, cls)
-                label = cls.upper().ljust(7)
-                if not retention:
-                    print(f"  {label} disabled")
+            print(f"\nDATABASE {dbname}")
+            for target in cfg.database.targets:
+                if not _wanted(target, args.from_upstream):
                     continue
-                files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
-                              f"{dbname}_")
-                files.sort(key=lambda f: f.ts)
-                if not files:
-                    print(f"  {label} 0 files  ⚠ empty  ({retention.describe()})")
-                    rc = EXIT_VERIFY
-                    continue
-                first, last = files[0].ts, files[-1].ts
-                print(f"  {label} {len(files):>3} files  {first:%Y-%m-%d} .. {last:%Y-%m-%d}"
-                      f"  last {fmt_bytes(files[-1].size)}  ({retention.describe()})")
-                if cls == "daily":
-                    age = (now.date() - last.date()).days
-                    if age > 1:
-                        print(f"  {'':7} ⚠ newest DAILY copy is {age} days old")
+                uploader = rclone_for(cfg, target.partition(":")[0], cfg.database)
+                print(f"  {target}")
+                for cls in RETENTION_CLASSES:
+                    retention = cfg.database.retention.get(cls)
+                    remote_dir = target_join(
+                        target, dbname if multi else None, cls.upper())
+                    label = cls.upper().ljust(7)
+                    if not retention:
+                        print(f"    {label} disabled")
+                        continue
+                    files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                                  f"{dbname}_")
+                    files.sort(key=lambda f: f.ts)
+                    if not files:
+                        print(f"    {label} 0 files  ⚠ empty  ({retention.describe()})")
                         rc = EXIT_VERIFY
-                    for gap in missing_days(files)[:5]:
-                        print(f"  {'':7} ⚠ gap: {gap:%Y-%m-%d}")
+                        continue
+                    first, last = files[0].ts, files[-1].ts
+                    print(f"    {label} {len(files):>3} files  "
+                          f"{first:%Y-%m-%d} .. {last:%Y-%m-%d}"
+                          f"  last {fmt_bytes(files[-1].size)}  ({retention.describe()})")
+                    if cls == "daily":
+                        age = (now.date() - last.date()).days
+                        if age > 1:
+                            print(f"    {'':7} ⚠ newest DAILY copy is {age} days old")
+                            rc = EXIT_VERIFY
+                        for gap in missing_days(files)[:5]:
+                            print(f"    {'':7} ⚠ gap: {gap:%Y-%m-%d}")
 
     if cfg.storage.enabled or args.force:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
-        print(f"\nSTORAGE  ->  {cfg.storage.target}  ({cfg.storage.mode})")
-        for src, dest in cfg.storage.sources:
-            sub = source_dest(src, dest)
-            remote_dir = cfg.storage.target.rstrip("/") + (f"/{sub}" if sub else "")
-            files = uploader.lsf(remote_dir)
-            total = sum(f.size for f in files)
-            newest = max((f.mtime for f in files if f.mtime), default=None)
-            when = f", newest {newest:%Y-%m-%d %H:%M}" if newest else ""
-            print(f"  {src}")
-            print(f"    {len(files):>5} files, {fmt_bytes(total)}{when}  ->  {remote_dir}")
-            if not files:
-                print("           ⚠ nothing in the cloud for this source")
-                rc = EXIT_VERIFY
+        print(f"\nSTORAGE  ({cfg.storage.mode})")
+        for target in cfg.storage.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            uploader = rclone_for(cfg, target.partition(":")[0], cfg.storage)
+            print(f"  {target}")
+            for src, dest in cfg.storage.sources:
+                sub = source_dest(src, dest)
+                remote_dir = target_join(target, sub)
+                files = uploader.lsf(remote_dir)
+                total = sum(f.size for f in files)
+                newest = max((f.mtime for f in files if f.mtime), default=None)
+                when = f", newest {newest:%Y-%m-%d %H:%M}" if newest else ""
+                print(f"    {src}")
+                print(f"      {len(files):>5} files, {fmt_bytes(total)}{when}"
+                      f"  ->  {remote_dir}")
+                if not files:
+                    print("             ⚠ nothing in the cloud for this source")
+                    rc = EXIT_VERIFY
 
     if cfg.archive.enabled or args.force:
         ar = cfg.archive
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
-        remote_dir = ar.target.rstrip("/")
-        print(f"\nARCHIVE  ->  {remote_dir}  ({ar.compressor})")
-        files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
-                      f"{ar.name}_")
-        files.sort(key=lambda f: f.ts)
-        if not files:
-            print("  0 files  ⚠ empty")
-            rc = EXIT_VERIFY
-        else:
-            first, last = files[0].ts, files[-1].ts
-            retention = ar.retention.describe() if ar.retention else "no retention"
-            print(f"  {len(files):>3} files  {first:%Y-%m-%d} .. {last:%Y-%m-%d}  "
-                  f"last {fmt_bytes(files[-1].size)}  ({retention})")
-            for f in files[-3:]:
-                print(f"    {f.name}  {fmt_bytes(f.size)}")
+        print(f"\nARCHIVE  ({ar.compressor})")
+        for target in ar.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            uploader = rclone_for(cfg, target.partition(":")[0], ar)
+            remote_dir = target.rstrip("/")
+            print(f"  {remote_dir}")
+            files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                          f"{ar.name}_")
+            files.sort(key=lambda f: f.ts)
+            if not files:
+                print("    0 files  ⚠ empty")
+                rc = EXIT_VERIFY
+            else:
+                first, last = files[0].ts, files[-1].ts
+                retention = ar.retention.describe() if ar.retention else "no retention"
+                print(f"    {len(files):>3} files  {first:%Y-%m-%d} .. "
+                      f"{last:%Y-%m-%d}  last {fmt_bytes(files[-1].size)}  ({retention})")
+                for f in files[-3:]:
+                    print(f"      {f.name}  {fmt_bytes(f.size)}")
 
     print()
     return rc
@@ -157,6 +177,7 @@ def action_verify(cfg, args):
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     rc = EXIT_OK
     checked = 0
+    multi = len(cfg.database.databases) > 1
 
     def report(label, problem):
         nonlocal rc
@@ -166,32 +187,39 @@ def action_verify(cfg, args):
         else:
             print(f"  ✓ {label}")
 
-    if (cfg.database.enabled or args.force) and (cfg.database.databases):
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
+    if (cfg.database.enabled or args.force) and cfg.database.databases:
         for dbname in cfg.database.databases:
-            for cls in RETENTION_CLASSES:
-                remote_dir = class_path(cfg, dbname, cls)
-                files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
-                                     f"{dbname}_"), key=lambda f: f.ts)
-                if not files:
+            for target in cfg.database.targets:
+                if not _wanted(target, args.from_upstream):
                     continue
-                picked = files if args.all else files[-1:]
-                for rf in picked:
-                    label = f"{dbname} {cls.upper()}/{rf.name}"
-                    LOG.info("verifying %s (%s)", label, fmt_bytes(rf.size))
-                    report(label, _verify_one(uploader, remote_dir, rf, cfg.temp_dir, "database"))
-                    checked += 1
+                uploader = rclone_for(cfg, target.partition(":")[0], cfg.database)
+                for cls in RETENTION_CLASSES:
+                    remote_dir = target_join(
+                        target, dbname if multi else None, cls.upper())
+                    files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                                         f"{dbname}_"), key=lambda f: f.ts)
+                    if not files:
+                        continue
+                    for rf in (files if args.all else files[-1:]):
+                        label = f"{remote_dir}/{rf.name}"
+                        LOG.info("verifying %s (%s)", label, fmt_bytes(rf.size))
+                        report(label, _verify_one(uploader, remote_dir, rf,
+                                                  cfg.temp_dir, "database"))
+                        checked += 1
 
-    if (cfg.archive.enabled or args.force) and cfg.archive.target:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
-        remote_dir = cfg.archive.target.rstrip("/")
-        files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
-                             f"{cfg.archive.name}_"), key=lambda f: f.ts)
-        if files:
+    if (cfg.archive.enabled or args.force) and cfg.archive.targets:
+        for target in cfg.archive.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            uploader = rclone_for(cfg, target.partition(":")[0], cfg.archive)
+            remote_dir = target.rstrip("/")
+            files = sorted(owned([f for f in uploader.lsf(remote_dir) if f.ts],
+                                 f"{cfg.archive.name}_"), key=lambda f: f.ts)
             for rf in (files if args.all else files[-1:]):
-                label = f"archive/{rf.name}"
+                label = f"{remote_dir}/{rf.name}"
                 LOG.info("verifying %s (%s)", label, fmt_bytes(rf.size))
-                report(label, _verify_one(uploader, remote_dir, rf, cfg.temp_dir, "archive"))
+                report(label, _verify_one(uploader, remote_dir, rf,
+                                          cfg.temp_dir, "archive"))
                 checked += 1
 
     if not checked:

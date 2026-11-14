@@ -1,10 +1,12 @@
 # tar-архив каталога. Общие настройки — в /etc/kwbackup/defaults.yaml.
 project: site
 
-rclone:
-  args:
-    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SITE>"
-    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SITE>"
+upstreams:
+  beget:
+    config: /etc/kwbackup/rclone_beget.conf
+    s3-custom-options:
+      s3-access-key-id: <ACCESS_KEY_BUCKET_SITE>
+      s3-secret-access-key: <SECRET_KEY_BUCKET_SITE>
 
 archive:
   enabled: true
@@ -12,5 +14,5 @@ archive:
   root: /srv/site
   include: ["*"]          # весь корень, включая dotfiles (.env)
   exclude: ["*.mp4", "*/cache/*"]
-  target: "beget:/site/ARCHIVE"
+  targets: ["beget:/site/ARCHIVE"]
   # compressor и retention наследуются из defaults

@@ -86,11 +86,13 @@ h: ${HOME}/bin
     with tempfile.TemporaryDirectory() as tmp:
         base = """
 project: t
-rclone: {remote: r, config: /dev/null}
+rclone: {}
+upstreams:
+  r: {config: /dev/null}
 database:
   enabled: true
   type: maria
-  target: r:/DB
+  targets: [r:/DB]
   databases: [db1]
   retention:
     daily: {keep: 8}

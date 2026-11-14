@@ -1,3 +1,24 @@
+kwbackup (0.99.51) unstable; urgency=medium
+
+  * feat: multiple upstreams, one dump uploaded to every target
+
+    New top-level `upstreams` map: key = the rclone remote name used in targets,
+    value = {config, env, args, s3-custom-options}. `rclone` keeps only global
+    settings; `rclone.remote` and `rclone.config` are gone.
+
+    Sections take `targets: [upstream:path, ...]` instead of a single `target`.
+    A dump or archive is produced once and uploaded to every target; retention
+    prunes each target independently; a failing upstream is logged and the others
+    still run (exit 1 at the end). `--list`/`--verify` walk all targets and
+    `--from NAME` narrows them; `--restore --from NAME` picks the upstream.
+
+    migrate emits the new shape; examples, docs and tests updated.
+
+    tests: two upstreams with different configs, one broken upstream, restore
+    --from, unknown upstream rejected (37/37).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 22:38:29 +0300
+
 kwbackup (0.99.50) unstable; urgency=medium
 
   * fix(packaging): the defaults conffile lives in debian/

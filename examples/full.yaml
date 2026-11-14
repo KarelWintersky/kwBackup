@@ -1,8 +1,8 @@
 # kwbackup — полный пример: все ключи в одном файле.
 # Системный /etc/kwbackup/defaults.yaml, если он есть, тоже применяется,
 # но значения этого файла приоритетнее. В обычной эксплуатации удобнее наоборот:
-# общие вещи (log, rclone.config/remote, compressor, retention) — в defaults,
-# а здесь только project, target, databases, sources, root и ключи бакета.
+# общие вещи (log, rclone.args, compressor, retention) — в defaults,
+# а здесь project, upstreams, targets, databases, sources, root.
 #
 # Проверка после правки:
 #   kwbackup -c full.yaml --check
@@ -30,25 +30,31 @@ runtime:
 # ---------------------------------------------------------------- rclone
 rclone:
   binary: rclone          # путь или имя в PATH
-  config: /etc/kwbackup/rclone.conf   # --config для rclone; пусто = системный
-  remote: beget           # имя remote, как в [beget] в rclone.conf
-  args:                   # простой путь: флаги как есть, к каждому вызову
-    # - "--s3-access-key-id=..."
-    # - "--s3-no-check-bucket"
+  args:                   # к каждому вызову rclone
     - --transfers=4
     # - "--bwlimit=10M"
-
-  # Расширенный путь: флаги бэкенда без "--", с типами. Перекрываются в
-  # секциях database/storage/archive; null убирает унаследованный флаг.
+  # Флаги бэкенда без "--", с типами. Перекрываются в upstreams и в секциях;
+  # null убирает унаследованный флаг.
   s3-custom-options:
-    s3-access-key-id: ${RCLONE_KEY_ID}
-    s3-secret-access-key: ${RCLONE_SECRET}
     s3-chunk-size: 5M
     s3-upload-cutoff: 200M
-    s3-no-check-bucket: true
-  env:                    # переменные окружения для rclone
-    AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
-    AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
+  env: {}                 # переменные окружения для rclone
+
+# ---------------------------------------------------------------- апстримы
+# Куда заливать. Ключ = имя remote в targets. Хотя бы один обязателен.
+upstreams:
+  s3a:
+    config: /etc/kwbackup/rclone_s3a.conf
+    s3-custom-options:
+      s3-access-key-id: ${RCLONE_KEY_ID}
+      s3-secret-access-key: ${RCLONE_SECRET}
+      s3-no-check-bucket: true
+  s3b:
+    config: /etc/kwbackup/rclone_s3b.conf
+    # можно и через переменные окружения rclone, если провайдер это умеет
+    env:
+      AWS_ACCESS_KEY_ID: ${RCLONE_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${RCLONE_SECRET}
 
 # ---------------------------------------------------------------- базы данных
 database:
@@ -69,8 +75,10 @@ database:
   #   postgres:      --no-owner --no-privileges
   compressor: zstd        # zstd | gzip | pigz | rar | none
   compressor_args: ["-3"]
-  target: "beget:/DB"     # одна БД  -> beget:/DB/DAILY
-                          # несколько -> beget:/DB/<db>/DAILY
+  targets:                # по одной заливке на апстрим
+    - s3a:/DB
+    - s3b:/DB
+  # одна БД  -> <target>/DAILY, несколько -> <target>/<db>/DAILY
   databases:
     - mediamaker
     # - second_db
@@ -103,8 +111,10 @@ storage:
   enabled: false
   mode: sync              # sync — зеркало (удаляет лишнее в облаке)
                           # copy — только добавляет/обновляет
-  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть rclone.* для storage
-  target: "beget:/STORAGE"
+  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть для storage
+  targets:
+    - s3a:/STORAGE
+    - s3b:/STORAGE
   sources:
     # короткая форма: каталог в облаке = basename
     - /srv/example/files
@@ -128,7 +138,9 @@ archive:
   #   include: ["www/*", "conf/**/*.ini"]
   include: ["*"]
   exclude: ["*.mp4", "*.tmp", "*/cache/*"]
-  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть rclone.* для архива
-  target: "beget:/ARCHIVE"
+  # s3-custom-options: {s3-access-key-id: ...}   # перекрыть для архива
+  targets:
+    - s3a:/ARCHIVE
+    - s3b:/ARCHIVE
   retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
   # retention_mode: keep

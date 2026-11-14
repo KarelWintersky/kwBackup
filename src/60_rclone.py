@@ -10,34 +10,45 @@ class RemoteFile:
     mtime: dt.datetime | None = None   # from the remote, display only
 
 
-def effective_s3_options(cfg, section):
-    """rclone.s3-custom-options merged with the section's own options.
+def rclone_for(cfg, upstream, section=None):
+    """An Rclone instance for one upstream.
 
-    A null value in the section removes a global option.
+    Precedence of S3 flags: rclone global -> upstream -> section.
     """
-    merged = dict(cfg.rclone.s3_options)
-    merged.update(getattr(section, "s3_options", {}) or {})
-    return {key: value for key, value in merged.items() if value is not None}
+    up = cfg.upstreams[upstream]
+    options = dict(cfg.rclone.s3_options)
+    options.update(up.s3_options)
+    if section is not None:
+        options.update(getattr(section, "s3_options", {}) or {})
+    options = {key: value for key, value in options.items() if value is not None}
+    return Rclone(cfg.rclone, config=up.config,
+                  args=list(cfg.rclone.args) + list(up.args),
+                  env=up.env, s3_options=options)
 
 
 class Rclone:
-    def __init__(self, cfg: RcloneCfg, s3_options=None):
-        self.cfg = cfg
+    def __init__(self, cfg: RcloneCfg, config=None, args=None, env=None, s3_options=None):
+        self.binary = cfg.binary
+        self.config = config
+        self.args = list(cfg.args if args is None else args)
+        merged_env = dict(os.environ)
+        merged_env.update(cfg.env)
+        if env:
+            merged_env.update(env)
+        self.env = merged_env
         self.s3_options = dict(s3_options or {})
-        self.env = dict(os.environ)
-        self.env.update(cfg.env)
 
     def _base(self):
-        cmd = [self.cfg.binary]
-        if self.cfg.config:
-            cmd += ["--config", self.cfg.config]
+        cmd = [self.binary]
+        if self.config:
+            cmd += ["--config", self.config]
         if VERBOSE:
             # --verbose / --debug also make rclone talk: transfer stats and
             # a progress line. Without the flag rclone stays quiet in cron.
             cmd.append("--progress")
-        cmd += list(self.cfg.args)
+        cmd += list(self.args)
         # Backend flags go last: a section's s3-custom-options override both
-        # rclone.args and rclone.s3-custom-options for the same flag.
+        # rclone.args and the upstream's s3-custom-options for the same flag.
         for key, value in self.s3_options.items():
             if isinstance(value, bool):
                 cmd.append(f"--{key}" if value else f"--{key}=false")
@@ -85,11 +96,6 @@ class Rclone:
 
     def deletefile(self, path):
         return self.run("deletefile", path, check=True)
-
-    def remote_path(self, *parts):
-        return "/".join([self.cfg.remote.rstrip("/")] + [p.strip("/") for p in parts if p])
-
-
 
 
 def upload_file(rclone, src_path, remote_dir, mode, workdir):

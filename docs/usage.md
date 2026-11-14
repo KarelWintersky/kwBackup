@@ -17,7 +17,7 @@ kwbackup --selftest
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
 # общие настройки хоста
 sudo install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
-# задача: project, target, базы, ключи бакета
+# задача: project, upstreams, targets, базы, ключи бакета
 sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 # секреты, которые передаются через окружение
 sudo install -m 600 debian/kwbackup.default /etc/default/kwbackup
@@ -61,15 +61,17 @@ kwBackup: Backup tool over rclone: database dumps, file storage, archives (Versi
   project    shop
 
   rclone
-    remote     beget
-    config     /etc/kwbackup/rclone_beget.conf
-    s3         5 flag(s)
+    binary     rclone
+    s3         2 flag(s)
+  upstreams
+    s3a        /etc/kwbackup/rclone_s3a.conf, 3 s3 flag(s)
+    s3b        /etc/kwbackup/rclone_s3b.conf
                s3-access-key-id, s3-chunk-size, s3-no-check-bucket
                s3-secret-access-key, s3-upload-cutoff
 
   database  enabled (mariadb)
     mode       copy
-    target     beget:/DB
+    targets    s3a:/DB, s3b:/DB
     databases  mediamaker
     compressor zstd
     daily      keep 8

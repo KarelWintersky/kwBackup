@@ -19,27 +19,28 @@ def action_storage(cfg, args):
     if mode not in ("sync", "copy"):
         raise ActionFailed(f"storage: unsupported mode {mode!r}, expected sync or copy")
 
-    rclone = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
     stats = {"sources": 0, "remote_files": 0}
     failures = []
 
     with task_lock(f"{cfg.project}.storage", cfg.path):
-        for path, dest in st.sources:
-            remote_dir = st.target.rstrip("/")
-            sub = source_dest(path, dest)
-            if sub:
-                remote_dir = f"{remote_dir}/{sub}"
+        for target in st.targets:
+            upstream = target.partition(":")[0]
             try:
-                LOG.info("storage: %s %s -> %s", mode, path, remote_dir)
-                rclone.run(mode, "--copy-links", "--update", path, remote_dir,
-                           banner=True)
-                files = rclone.lsf(remote_dir)
-                stats["sources"] += 1
-                stats["remote_files"] += len(files)
-                LOG.info("storage: %s ok, %d file(s) in %s", path, len(files), remote_dir)
+                rclone = rclone_for(cfg, upstream, st)
+                for path, dest in st.sources:
+                    sub = source_dest(path, dest)
+                    remote_dir = target_join(target, sub)
+                    LOG.info("storage: %s %s -> %s", mode, path, remote_dir)
+                    rclone.run(mode, "--copy-links", "--update", path, remote_dir,
+                               banner=True)
+                    files = rclone.lsf(remote_dir)
+                    stats["sources"] += 1
+                    stats["remote_files"] += len(files)
+                    LOG.info("storage: %s ok, %d file(s) in %s", path, len(files),
+                             remote_dir)
             except (CommandError, OSError) as exc:
-                LOG.error("storage: %s: %s", path, exc)
-                failures.append(f"{path}: {exc}")
+                LOG.error("storage: upstream %s: %s", upstream, exc)
+                failures.append(f"{upstream}: {exc}")
     if failures:
         raise ActionFailed("storage backup failed: " + "; ".join(failures))
     return stats

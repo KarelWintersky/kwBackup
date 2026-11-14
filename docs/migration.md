@@ -32,9 +32,9 @@ bash -c 'set -a; . "$1"; shift; for v in "$@"; do declare -p "$v"; done; exit 0'
 |---|---|
 | `TEMP_PATH` | `runtime.temp_dir` (`/tmp` → `/tmp/kwbackup`) |
 | `LOG_FILE` | `log.file` |
-| `RCLONE_CONFIG` | `rclone.config` |
-| `RCLONE_PROVIDER` | `rclone.remote` |
-| `RCLONE_CUSTOM_OPTIONS` (массив) | `rclone.args` |
+| `RCLONE_CONFIG` | `upstreams.<provider>.config` |
+| `RCLONE_PROVIDER` | ключ в `upstreams` |
+| `RCLONE_CUSTOM_OPTIONS` (массив) | `upstreams.<provider>.args` |
 | `ENABLE_BACKUP_DATABASE` | `database.enabled` |
 | `DB_TYPE` | `database.type` |
 | `DB_HOST` | `database.host` |
@@ -43,12 +43,12 @@ bash -c 'set -a; . "$1"; shift; for v in "$@"; do declare -p "$v"; done; exit 0'
 | `DATABASE_MYSQL_OPTIONS` / `PGSQL` / `SQLITE` | `database.args` (по типу БД) |
 | `USE_ARCHIVER` | `database.compressor` (`zip`/`pigz` → `gzip`) |
 | `DATABASE_ZSTD_OPTIONS` / `RAR_OPTIONS` | `database.compressor_args` |
-| `DATABASE_CLOUD_CONTAINER` | `database.target` = `<remote>:<container>` |
+| `DATABASE_CLOUD_CONTAINER` | `database.targets` = `["<remote>:<container>"]` |
 | `DB_BACKUP_DAILY/WEEKLY/MONTHLY` | `retention.daily/weekly/monthly` (вкл/выкл) |
 | `DB_MIN_AGE_DAILY/WEEKLY/MONTHLY` | `keep: N` (см. ниже) |
 | `ENABLE_BACKUP_STORAGE` | `storage.enabled` |
 | `STORAGE_SOURCES_ROOT` + `STORAGE_SOURCES` | `storage.sources` (полные пути) |
-| `STORAGE_CLOUD_CONTAINER` | `storage.target` |
+| `STORAGE_CLOUD_CONTAINER` | `storage.targets` |
 | `STORAGE_BACKUP_ALGO` | `storage.mode` |
 | `ENABLE_BACKUP_ARCHIVE` | `archive.enabled` |
 | `ARCHIVE_USE_COMPRESSOR` | `archive.compressor` |
@@ -56,7 +56,7 @@ bash -c 'set -a; . "$1"; shift; for v in "$@"; do declare -p "$v"; done; exit 0'
 | `ARCHIVE_FILENAME` | `archive.name` (хвост `_<timestamp>` отрезается) |
 | `ARCHIVE_ROOT` | `archive.root` |
 | `ARCHIVE_INCLUDE_LIST` / `EXCLUDE_LIST` | `archive.include` / `exclude` |
-| `ARCHIVE_CLOUD_CONTAINER` | `archive.target` |
+| `ARCHIVE_CLOUD_CONTAINER` | `archive.targets` |
 | `ARCHIVE_ROTATION_PERIOD` | `archive.retention: {keep: N}` |
 
 ## Возраст → число копий

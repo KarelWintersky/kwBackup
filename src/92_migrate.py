@@ -139,24 +139,26 @@ def build_yaml(old, project, source_path):
     add(f"  temp_dir: {_yaml_value(str(Path(temp) / 'kwbackup') if temp.rstrip('/') == '/tmp' else temp)}")
 
     remote = _str(old, "RCLONE_PROVIDER", "s3")
-    section("rclone")
-    add("rclone:")
-    add(f"  remote: {_yaml_value(remote)}")
     rclone_config = _str(old, "RCLONE_CONFIG")
-    if rclone_config:
-        add(f"  config: {_yaml_value(rclone_config)}")
     custom = _list(old, "RCLONE_CUSTOM_OPTIONS")
+    section("rclone")
+    add("rclone: {}")
+
+    section(f"upstreams (было RCLONE_PROVIDER={remote})")
+    add("upstreams:")
+    add(f"  {_yaml_value(remote)}:")
+    if rclone_config:
+        add(f"    config: {_yaml_value(rclone_config)}")
     if custom:
         secrets = [a for a in custom if any(h in a.lower() for h in SECRET_HINT)]
-        add("  args:")
+        add("    args:")
         for arg in custom:
-            add(f"    - {_yaml_value(arg)}")
+            add(f"      - {_yaml_value(arg)}")
         if secrets:
-            add("  # !!! В args выше ключи доступа. BEGET выдаёт их на бакет,")
-            add("  #     поэтому они и передаются флагами rclone (env_auth = false")
-            add("  #     в rclone.conf игнорирует AWS_* переменные). Держите файл")
-            add("  #     с правами 0600 либо подставляйте из окружения:")
-            add('  #     "--s3-access-key-id=${BEGET_SHOP_KEY}"')
+            add("    # !!! ключи доступа; BEGET выдаёт их на бакет, поэтому они")
+            add("    #     идут флагами rclone. Держите файл с правами 0600 либо")
+            add("    #     подставляйте из окружения:")
+            add('    #     "--s3-access-key-id=${BEGET_SHOP_KEY}"')
 
     if _flag(old, "ENABLE_BACKUP_DATABASE"):
         db_type = _str(old, "DB_TYPE", "mysql").lower()
@@ -188,7 +190,7 @@ def build_yaml(old, project, source_path):
                           else "DATABASE_RAR_OPTIONS")
         if comp_args:
             add(f"  compressor_args: [{', '.join(_yaml_value(a) for a in comp_args)}]")
-        add(f"  target: {_yaml_value(f'{remote}:{container}')}")
+        add(f"  targets: [{_yaml_value(f'{remote}:{container}')}]")
         databases = _list(old, "DATABASES")
         if databases:
             add("  databases:")
@@ -221,7 +223,7 @@ def build_yaml(old, project, source_path):
         add("storage:")
         add("  enabled: true")
         add(f"  mode: {_yaml_value(_str(old, 'STORAGE_BACKUP_ALGO', 'sync'))}")
-        add(f"  target: {_yaml_value(f'{remote}:{container}')}")
+        add(f"  targets: [{_yaml_value(f'{remote}:{container}')}]")
         sources = _list(old, "STORAGE_SOURCES")
         if not sources and not root:
             add("  sources: []          # в старом конфиге не было источников")
@@ -254,7 +256,7 @@ def build_yaml(old, project, source_path):
         excludes = _list(old, "ARCHIVE_EXCLUDE_LIST")
         add(f"  include: [{', '.join(_yaml_value(p) for p in includes)}]")
         add(f"  exclude: [{', '.join(_yaml_value(p) for p in excludes)}]")
-        add(f"  target: {_yaml_value(f'{remote}:{container}')}")
+        add(f"  targets: [{_yaml_value(f'{remote}:{container}')}]")
         period = _str(old, "ARCHIVE_ROTATION_PERIOD", "71d")
         keep = _keep_from_age(period, 1)
         if keep is not None:

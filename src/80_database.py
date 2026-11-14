@@ -1,15 +1,6 @@
 # ============================================================================
-# ACTIONS
+# DATABASE
 # ============================================================================
-
-def db_dir_layout(cfg, dbname):
-    """One database -> <target>/<CLASS>, many -> <target>/<db>/<CLASS>."""
-    return [dbname] if len(cfg.database.databases) > 1 else []
-
-
-def class_path(cfg, dbname, cls):
-    return "/".join([cfg.database.target.rstrip("/")] + db_dir_layout(cfg, dbname) + [cls.upper()])
-
 
 def dump_command(cfg, dbname, binary=None):
     db = cfg.database
@@ -55,17 +46,17 @@ COMPRESSOR_EXT = {"zstd": ".zst", "gzip": ".gz", "pigz": ".gz", "rar": ".rar", "
 
 
 def action_database(cfg, args):
-    """Dump every database, upload to the class folders, prune old copies."""
+    """Dump every database once, upload it to every target, prune each target."""
     db = cfg.database
     if not db.enabled and not args.force:
         LOG.warning("database backup is disabled in config (use --force to override)")
         return {"skipped": True}
 
-    uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now()
     stamp = now.strftime(TS_FORMAT)
     ext = COMPRESSOR_EXT[db.compressor]
+    multi = len(db.databases) > 1
     total = {"databases": 0, "uploaded": 0, "deleted": 0, "bytes": 0}
     failures = []
 
@@ -94,30 +85,39 @@ def action_database(cfg, args):
                     LOG.info("[%s] dump ready: %s", dbname, fmt_bytes(size))
 
                 mode = args.mode or db.mode
-                for cls in RETENTION_CLASSES:
-                    retention = db.retention.get(cls)
-                    if retention is None:
-                        continue
-                    remote_dir = class_path(cfg, dbname, cls)
-                    existing = owned(uploader.lsf(remote_dir), f"{dbname}_")
-                    if not class_due(cls, existing, db.catch_up, now):
-                        continue
-                    if mode == "sync":
-                        LOG.debug("[%s] -m sync: %s is mirrored, older copies are deleted",
-                                  dbname, remote_dir)
-                    upload_file(uploader, out_path, remote_dir, mode, cfg.temp_dir)
-                    total["uploaded"] += 1
-                    LOG.info("[%s] %s -> %s/%s (%s)", dbname,
-                             "would upload" if DRY else "uploaded", remote_dir,
-                             out_name, "mirror" if mode == "sync" else retention.describe())
-                    if mode == "sync":
-                        continue
-                    files = uploader.lsf(remote_dir)
-                    for stale in plan_prune(files, retention, now,
-                                            prefix=f"{dbname}_"):
-                        uploader.deletefile(f"{remote_dir}/{stale}")
-                        total["deleted"] += 1
-                        LOG.info("[%s] pruned %s/%s", dbname, cls.upper(), stale)
+                for target in db.targets:
+                    upstream = target.partition(":")[0]
+                    try:
+                        uploader = rclone_for(cfg, upstream, db)
+                        for cls in RETENTION_CLASSES:
+                            retention = db.retention.get(cls)
+                            if retention is None:
+                                continue
+                            remote_dir = target_join(
+                                target, dbname if multi else None, cls.upper())
+                            existing = owned(uploader.lsf(remote_dir), f"{dbname}_")
+                            if not class_due(cls, existing, db.catch_up, now):
+                                continue
+                            if mode == "sync":
+                                LOG.debug("[%s] -m sync: %s is mirrored, older copies "
+                                          "are deleted", dbname, remote_dir)
+                            upload_file(uploader, out_path, remote_dir, mode, cfg.temp_dir)
+                            total["uploaded"] += 1
+                            LOG.info("[%s] %s -> %s/%s (%s)", dbname,
+                                     "would upload" if DRY else "uploaded", remote_dir,
+                                     out_name, "mirror" if mode == "sync"
+                                     else retention.describe())
+                            if mode == "sync":
+                                continue
+                            files = uploader.lsf(remote_dir)
+                            for stale in plan_prune(files, retention, now,
+                                                    prefix=f"{dbname}_"):
+                                uploader.deletefile(f"{remote_dir}/{stale}")
+                                total["deleted"] += 1
+                                LOG.info("[%s] pruned %s/%s", dbname, cls.upper(), stale)
+                    except (CommandError, OSError) as exc:
+                        LOG.error("[%s] upstream %s: %s", dbname, upstream, exc)
+                        failures.append(f"{dbname}@{upstream}: {exc}")
                 total["databases"] += 1
                 total["bytes"] += size
         except Locked:
@@ -131,5 +131,3 @@ def action_database(cfg, args):
     if failures:
         raise ActionFailed("database backup failed: " + "; ".join(failures))
     return total
-
-

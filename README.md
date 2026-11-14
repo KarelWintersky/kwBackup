@@ -73,11 +73,11 @@ sudo install -m 755 dist/kwbackup /usr/bin/kwbackup
 # 1. remote для rclone (один раз)
 rclone config
 
-# 2. общие настройки хоста: логи, rclone.config/remote, глубина хранения
+# 2. общие настройки хоста: логи, rclone.args, глубина хранения
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
 sudo install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
 
-# 3. задача: project, target, базы и ключи бакета
+# 3. задача: project, upstreams, targets, базы и ключи бакета
 #    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
 sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 sudoedit /etc/kwbackup/shop.yaml
@@ -126,7 +126,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 ## Конфиг
 
 Общие настройки — один раз на хост, [`debian/kwbackup.defaults.yaml`](debian/kwbackup.defaults.yaml):
-логи, `rclone.config`, `rclone.remote`, тип БД, компрессор, глубина хранения.
+логи, `rclone.args`, тип БД, компрессор, глубина хранения.
 
 Файл задачи после этого короткий (полный самодостаточный пример —
 [`examples/full.yaml`](examples/full.yaml)):
@@ -134,18 +134,19 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 ```yaml
 project: shop
 
-rclone:
-  args:
-    # BEGET: ключи на бакет, env_auth = false -> только флагами rclone.
-    # Файл с ключами — 0600; можно подставлять "${BEGET_SHOP_KEY}".
-    - "--s3-access-key-id=<ACCESS_KEY_BUCKET_SHOP>"
-    - "--s3-secret-access-key=<SECRET_KEY_BUCKET_SHOP>"
+upstreams:
+  beget:
+    config: /etc/kwbackup/rclone_beget.conf
+    s3-custom-options:
+      s3-access-key-id: ${BEGET_SHOP_KEY}
+      s3-secret-access-key: ${BEGET_SHOP_SECRET}
+      s3-no-check-bucket: true
 
 database:
   enabled: true
-  target: "beget:/shop/DB"
+  targets: ["beget:/shop/DB"]
   databases: [shop]
-  # log, rclone.config/remote, compressor, retention — из defaults
+  # log, compressor, retention — из defaults
 ```
 
 Файл `/etc/kwbackup/defaults.yaml` — единственное место, которое читает
@@ -162,8 +163,8 @@ database:
 
 В любом **строковом значении** конфига можно писать `${ИМЯ}` — при загрузке
 оно будет заменено значением переменной окружения. Работает в обоих слоях
-(`/etc/kwbackup/defaults.yaml` и файл задачи), на любой глубине: в `target`,
-путях, `args`, `s3-custom-options`, `rclone.env`.
+(`/etc/kwbackup/defaults.yaml` и файл задачи), на любой глубине: в `targets`,
+путях, `args`, `s3-custom-options`, `env`.
 
 ```yaml
 database:

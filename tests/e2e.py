@@ -31,7 +31,10 @@ if os.environ.get("FAKE_RCLONE_LOG"):
 if "--progress" in argv:
     print("Transferred: 1 KiB / 1 KiB, 100%", file=sys.stderr)
 while "--config" in argv:
-    i = argv.index("--config"); del argv[i:i + 2]
+    i = argv.index("--config")
+    if "broken" in argv[i + 1]:
+        print("fake rclone: broken config", file=sys.stderr); sys.exit(1)
+    del argv[i:i + 2]
 COMMANDS = {"lsf", "copyto", "copy", "sync", "deletefile", "cat"}
 DROP = {"--s3-no-check-bucket", "--copy-links", "--update", "--verbose", "--progress"}
 idx = next(i for i, a in enumerate(argv) if a in COMMANDS)
@@ -120,7 +123,8 @@ log: {{level: info}}
 runtime: {{temp_dir: {self.tmp}}}
 rclone:
   binary: {self.bin / "rclone"}
-  remote: fake
+upstreams:
+  fake: {{}}
 """
         body += extra.get("extra", "")
         return self.write_config(body)
@@ -170,7 +174,7 @@ database:
   type: mysql
   compressor: zstd
   compressor_args: ["-1"]
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {{keep: 2}}
@@ -194,7 +198,7 @@ def test_database_disabled():
         env.base_config(extra="""
 database:
   enabled: false
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 2}
@@ -218,7 +222,7 @@ def test_storage_sync():
 storage:
   enabled: true
   mode: sync
-  target: "fake:/STORAGE"
+  targets: ["fake:/STORAGE"]
   sources:
     - {src}
 """)
@@ -246,7 +250,7 @@ def test_storage_dest():
         env.base_config(extra=f"""
 storage:
   enabled: true
-  target: "fake:/S"
+  targets: ["fake:/S"]
   sources:
     - path: {src}
       dest: custom/dir
@@ -288,7 +292,7 @@ archive:
   root: {root}
   include: ["*"]
   exclude: ["*.mp4"]
-  target: "fake:/ARCHIVE"
+  targets: ["fake:/ARCHIVE"]
   retention: {{keep: 2}}
 """)
         env.run("-c", env.config, "-a")
@@ -328,7 +332,7 @@ archive:
   name: data
   root: {root}
   include: ["keep/*", "top.txt"]
-  target: "fake:/A"
+  targets: ["fake:/A"]
 """)
         env.run("-c", env.config, "-a")
         archive = env.cloud / env.cloud_tree()[0]
@@ -355,7 +359,7 @@ database:
   type: mysql
   compressor: zstd
   compressor_args: ["-1"]
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {{keep: 3}}
@@ -365,7 +369,7 @@ archive:
   compressor_args: ["-1"]
   name: site
   root: {root}
-  target: "fake:/ARCHIVE"
+  targets: ["fake:/ARCHIVE"]
 """)
         env.run("-c", env.config, "-d", "-a")
         out = env.run("-c", env.config, "--list")
@@ -386,7 +390,7 @@ database:
   enabled: true
   type: mysql
   compressor: zstd
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
@@ -410,7 +414,7 @@ database:
   type: mysql
   compressor: zstd
   compressor_args: ["-1"]
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
@@ -434,7 +438,7 @@ database:
   enabled: true
   type: mysql
   compressor: zstd
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
@@ -454,7 +458,7 @@ def test_restore_requires_confirmation():
 database:
   enabled: true
   type: mysql
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
@@ -478,14 +482,14 @@ def test_restore_archive_and_storage():
         env.base_config(extra=f"""
 storage:
   enabled: true
-  target: "fake:/STORAGE"
+  targets: ["fake:/STORAGE"]
   sources: [{storage_src}]
 archive:
   enabled: true
   compressor: zstd
   name: site
   root: {root}
-  target: "fake:/ARCHIVE"
+  targets: ["fake:/ARCHIVE"]
   retention: {{keep: 2}}
 """)
         env.run("-c", env.config, "-a", "-s")
@@ -506,7 +510,7 @@ database:
   enabled: true
   type: mysql
   compressor: zstd
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
@@ -619,8 +623,9 @@ def test_defaults_file_layer():
 log: {{level: warning}}
 rclone:
   binary: {env.bin / "rclone"}
-  remote: fake
   args: ["--s3-no-check-bucket"]
+upstreams:
+  fake: {{}}
 database:
   type: mysql
   compressor: zstd
@@ -637,7 +642,7 @@ rclone:
     - "--s3-secret-access-key=SECRET1"
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
 """, encoding="utf-8")
         base = ["-c", task, "--defaults", defaults]
@@ -665,7 +670,7 @@ def test_builtin_defaults_only():
         env.base_config(extra="""
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 2}
@@ -750,7 +755,7 @@ def test_mode_copy_in_config():
 database:
   enabled: true
   mode: copy
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 2}}
 archive:
@@ -758,7 +763,7 @@ archive:
   mode: copy
   name: site
   root: /tmp
-  target: "fake:/ARCHIVE"
+  targets: ["fake:/ARCHIVE"]
 """)
         out = env.run("-c", env.config, "--check")
         assert "mode" in out.stdout and "copy" in out.stdout, out.stdout
@@ -771,14 +776,15 @@ def test_mode_sync_rejected_in_config():
     try:
         base = """
 project: mirror
-rclone: {binary: %s, remote: fake}
+rclone: {binary: %s}
+upstreams: {fake: {}}
 """ % (env.bin / "rclone")
         task = env.dir / "task.yaml"
         task.write_text(base + """
 database:
   enabled: true
   mode: sync
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 2}}
 """, encoding="utf-8")
@@ -800,7 +806,7 @@ archive:
   compressor: zstd
   name: site
   root: {root}
-  target: "fake:/ARCHIVE"
+  targets: ["fake:/ARCHIVE"]
   retention: {{keep: 5}}
 """)
         env.run("-c", env.config, "-a")
@@ -819,7 +825,7 @@ def test_database_sync_mirrors():
         env.base_config(extra="""
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 5}}
 """)
@@ -842,7 +848,7 @@ def test_no_action_does_nothing():
         env.base_config(extra=f"""
 storage:
   enabled: true
-  target: "fake:/S"
+  targets: ["fake:/S"]
   sources: [{src}]
 """)
         out = env.run("-c", env.config)
@@ -859,7 +865,7 @@ storage:
         env.config.write_text(env.config.read_text(encoding="utf-8") + """
 database:
   enabled: false
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 1}}
 """, encoding="utf-8")
@@ -875,7 +881,7 @@ def test_verbose_reaches_rclone():
         env.base_config(extra="""
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 2}}
 """)
@@ -926,7 +932,7 @@ archive:
   enabled: true
   compressor: zstd
   root: {root}
-  target: "fake:/A"
+  targets: ["fake:/A"]
 """)
         out = env.run("-c", env.config, "--check")
         assert "name" in out.stdout and "e2e" in out.stdout  # project: e2e
@@ -948,12 +954,13 @@ def test_shared_target_keeps_foreign_archives():
             path = env.dir / f"{project}.yaml"
             path.write_text(f"""
 project: {project}
-rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
 archive:
   enabled: true
   compressor: zstd
   root: {root}
-  target: "fake:/SHARED"
+  targets: ["fake:/SHARED"]
   retention: {{keep: 1}}
 """, encoding="utf-8")
             return path
@@ -978,10 +985,11 @@ def test_shared_target_keeps_foreign_databases():
             path = env.dir / f"{dbname}.yaml"
             path.write_text(f"""
 project: {dbname}
-rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [{dbname}]
   retention: {{daily: {{keep: 1}}}}
 """, encoding="utf-8")
@@ -1007,7 +1015,7 @@ def test_unknown_key_is_a_warning():
 version: 1
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {daily: {keep: 2}}
 """)
@@ -1035,16 +1043,17 @@ log: {{level: warning}}
 runtime: {{temp_dir: {env.tmp}}}
 rclone:
   binary: {env.bin / "rclone"}
-  remote: fake
   args: ["--s3-upload-cutoff=1G"]
   s3-custom-options:
     s3-upload-cutoff: 200M
     s3-chunk-size: 5M
     s3-no-check-bucket: true
     s3-server-side-encryption: AES256
+upstreams:
+  fake: {{}}
 storage:
   enabled: true
-  target: "fake:/S"
+  targets: ["fake:/S"]
   sources: [{src}]
   s3-custom-options:
     s3-access-key-id: KEY2
@@ -1083,10 +1092,11 @@ def test_quiet_by_default():
 project: quiet
 log: {{level: info, file: {logfile}}}
 runtime: {{temp_dir: {env.tmp}}}
-rclone: {{binary: {env.bin / "rclone"}, remote: fake}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
 database:
   enabled: true
-  target: "fake:/DB"
+  targets: ["fake:/DB"]
   databases: [db1]
   retention: {{daily: {{keep: 2}}}}
 """)
@@ -1108,6 +1118,121 @@ database:
         env.cleanup()
 
 
+def _multi_config(env, upstreams, sections, root=None):
+    body = f"""
+project: multi
+log: {{level: warning}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams:
+"""
+    for name, config in upstreams.items():
+        Path(config).write_text("", encoding="utf-8")
+        body += f"  {name}: {{config: {config}}}\n"
+    body += sections
+    return env.write_config(body)
+
+
+def test_multiple_upstreams_upload():
+    """One archive, two upstreams, each with its own rclone config."""
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        cfg_a = env.dir / "a.conf"
+        cfg_b = env.dir / "b.conf"
+        _multi_config(env, {"a": cfg_a, "b": cfg_b}, f"""
+archive:
+  enabled: true
+  compressor: zstd
+  root: {root}
+  targets: [a:/A1, b:/A2]
+  retention: {{keep: 2}}
+""")
+        env.run("-c", env.config, "-a")
+        tree = env.cloud_tree()
+        assert any(p.startswith("A1/") for p in tree), tree
+        assert any(p.startswith("A2/") for p in tree), tree
+        log = (env.dir / "rclone.log").read_text()
+        assert f"--config {cfg_a}" in log, log
+        assert f"--config {cfg_b}" in log, log
+    finally:
+        env.cleanup()
+
+
+def test_upstream_failure_keeps_going():
+    """A broken upstream is logged and the healthy one still gets the file."""
+    env = Env()
+    try:
+        root = env.dir / "site"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        _multi_config(env, {"good": env.dir / "good.conf",
+                            "bad": env.dir / "broken.conf"}, f"""
+archive:
+  enabled: true
+  compressor: zstd
+  root: {root}
+  targets: [good:/G, bad:/B]
+""")
+        res = env.run("-c", env.config, "-a", expect=1)
+        assert "upstream bad" in res.stderr, res.stderr
+        tree = env.cloud_tree()
+        assert any(p.startswith("G/") for p in tree), tree
+        assert not any(p.startswith("B/") for p in tree), tree
+    finally:
+        env.cleanup()
+
+
+def test_restore_from_upstream():
+    env = Env()
+    try:
+        (env.dir / "a.conf").write_text("", encoding="utf-8")
+        (env.dir / "b.conf").write_text("", encoding="utf-8")
+        env.write_config(f"""
+project: multi
+log: {{level: warning}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams:
+  a: {{config: {env.dir / "a.conf"}}}
+  b: {{config: {env.dir / "b.conf"}}}
+database:
+  enabled: true
+  targets: [a:/A, b:/B]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        env.run("-c", env.config, "-d")
+        out = env.dir / "restore"
+        env.run("-c", env.config, "--restore", "-d", "--from", "b", "--to", out)
+        assert list(out.glob("*.sql")), list(out.glob("*"))
+        log = (env.dir / "rclone.log").read_text().splitlines()
+        assert any("b:/B/DAILY/" in line and "copyto" in line for line in log), log[-3:]
+    finally:
+        env.cleanup()
+
+
+def test_unknown_upstream_rejected():
+    env = Env()
+    try:
+        env.write_config(f"""
+project: bad
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{a: {{}}}}
+database:
+  enabled: true
+  targets: [nope:/DB]
+  databases: [db1]
+  retention: {{daily: {{keep: 1}}}}
+""")
+        res = env.run("-c", env.config, "--check", expect=2)
+        assert "unknown upstream 'nope'" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -1121,6 +1246,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
          test_verbose_reaches_rclone, test_quiet_by_default,
          test_no_args_shows_banner, test_archive_name_defaults_to_project,
+         test_multiple_upstreams_upload, test_upstream_failure_keeps_going,
+         test_restore_from_upstream, test_unknown_upstream_rejected,
          test_shared_target_keeps_foreign_archives,
          test_shared_target_keeps_foreign_databases,
          test_unknown_key_is_a_warning, test_s3_custom_options]

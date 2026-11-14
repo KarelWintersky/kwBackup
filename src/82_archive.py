@@ -47,18 +47,13 @@ def action_archive(cfg, args):
         raise ActionFailed(f"archive: root is not a directory: {ar.root!r}")
 
     mode = args.mode or ar.mode
-    if mode == "sync":
-        LOG.debug("archive: -m sync: %s is mirrored, previous archives are deleted",
-                  ar.target)
-
-    rclone = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now()
     stamp = now.strftime(TS_FORMAT)
     out_name = f"{ar.name}_{stamp}{ARCHIVE_EXT[ar.compressor]}"
     out_path = cfg.temp_dir / out_name
     stats = {"uploaded": 0, "deleted": 0, "bytes": 0}
-    remote_dir = ar.target.rstrip("/")
+    failures = []
 
     try:
         with task_lock(f"{cfg.project}.archive", cfg.path):
@@ -72,29 +67,41 @@ def action_archive(cfg, args):
                     comp_cmd[-1] = str(out_path)
                 stages.append(comp_cmd)
             run_pipeline(stages, str(out_path), last_writes_file=writes_file)
-            if DRY:
-                rclone.copyto(str(out_path), f"{remote_dir}/{out_name}")
-                return stats
 
-            size = out_path.stat().st_size
-            if size == 0:
-                raise CommandError("archive is empty", 1)
-            stats["bytes"] = size
-            LOG.info("archive: packed %s", fmt_bytes(size))
+            if not DRY:
+                size = out_path.stat().st_size
+                if size == 0:
+                    raise CommandError("archive is empty", 1)
+                stats["bytes"] = size
+                LOG.info("archive: packed %s", fmt_bytes(size))
 
-            upload_file(rclone, out_path, remote_dir, mode, cfg.temp_dir)
-            stats["uploaded"] = 1
-            LOG.info("archive: uploaded -> %s/%s%s", remote_dir, out_name,
-                     " (mirror)" if mode == "sync" else "")
-
-            if ar.retention and mode == "copy":
-                files = rclone.lsf(remote_dir)
-                for stale in plan_prune(files, ar.retention, now,
-                                        prefix=f"{ar.name}_"):
-                    rclone.deletefile(f"{remote_dir}/{stale}")
-                    stats["deleted"] += 1
-                    LOG.info("archive: pruned %s", stale)
+            for target in ar.targets:
+                upstream = target.partition(":")[0]
+                remote_dir = target.rstrip("/")
+                if mode == "sync":
+                    LOG.debug("archive: -m sync: %s is mirrored, previous archives "
+                              "are deleted", remote_dir)
+                try:
+                    rclone = rclone_for(cfg, upstream, ar)
+                    upload_file(rclone, out_path, remote_dir, mode, cfg.temp_dir)
+                    stats["uploaded"] += 1
+                    LOG.info("archive: %s -> %s/%s%s",
+                             "would upload" if DRY else "uploaded",
+                             remote_dir, out_name,
+                             " (mirror)" if mode == "sync" else "")
+                    if ar.retention and mode == "copy":
+                        files = rclone.lsf(remote_dir)
+                        for stale in plan_prune(files, ar.retention, now,
+                                                prefix=f"{ar.name}_"):
+                            rclone.deletefile(f"{remote_dir}/{stale}")
+                            stats["deleted"] += 1
+                            LOG.info("archive: pruned %s", stale)
+                except (CommandError, OSError) as exc:
+                    LOG.error("archive: upstream %s: %s", upstream, exc)
+                    failures.append(f"{upstream}: {exc}")
     finally:
         if not cfg.keep_temp and out_path.exists():
             out_path.unlink()
+    if failures:
+        raise ActionFailed("archive backup failed: " + "; ".join(failures))
     return stats

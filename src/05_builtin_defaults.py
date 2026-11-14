@@ -8,9 +8,9 @@
 # This dict is the single place in the code where default values live.
 # Everything else (dataclass fields, the parser) reads from it.
 #
-# Deliberately NOT here: `project`, `rclone.remote`, `rclone.config`, the
-# database host/credentials and retention policy. Those are site decisions
-# and belong to /etc/kwbackup/defaults.yaml or the task file.
+# Deliberately NOT here: `project`, `upstreams`, the database host and
+# credentials, retention policy. Those are site decisions and belong to
+# /etc/kwbackup/defaults.yaml or the task file.
 # ============================================================================
 
 BUILTIN_DEFAULTS = {

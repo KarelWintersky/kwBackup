@@ -91,10 +91,23 @@ def _db_env(cfg):
     return env
 
 
-def _select_database_copy(uploader, cfg, dbname, at):
+def _chosen_target(section, from_name, kind):
+    """Restore always reads from exactly one target directory."""
+    if from_name:
+        for target in section.targets:
+            if target.partition(":")[0] == from_name:
+                return target
+        raise ActionFailed(f"restore: {kind} has no target on upstream {from_name!r}")
+    if not section.targets:
+        raise ActionFailed(f"restore: {kind} has no targets configured")
+    return section.targets[0]
+
+
+def _select_database_copy(uploader, cfg, dbname, at, target):
+    multi = len(cfg.database.databases) > 1
     candidates = []
     for cls in RETENTION_CLASSES:
-        remote_dir = class_path(cfg, dbname, cls)
+        remote_dir = target_join(target, dbname if multi else None, cls.upper())
         for rf in owned(uploader.lsf(remote_dir), f"{dbname}_"):
             if not rf.ts:
                 continue
@@ -131,9 +144,10 @@ def action_restore(cfg, args):
     stats = {"files": 0, "bytes": 0}
 
     if "database" in what:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.database))
+        target = _chosen_target(cfg.database, args.from_upstream, "database")
+        uploader = rclone_for(cfg, target.partition(":")[0], cfg.database)
         for dbname in cfg.database.databases:
-            picked = _select_database_copy(uploader, cfg, dbname, args.at)
+            picked = _select_database_copy(uploader, cfg, dbname, args.at, target)
             if picked is None:
                 raise ActionFailed(f"restore: no copy found for {dbname}"
                                    + (f" matching {args.at!r}" if args.at else ""))
@@ -157,8 +171,9 @@ def action_restore(cfg, args):
                 local.unlink(missing_ok=True)
 
     if "archive" in what:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.archive))
-        remote_dir = cfg.archive.target.rstrip("/")
+        target = _chosen_target(cfg.archive, args.from_upstream, "archive")
+        uploader = rclone_for(cfg, target.partition(":")[0], cfg.archive)
+        remote_dir = target.rstrip("/")
         files = sorted((f for f in owned(uploader.lsf(remote_dir),
                                          f"{cfg.archive.name}_")
                         if f.ts and (not args.at or args.at in f.name)),
@@ -177,10 +192,11 @@ def action_restore(cfg, args):
             local.unlink(missing_ok=True)
 
     if "storage" in what:
-        uploader = Rclone(cfg.rclone, effective_s3_options(cfg, cfg.storage))
+        target = _chosen_target(cfg.storage, args.from_upstream, "storage")
+        uploader = rclone_for(cfg, target.partition(":")[0], cfg.storage)
         for src, dest in cfg.storage.sources:
             sub = source_dest(src, dest)
-            remote_dir = cfg.storage.target.rstrip("/") + (f"/{sub}" if sub else "")
+            remote_dir = target_join(target, sub)
             local_dir = dest_dir / (sub or ".")
             LOG.info("restore: %s -> %s", remote_dir, local_dir)
             uploader.run("copy", remote_dir, str(local_dir), banner=True)

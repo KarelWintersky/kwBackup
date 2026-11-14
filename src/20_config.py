@@ -10,18 +10,19 @@ class ConfigError(Exception):
 # warning with the list of valid keys - a typo stays visible, but an old file
 # with a leftover key still runs. Missing or invalid values remain fatal.
 SECTIONS = {
-    "root": {"project", "log", "runtime", "rclone",
+    "root": {"project", "log", "runtime", "rclone", "upstreams",
              "database", "storage", "archive"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
-    "rclone": {"binary", "config", "remote", "args", "env", "s3-custom-options"},
+    "rclone": {"binary", "args", "env", "s3-custom-options"},
+    "upstream": {"config", "args", "env", "s3-custom-options"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
-                 "args", "compressor", "compressor_args", "target", "mode",
+                 "args", "compressor", "compressor_args", "targets", "mode",
                  "databases", "retention", "retention_mode", "catch_up",
                  "s3-custom-options"},
-    "storage": {"enabled", "mode", "target", "sources", "s3-custom-options"},
+    "storage": {"enabled", "mode", "targets", "sources", "s3-custom-options"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
-                "include", "exclude", "target", "mode", "retention",
+                "include", "exclude", "targets", "mode", "retention",
                 "retention_mode", "s3-custom-options"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
@@ -88,9 +89,18 @@ def fmt_age(td):
 
 @dataclass
 class RcloneCfg:
+    """How to run rclone. Where to upload is UpstreamCfg."""
     binary: str = _default("rclone", "binary")
+    args: list = field(default_factory=list)
+    env: dict = field(default_factory=dict)
+    s3_options: dict = field(default_factory=dict)
+
+
+@dataclass
+class UpstreamCfg:
+    """One destination: an rclone remote name plus its own connection settings."""
+    name: str
     config: str | None = None
-    remote: str = ""
     args: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
     s3_options: dict = field(default_factory=dict)
@@ -108,7 +118,7 @@ class DatabaseCfg:
     args: list = field(default_factory=list)
     compressor: str = _default("database", "compressor")
     compressor_args: list = field(default_factory=list)
-    target: str = ""
+    targets: list = field(default_factory=list)
     databases: list = field(default_factory=list)
     retention: dict = field(default_factory=dict)      # class -> Retention | None
     catch_up: bool = _default("database", "catch_up")
@@ -119,7 +129,7 @@ class DatabaseCfg:
 class StorageCfg:
     enabled: bool = False
     mode: str = _default("storage", "mode")
-    target: str = ""
+    targets: list = field(default_factory=list)
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
     s3_options: dict = field(default_factory=dict)
 
@@ -134,7 +144,7 @@ class ArchiveCfg:
     root: str = ""
     include: list = field(default_factory=lambda: _default("archive", "include"))
     exclude: list = field(default_factory=list)
-    target: str = ""
+    targets: list = field(default_factory=list)
     retention: Retention | None = None
     s3_options: dict = field(default_factory=dict)
 
@@ -151,6 +161,7 @@ class Config:
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
     keep_temp: bool = _default("runtime", "keep_temp")
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
+    upstreams: dict = field(default_factory=dict)   # name -> UpstreamCfg
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
@@ -370,13 +381,20 @@ def load_config(path, env=None, defaults=None):
     cfg.rclone = RcloneCfg(
         binary=_as_str(rl.get("binary"), "config.rclone.binary", errors,
                        _default("rclone", "binary")),
-        config=_as_str(rl.get("config"), "config.rclone.config", errors),
-        remote=_as_str(rl.get("remote"), "config.rclone.remote", errors, required=True) or "",
         args=_as_list(rl.get("args"), "config.rclone.args", errors),
         env=_as_env(rl.get("env"), "config.rclone.env", errors),
         s3_options=_as_s3_options(rl.get("s3-custom-options"),
                                   "config.rclone.s3-custom-options", errors),
     )
+
+    up_raw = data.get("upstreams") or {}
+    if not isinstance(up_raw, dict):
+        errors.append("config.upstreams: expected a mapping")
+        up_raw = {}
+    cfg.upstreams = _as_upstreams(up_raw, "config.upstreams", errors, warnings)
+    if not cfg.upstreams:
+        errors.append("config.upstreams: at least one upstream is required "
+                      "(name: {config, env, args, s3-custom-options})")
 
     db = data.get("database") or {}
     if not isinstance(db, dict):
@@ -401,9 +419,8 @@ def load_config(path, env=None, defaults=None):
                           _default("database", "compressor")) or "zstd").lower()
     if compressor not in COMPRESSORS:
         errors.append(f"config.database.compressor: unsupported {compressor!r} (allowed: {', '.join(COMPRESSORS)})")
-    target = _as_str(db.get("target"), "config.database.target", errors) or ""
-    if target and ":" not in target:
-        errors.append("config.database.target: expected 'remote:path', e.g. 'beget:/DB'")
+    targets = _as_targets(db.get("targets"), "config.database.targets", errors,
+                          cfg.upstreams)
     retention = {}
     ret_raw = db.get("retention") or {}
     if not isinstance(ret_raw, dict):
@@ -429,7 +446,7 @@ def load_config(path, env=None, defaults=None):
         args=_as_list(db.get("args"), "config.database.args", errors),
         compressor=compressor,
         compressor_args=_as_list(db.get("compressor_args"), "config.database.compressor_args", errors),
-        target=target,
+        targets=targets,
         databases=_as_list(db.get("databases"), "config.database.databases", errors),
         retention=retention,
         catch_up=_as_bool(db.get("catch_up"), "config.database.catch_up", errors),
@@ -438,8 +455,8 @@ def load_config(path, env=None, defaults=None):
     )
     if cfg.database.enabled and not cfg.database.databases:
         errors.append("config.database.databases: required when database.enabled is true")
-    if cfg.database.enabled and not cfg.database.target:
-        errors.append("config.database.target: required when database.enabled is true")
+    if cfg.database.enabled and not cfg.database.targets:
+        errors.append("config.database.targets: required when database.enabled is true")
     if cfg.database.enabled and not any(cfg.database.retention.values()):
         errors.append("config.database.retention: at least one class must be configured")
 
@@ -452,14 +469,15 @@ def load_config(path, env=None, defaults=None):
         enabled=_as_bool(st.get("enabled"), "config.storage.enabled", errors),
         mode=_as_str(st.get("mode"), "config.storage.mode", errors,
                      _default("storage", "mode")) or "sync",
-        target=_as_str(st.get("target"), "config.storage.target", errors) or "",
+        targets=_as_targets(st.get("targets"), "config.storage.targets", errors,
+                            cfg.upstreams),
         sources=_as_sources(st.get("sources"), "config.storage.sources",
                             errors, warnings),
         s3_options=_as_s3_options(st.get("s3-custom-options"),
                                   "config.storage.s3-custom-options", errors),
     )
-    if cfg.storage.enabled and (not cfg.storage.target or not cfg.storage.sources):
-        errors.append("config.storage: target and sources are required when enabled")
+    if cfg.storage.enabled and (not cfg.storage.targets or not cfg.storage.sources):
+        errors.append("config.storage: targets and sources are required when enabled")
 
     ar = data.get("archive") or {}
     if not isinstance(ar, dict):
@@ -486,18 +504,84 @@ def load_config(path, env=None, defaults=None):
         root=_as_str(ar.get("root"), "config.archive.root", errors) or "",
         include=_as_list(ar.get("include"), "config.archive.include", errors),
         exclude=_as_list(ar.get("exclude"), "config.archive.exclude", errors),
-        target=_as_str(ar.get("target"), "config.archive.target", errors) or "",
+        targets=_as_targets(ar.get("targets"), "config.archive.targets", errors,
+                            cfg.upstreams),
         retention=_parse_retention(ar.get("retention"), "config.archive.retention",
                                    errors, warnings, ar_mode),
         s3_options=_as_s3_options(ar.get("s3-custom-options"),
                                   "config.archive.s3-custom-options", errors),
     )
-    if cfg.archive.enabled and (not cfg.archive.target or not cfg.archive.root):
-        errors.append("config.archive: target and root are required when enabled")
+    if cfg.archive.enabled and (not cfg.archive.targets or not cfg.archive.root):
+        errors.append("config.archive: targets and root are required when enabled")
 
     if errors:
         raise ConfigError("invalid config:\n  - " + "\n  - ".join(errors))
     return cfg
+
+
+UPSTREAM_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+TARGET_RE = re.compile(r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*):(?P<path>.*)$")
+
+
+def target_join(target, *parts):
+    """'s3a:/DB' + 'DAILY' -> 's3a:/DB/DAILY' (remote prefix kept)."""
+    name, _, path = target.partition(":")
+    bits = [path.strip("/")] + [str(p).strip("/") for p in parts if p]
+    tail = "/".join(bit for bit in bits if bit)
+    return f"{name}:/{tail}" if tail else f"{name}:/"
+
+
+def _as_upstreams(value, path, errors, warnings):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        errors.append(f"{path}: expected a mapping of upstream name -> settings")
+        return {}
+    out = {}
+    for name, raw in value.items():
+        item = f"{path}.{name}"
+        if not isinstance(name, str) or not UPSTREAM_NAME_RE.match(name):
+            errors.append(f"{item}: bad upstream name")
+            continue
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            errors.append(f"{item}: expected a mapping")
+            continue
+        _check_keys(raw, "upstream", item, warnings)
+        out[name] = UpstreamCfg(
+            name=name,
+            config=_as_str(raw.get("config"), f"{item}.config", errors),
+            args=_as_list(raw.get("args"), f"{item}.args", errors),
+            env=_as_env(raw.get("env"), f"{item}.env", errors),
+            s3_options=_as_s3_options(raw.get("s3-custom-options"),
+                                      f"{item}.s3-custom-options", errors),
+        )
+    return out
+
+
+def _as_targets(value, path, errors, upstreams):
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        errors.append(f"{path}: expected a list, e.g. ['s3a:/DB', 's3b:/DB']")
+        return []
+    out = []
+    for i, item in enumerate(value):
+        where = f"{path}[{i}]"
+        if not isinstance(item, str):
+            errors.append(f"{where}: expected 'upstream:path'")
+            continue
+        match = TARGET_RE.match(item)
+        if not match:
+            errors.append(f"{where}: expected 'upstream:path', got {item!r}")
+            continue
+        if match.group("name") not in upstreams:
+            errors.append(f"{where}: unknown upstream {match.group('name')!r} "
+                          f"(defined: {', '.join(upstreams) or 'none'})")
+            continue
+        out.append(item)
+    return out
 
 
 def _as_sources(value, path, errors, warnings):

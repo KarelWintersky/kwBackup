@@ -43,8 +43,10 @@ def preflight_problems(cfg, actions):
     except OSError as exc:
         problems.append(f"temp dir {cfg.temp_dir}: {exc.strerror}")
 
-    if cfg.rclone.config and not Path(cfg.rclone.config).exists():
-        problems.append(f"rclone config not found: {cfg.rclone.config}")
+    for upstream in cfg.upstreams.values():
+        if upstream.config and not Path(upstream.config).exists():
+            problems.append(f"rclone config for upstream {upstream.name!r} "
+                            f"not found: {upstream.config}")
     return problems
 
 

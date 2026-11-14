@@ -30,6 +30,8 @@ def build_parser():
     p.add_argument("--restore", action="store_true", help="download a copy from the cloud")
     p.add_argument("--to", metavar="DIR", help="restore target directory")
     p.add_argument("--at", metavar="TS", help="pick a copy by date prefix, e.g. 2026-11-09")
+    p.add_argument("--from", dest="from_upstream", metavar="NAME",
+                   help="with --list/--verify/--restore: use only this upstream")
     p.add_argument("--into-db", metavar="NAME", help="with --restore: load the dump into "
                                                     "a live database (needs --yes)")
     p.add_argument("--yes", action="store_true", help="confirm destructive operations")
@@ -224,7 +226,7 @@ def _print_section(cfg, name, section):
 
     if name == "database":
         row("mode", section.mode)
-        row("target", section.target)
+        row("targets", ", ".join(section.targets))
         row("databases", ", ".join(section.databases) or "(none)")
         row("compressor", section.compressor)
         for cls in RETENTION_CLASSES:
@@ -233,7 +235,7 @@ def _print_section(cfg, name, section):
         if section.catch_up:
             row("catch_up", "on")
     elif name == "storage":
-        row("target", section.target)
+        row("targets", ", ".join(section.targets))
         row("sources", len(section.sources))
         for src, dest in section.sources:
             print(f"      {src}  ->  {source_dest(src, dest) or '.'}")
@@ -241,7 +243,7 @@ def _print_section(cfg, name, section):
         row("name", section.name)
         row("root", section.root)
         row("mode", section.mode)
-        row("target", section.target)
+        row("targets", ", ".join(section.targets))
         row("retention", section.retention.describe() if section.retention
             else "none (never pruned)")
         row("include", ", ".join(section.include) or "(none)")
@@ -266,8 +268,7 @@ def check_config(cfg, args):
     print()
 
     print(f"  {_label('rclone')}")
-    print(f"    {_label('remote', 10)} {cfg.rclone.remote}")
-    print(f"    {_label('config', 10)} {cfg.rclone.config or 'default'}")
+    print(f"    {_label('binary', 10)} {cfg.rclone.binary}")
     if cfg.rclone.args:
         print(f"    {_label('args', 10)} {len(cfg.rclone.args)} flag(s) passed as-is")
     if cfg.rclone.s3_options:
@@ -276,6 +277,10 @@ def check_config(cfg, args):
         for chunk in _chunks(keys):
             colored = ", ".join(_color(key, chr(27) + "[33m") for key in chunk.split(", "))
             print(f"    {'':<10} {colored}")
+    print(f"  {_label('upstreams')}")
+    for name, up in cfg.upstreams.items():
+        flags = f", {len(up.s3_options)} s3 flag(s)" if up.s3_options else ""
+        print(f"    {_label(name, 10)} {up.config or 'default rclone config'}{flags}")
     print()
 
     for name in ACTIONS:

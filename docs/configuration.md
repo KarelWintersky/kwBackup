@@ -16,8 +16,8 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 `/etc/kwbackup/defaults.yaml` — **единственный** путь, который читает программа.
 Встроенные дефолты задают механику: `temp_dir`, имена бинарников, компрессор
 по умолчанию, `storage.mode`, `archive.name/include`. Системный файл задаёт
-политику хоста: `rclone.config`/`remote`, лог, тип и хост БД, глубину хранения.
-Файл задачи содержит только своё: `project`, `target`, `databases`, `sources`,
+политику хоста: `upstreams`, `rclone.args`, лог, тип и хост БД, глубину хранения.
+Файл задачи содержит только своё: `project`, `targets`, `databases`, `sources`,
 `root`, ключи бакета.
 
 Нет `/etc/kwbackup/defaults.yaml` — работают только встроенные дефолты.
@@ -77,6 +77,7 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | `log` | map | нет | — | см. ниже |
 | `runtime` | map | нет | — | см. ниже |
 | `rclone` | map | да | — | см. ниже |
+| `upstreams` | map | да | — | назначения: `имя: {config, env, args, s3-custom-options}` |
 | `database` | map | нет | выключено | см. ниже |
 | `storage` | map | нет | выключено | см. ниже |
 | `archive` | map | нет | выключено | см. ниже |
@@ -118,8 +119,6 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | Ключ | Тип | По умолчанию | Смысл |
 |---|---|---|---|
 | `binary` | str | `rclone` | имя в PATH или полный путь |
-| `config` | str | системный | `--config` для rclone |
-| `remote` | str | **обязательно** | имя remote (`[beget]` в `rclone.conf`) |
 | `args` | list | `[]` | добавляются к **каждому** вызову rclone |
 | `env` | map | `{}` | переменные окружения для rclone |
 | `s3-custom-options` | map | `{}` | флаги бэкенда S3 без `--`; перекрываются в секциях |
@@ -188,6 +187,35 @@ rclone:
   включён `env_auth` (`env_auth = true` в `rclone.conf` или флаг
   `--s3-env-auth`). С настройками BEGET по умолчанию — не работает.
 
+## `upstreams`
+
+Карта **назначений**: ключ — имя remote, которое используется в `targets`
+(`s3a:/DB` → ключ `s3a`). Хотя бы один апстрим обязателен в итоговом
+конфиге — в defaults или в файле задачи.
+
+| Ключ | Тип | По умолчанию | Смысл |
+|---|---|---|---|
+| `config` | str | системный | `--config` для этого апстрима |
+| `env` | map | `{}` | переменные окружения для этого апстрима |
+| `args` | list | `[]` | добавляются к вызовам этого апстрима |
+| `s3-custom-options` | map | `{}` | флаги бэкенда; перекрывают `rclone.s3-custom-options` |
+
+Порядок флагов: `rclone.s3-custom-options` → `upstreams.<имя>` →
+`s3-custom-options` секции (`database`/`storage`/`archive`).
+
+```yaml
+upstreams:
+  s3a:
+    config: /etc/kwbackup/rclone_s3a.conf
+    s3-custom-options:
+      s3-access-key-id: ${S3A_KEY}
+      s3-secret-access-key: ${S3A_SECRET}
+  s3b:
+    config: /etc/kwbackup/rclone_s3b.conf
+    env:
+      AWS_ACCESS_KEY_ID: ${S3B_KEY}
+```
+
 ## `database`
 
 | Ключ | Тип | По умолчанию | Смысл |
@@ -202,7 +230,7 @@ rclone:
 | `compressor` | enum | `zstd` | `zstd` \| `gzip` \| `pigz` \| `rar` \| `none` |
 | `compressor_args` | list | `[]` | аргументы компрессора |
 | `mode` | enum | `copy` | в конфиге только `copy`; `-m sync` — из CLI |
-| `target` | str | обяз. при `enabled` | `remote:path` |
+| `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `databases` | list | обяз. при `enabled` | имена БД (для sqlite — не используется) |
 | `catch_up` | bool | `false` | догонять пропущенные weekly/monthly |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для БД |
@@ -322,7 +350,7 @@ weekly при следующем запуске. По умолчанию вык�
 |---|---|---|---|
 | `enabled` | bool | `false` | включает сценарий |
 | `mode` | enum | `sync` | `sync` — зеркало; `copy` — только добавлять |
-| `target` | str | обяз. при `enabled` | `remote:path` |
+| `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `sources` | list | обяз. при `enabled` | любое количество источников, см. ниже |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для storage |
 
@@ -378,7 +406,7 @@ storage:
 | `include` | list | `["*"]` | маски **относительно root** |
 | `exclude` | list | `[]` | маски tar |
 | `mode` | enum | `copy` | в конфиге только `copy`; `-m sync` — из CLI |
-| `target` | str | обяз. при `enabled` | `remote:path` |
+| `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `retention` | map | нет | `{keep: N}` или `{max_age: 7d}` |
 | `retention_mode` | enum | нет | `keep` \| `max_age` |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для архива |
@@ -415,5 +443,6 @@ storage:
 | `retention_mode is 'keep', so 'max_age' is not allowed` | привести все классы к одному режиму |
 | `unknown key, ignored (allowed: ...)` | предупреждение: опечатка в имени ключа, ключ проигнорирован |
 | `environment variable X is not set` | добавить переменную (/etc/default/kwbackup) |
-| `database.target: required when database.enabled is true` | задать `target` |
+| `database.targets: required when database.enabled is true` | задать `targets` |
+| `unknown upstream` | имя в `targets` не описано в `upstreams` |
 | `config.database.retention: at least one class must be configured` | включить хотя бы один класс |
