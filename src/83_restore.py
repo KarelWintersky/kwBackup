@@ -120,14 +120,53 @@ def _select_database_copy(uploader, cfg, dbname, at, target):
     return candidates[-1]
 
 
+def _incremental_plan(uploader, inc, target, at):
+    """Newest full of the chain + the increments up to `at`."""
+    remote_dir = target.rstrip("/")
+    entries = inc_entries(uploader.lsf(remote_dir), inc.name)
+    if not entries:
+        raise ActionFailed("restore: no incremental copies found")
+    chains = sorted({chain for chain, _, _, _ in entries})
+
+    chain, limit = None, None
+    if at:
+        match = re.match(r"^(\d{4})-(\d{2})(?:-(\d{2}))?", at)
+        if not match:
+            raise ActionFailed(f"restore: bad --at {at!r}, expected YYYY-MM or YYYY-MM-DD")
+        chain = f"{match.group(1)}-{match.group(2)}"
+        if match.group(3):
+            limit = dt.datetime.strptime(f"{chain}-{match.group(3)}", "%Y-%m-%d")
+    if chain is None:
+        chain = chains[-1]
+    if chain not in chains:
+        raise ActionFailed(f"restore: chain {chain} not found (available: {', '.join(chains)})")
+
+    in_chain = [entry for entry in entries if entry[0] == chain]
+    fulls = sorted((ts, rf) for _, kind, ts, rf in in_chain if kind == "full" and ts)
+    if not fulls:
+        raise ActionFailed(f"restore: chain {chain} has no full dump")
+    incs = sorted((ts, rf) for _, kind, ts, rf in in_chain if kind == "inc" and ts)
+    if limit:
+        incs = [item for item in incs if item[0].date() <= limit.date()]
+    return chain, fulls[-1][1], [rf for _, rf in incs]
+
+
+def _extract_incremental(local, dest_dir):
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    run(["tar", "-x", "-g", "/dev/null", "-C", str(dest_dir), "-f", str(local)])
+
+
 def action_restore(cfg, args):
     what = [name for name, flag in (("database", args.database),
                                     ("storage", args.storage),
-                                    ("archive", args.archive)) if flag]
+                                    ("archive", args.archive),
+                                    ("incremental", args.incremental)) if flag]
     if not what:
         what = [name for name, enabled in (("database", cfg.database.enabled),
                                            ("storage", cfg.storage.enabled),
-                                           ("archive", cfg.archive.enabled)) if enabled]
+                                           ("archive", cfg.archive.enabled),
+                                           ("incremental", cfg.incremental.enabled))
+                if enabled]
     if not what:
         raise ActionFailed("restore: nothing selected (-d/-s/-a) and nothing enabled in config")
     if args.into_db:
@@ -190,6 +229,23 @@ def action_restore(cfg, args):
             _extract_archive(local, dest_dir)
         finally:
             local.unlink(missing_ok=True)
+
+    if "incremental" in what:
+        inc = cfg.incremental
+        target = _chosen_target(inc, args.from_upstream, "incremental")
+        uploader = rclone_for(cfg, target.partition(":")[0], inc)
+        remote_dir = target.rstrip("/")
+        chain, full, incs = _incremental_plan(uploader, inc, target, args.at)
+        LOG.info("restore: chain %s: full + %d increment(s)", chain, len(incs))
+        for rf in [full] + incs:
+            local = _download(uploader, remote_dir, rf, cfg.temp_dir)
+            try:
+                stats["files"] += 1
+                stats["bytes"] += local.stat().st_size
+                LOG.info("restore: extracting %s", rf.name)
+                _extract_incremental(local, dest_dir)
+            finally:
+                local.unlink(missing_ok=True)
 
     if "storage" in what:
         target = _chosen_target(cfg.storage, args.from_upstream, "storage")

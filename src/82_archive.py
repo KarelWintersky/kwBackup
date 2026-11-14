@@ -6,18 +6,13 @@ ARCHIVE_EXT = {"zstd": ".tar.zst", "gzip": ".tar.gz", "pigz": ".tar.gz",
                "rar": ".rar", "none": ".tar"}
 
 
-def tar_command(cfg, root):
-    """tar to stdout; include patterns are relative to root (-C).
-
-    With the default include list ["*"] the whole root is archived as ".",
-    which also picks up dotfiles (.env, .git, ...) at the top level.
-    """
-    ar = cfg.archive
+def tar_args(root, include, exclude):
+    """tar to stdout; include patterns are relative to root (-C)."""
     cmd = ["tar", "-C", str(root), "-cf", "-"]
-    for pattern in ar.exclude:
+    for pattern in exclude:
         if pattern:
             cmd.append(f"--exclude={pattern}")
-    includes = [p for p in ar.include if p]
+    includes = [p for p in include if p]
     if not includes or includes == ["*"]:
         cmd.append(".")
         return cmd
@@ -35,6 +30,11 @@ def tar_command(cfg, root):
     if len(paths) > 5000:
         LOG.warning("archive: include list expanded to %d paths", len(paths))
     return cmd + paths
+
+
+def tar_command(cfg, root):
+    """Archive command for the archive task (same rules as tar_args)."""
+    return tar_args(root, cfg.archive.include, cfg.archive.exclude)
 
 
 def action_archive(cfg, args):

@@ -73,3 +73,14 @@ archive:
   mode: copy                # в конфиге допустим только copy; -m sync — из CLI
   # retention: {keep: 5}    # нет ключа = архив не чистится НИКОГДА
   # retention_mode: keep
+
+# ---------------------------------------------------------------- incremental
+# Цепочки GNU tar: полный дамп раз в месяц + ежедневные инкременты.
+incremental:
+  enabled: false
+  initial_day: 1            # день месяца, с которого начинается новая цепочка (1..28)
+  include: ["*"]
+  exclude: []
+  # snapshot: /var/lib/kwbackup/<project>.snar   # обязателен при enabled: true
+  # targets: [s3a:/INCR]
+  # retention: {keep: 3}    # число цепочек (месяцев)

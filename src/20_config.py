@@ -11,7 +11,7 @@ class ConfigError(Exception):
 # with a leftover key still runs. Missing or invalid values remain fatal.
 SECTIONS = {
     "root": {"project", "log", "runtime", "rclone", "upstreams",
-             "database", "storage", "archive"},
+             "database", "storage", "archive", "incremental"},
     "log": {"level", "file"},
     "runtime": {"temp_dir", "keep_temp"},
     "rclone": {"binary", "args", "env", "s3-custom-options"},
@@ -24,6 +24,8 @@ SECTIONS = {
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "targets", "mode", "retention",
                 "retention_mode", "s3-custom-options"},
+    "incremental": {"enabled", "name", "root", "include", "exclude", "targets",
+                    "initial_day", "snapshot", "retention", "s3-custom-options"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
 }
@@ -150,6 +152,20 @@ class ArchiveCfg:
 
 
 @dataclass
+class IncrementalCfg:
+    enabled: bool = False
+    name: str = ""
+    root: str = ""
+    include: list = field(default_factory=lambda: _default("incremental", "include"))
+    exclude: list = field(default_factory=list)
+    targets: list = field(default_factory=list)
+    initial_day: int = _default("incremental", "initial_day")
+    snapshot: str = ""
+    retention: Retention | None = None
+    s3_options: dict = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     path: Path
     project: str
@@ -165,6 +181,7 @@ class Config:
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
+    incremental: IncrementalCfg = field(default_factory=IncrementalCfg)
 
 
 def find_defaults(explicit=None):
@@ -513,6 +530,42 @@ def load_config(path, env=None, defaults=None):
     )
     if cfg.archive.enabled and (not cfg.archive.targets or not cfg.archive.root):
         errors.append("config.archive: targets and root are required when enabled")
+
+    inc = data.get("incremental") or {}
+    if not isinstance(inc, dict):
+        errors.append("config.incremental: expected a mapping")
+        inc = {}
+    _check_keys(inc, "incremental", "config.incremental", warnings)
+    initial_day = _as_int(inc.get("initial_day"), "config.incremental.initial_day",
+                          errors, _default("incremental", "initial_day"), minimum=1)
+    if initial_day is not None and initial_day > 28:
+        errors.append("config.incremental.initial_day: must be between 1 and 28")
+    cfg.incremental = IncrementalCfg(
+        enabled=_as_bool(inc.get("enabled"), "config.incremental.enabled", errors),
+        name=_as_str(inc.get("name"), "config.incremental.name", errors) or cfg.project,
+        root=_as_str(inc.get("root"), "config.incremental.root", errors) or "",
+        include=_as_list(inc.get("include"), "config.incremental.include", errors),
+        exclude=_as_list(inc.get("exclude"), "config.incremental.exclude", errors),
+        targets=_as_targets(inc.get("targets"), "config.incremental.targets",
+                            errors, cfg.upstreams),
+        initial_day=initial_day if initial_day is not None else 1,
+        snapshot=_as_str(inc.get("snapshot"), "config.incremental.snapshot", errors) or "",
+        retention=_parse_retention(inc.get("retention"), "config.incremental.retention",
+                                   errors, warnings),
+        s3_options=_as_s3_options(inc.get("s3-custom-options"),
+                                  "config.incremental.s3-custom-options", errors),
+    )
+    if cfg.incremental.enabled:
+        if not cfg.incremental.root:
+            errors.append("config.incremental.root: required when incremental.enabled is true")
+        if not cfg.incremental.targets:
+            errors.append("config.incremental.targets: required when incremental.enabled is true")
+        if not cfg.incremental.snapshot:
+            errors.append("config.incremental.snapshot: required when incremental.enabled is true "
+                          "(GNU tar snapshot file, e.g. /var/lib/kwbackup/project.snar)")
+        if not cfg.incremental.retention:
+            errors.append("config.incremental.retention: required when incremental.enabled "
+                          "is true (keep: N chains or max_age)")
 
     if errors:
         raise ConfigError("invalid config:\n  - " + "\n  - ".join(errors))

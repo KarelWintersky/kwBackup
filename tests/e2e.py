@@ -262,7 +262,15 @@ storage:
 
 
 def tar_entries(archive):
-    data = subprocess.run(["zstd", "-dc", str(archive)], capture_output=True, check=True).stdout
+    archive = Path(archive)
+    if archive.name.endswith((".zst", ".zstd")):
+        data = subprocess.run(["zstd", "-dc", str(archive)],
+                              capture_output=True, check=True).stdout
+    elif archive.name.endswith(".gz"):
+        data = subprocess.run(["gzip", "-dc", str(archive)],
+                              capture_output=True, check=True).stdout
+    else:
+        data = archive.read_bytes()
     out = subprocess.run(["tar", "-tf", "-"], input=data, capture_output=True, check=True)
     entries = []
     for line in out.stdout.decode().splitlines():
@@ -1233,6 +1241,201 @@ database:
         env.cleanup()
 
 
+def _incremental_config(env, root, snapshot, retention="keep: 3"):
+    return env.write_config(f"""
+project: inc
+log: {{level: warning}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+incremental:
+  enabled: true
+  name: data
+  root: {root}
+  initial_day: 1
+  snapshot: {snapshot}
+  targets: ["fake:/INCR"]
+  retention: {{{retention}}}
+""")
+
+
+def test_incremental_full_then_increment():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+
+        env.run("-c", env.config, "-i")
+        tree = env.cloud_tree()
+        fulls = [p for p in tree if "_full_" in p]
+        assert len(fulls) == 1, tree
+        assert not any("_inc_" in p for p in tree), tree
+        assert "a.txt" in tar_entries(env.cloud / fulls[0])
+
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+        tree = env.cloud_tree()
+        incs = [p for p in tree if "_inc_" in p]
+        assert len(incs) == 1, tree
+        # nothing changed: the increment carries no regular files
+        assert "a.txt" not in tar_entries(env.cloud / incs[0]), tar_entries(env.cloud / incs[0])
+        assert snap.exists(), "snapshot file must be kept between runs"
+    finally:
+        env.cleanup()
+
+
+def test_incremental_changed_file_lands_in_increment():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+
+        (root / "b.txt").write_text("b")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+        inc = [p for p in env.cloud_tree() if "_inc_" in p][0]
+        entries = tar_entries(env.cloud / inc)
+        assert "b.txt" in entries, entries
+        assert "a.txt" not in entries, entries
+    finally:
+        env.cleanup()
+
+
+def test_incremental_retention_drops_whole_chain():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        # seed an old chain
+        old_dir = env.cloud / "INCR"
+        old_dir.mkdir(parents=True)
+        (old_dir / "data_2020-01_full_2020-01-01-00-00-00.tar").write_bytes(b"old")
+        (old_dir / "data_2020-01_inc_2020-01-02-00-00-00.tar").write_bytes(b"old")
+        _incremental_config(env, root, snap, retention="keep: 1")
+        env.run("-c", env.config, "-i")
+        tree = env.cloud_tree()
+        assert not any("2020-01" in p for p in tree), tree
+        assert any("_full_" in p for p in tree), tree
+        assert not any("_inc_" in p for p in tree), tree
+    finally:
+        env.cleanup()
+
+
+def test_incremental_missing_snapshot_forces_full():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+        snap.unlink()
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+        fulls = [p for p in env.cloud_tree() if "_full_" in p]
+        assert len(fulls) == 2, env.cloud_tree()
+    finally:
+        env.cleanup()
+
+
+def test_incremental_restore_chain():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+        (root / "b.txt").write_text("b")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+
+        out = env.dir / "restored"
+        env.run("-c", env.config, "--restore", "-i", "--to", out)
+        assert (out / "a.txt").read_text() == "a", list(out.rglob("*"))
+        assert (out / "b.txt").read_text() == "b", list(out.rglob("*"))
+    finally:
+        env.cleanup()
+
+
+def test_incremental_restore_applies_deletion():
+    """GNU tar records removed files in the chain; restore must drop them."""
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "keep.txt").write_text("k")
+        (root / "gone.txt").write_text("g")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+        (root / "gone.txt").unlink()
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+
+        out = env.dir / "restored"
+        env.run("-c", env.config, "--restore", "-i", "--to", out)
+        assert (out / "keep.txt").exists(), list(out.rglob("*"))
+        assert not (out / "gone.txt").exists(), "deleted file must not be restored"
+    finally:
+        env.cleanup()
+
+
+def test_incremental_list_and_verify():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+        (root / "b.txt").write_text("b")
+        time.sleep(1.1)
+        env.run("-c", env.config, "-i")
+
+        out = env.run("-c", env.config, "--list")
+        assert "INCREMENTAL" in out.stdout, out.stdout
+        assert "1 inc" in out.stdout, out.stdout
+
+        res = env.run("-c", env.config, "--verify")
+        assert res.stdout.count("✓") == 2, res.stdout
+    finally:
+        env.cleanup()
+
+
+def test_incremental_at():
+    env = Env()
+    try:
+        root = env.dir / "data"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        snap = env.dir / "state" / "data.snar"
+        _incremental_config(env, root, snap)
+        env.run("-c", env.config, "-i")
+
+        out = env.dir / "restored"
+        today = time.strftime("%Y-%m-%d")
+        env.run("-c", env.config, "--restore", "-i", "--to", out, "--at", today)
+        assert (out / "a.txt").exists()
+
+        env.run("-c", env.config, "--restore", "-i", "--to", env.dir / "r2",
+                "--at", "1999-01", expect=1)
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -1246,6 +1449,14 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
          test_verbose_reaches_rclone, test_quiet_by_default,
          test_no_args_shows_banner, test_archive_name_defaults_to_project,
+         test_incremental_full_then_increment,
+         test_incremental_changed_file_lands_in_increment,
+         test_incremental_retention_drops_whole_chain,
+         test_incremental_missing_snapshot_forces_full,
+         test_incremental_restore_chain,
+         test_incremental_restore_applies_deletion,
+         test_incremental_list_and_verify,
+         test_incremental_at,
          test_multiple_upstreams_upload, test_upstream_failure_keeps_going,
          test_restore_from_upstream, test_unknown_upstream_rejected,
          test_shared_target_keeps_foreign_archives,

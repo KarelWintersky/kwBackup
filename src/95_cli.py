@@ -16,6 +16,8 @@ def build_parser():
     p.add_argument("-d", "--database", action="store_true", help="backup databases")
     p.add_argument("-s", "--storage", action="store_true", help="backup file storage")
     p.add_argument("-a", "--archive", action="store_true", help="backup file archive")
+    p.add_argument("-i", "--incremental", action="store_true",
+                   help="incremental tar backup (full monthly + daily increments)")
     p.add_argument("-m", "--mode", choices=("copy", "sync"),
                    help="override the upload algorithm (storage, database, "
                         "archive); sync mirrors the target directory")
@@ -112,6 +114,7 @@ def main(argv=None):
         "database": (action_database, "{databases} db(s), {uploaded} uploaded, {deleted} pruned, {size}"),
         "storage": (action_storage, "{sources} source(s), {remote_files} file(s) in cloud"),
         "archive": (action_archive, "{uploaded} uploaded, {deleted} pruned, {size}"),
+        "incremental": (action_incremental, "{uploaded} uploaded, {deleted} pruned, {size}"),
     }
     try:
         for name in actions:
@@ -132,7 +135,7 @@ def main(argv=None):
     return rc
 
 
-ACTIONS = ("database", "storage", "archive")
+ACTIONS = ("database", "storage", "archive", "incremental")
 
 
 def requested_actions(args):
@@ -234,6 +237,16 @@ def _print_section(cfg, name, section):
             row(cls, ret.describe() if ret else "off")
         if section.catch_up:
             row("catch_up", "on")
+    elif name == "incremental":
+        row("name", section.name)
+        row("root", section.root)
+        row("initial_day", section.initial_day)
+        row("snapshot", section.snapshot)
+        row("targets", ", ".join(section.targets))
+        row("retention", section.retention.describe() if section.retention
+            else "none (never pruned)")
+        row("include", ", ".join(section.include) or "(none)")
+        row("exclude", ", ".join(section.exclude) or "(none)")
     elif name == "storage":
         row("targets", ", ".join(section.targets))
         row("sources", len(section.sources))
@@ -291,7 +304,8 @@ def check_config(cfg, args):
         else:
             detail = {"database": lambda: section.type,
                       "storage": lambda: section.mode,
-                      "archive": lambda: section.compressor}[name]()
+                      "archive": lambda: section.compressor,
+                      "incremental": lambda: f"day {section.initial_day}"}[name]()
             print(f"  {_label(name, 9)} {_color('enabled', green)} "
                   f"{_color('(' + detail + ')', dim)}")
             _print_section(cfg, name, section)

@@ -1,3 +1,29 @@
+kwbackup (0.99.53) unstable; urgency=medium
+
+  * feat: incremental task (GNU tar chains)
+
+    Fourth action, -i/--incremental. One chain per month, YYYY-MM embedded in the
+    file names: <target>/<name>_<YYYY-MM>_full_<ts>.tar and ..._inc_<ts>.tar.
+
+    A run belongs to the current month from initial_day (default 1, 1..28),
+    otherwise to the previous month. The first run of a chain is a full dump
+    (tar --level=0, which truncates the snapshot); later runs are increments via
+    tar -g. A missing snapshot forces a full; restore picks the newest full in the
+    chain. Retention (keep or max_age) deletes whole chains, never a lone
+    increment. Plain .tar, no compression.
+
+    Restore: --restore -i --to DIR [--from NAME] [--at YYYY-MM[-DD]] extracts the
+    full and the increments in order with tar -x -g /dev/null; --at limits the
+    layers to that date. --list shows chains, --verify checks the full and the
+    last increment.
+
+    config.incremental.snapshot is mandatory when enabled.
+
+    tests: naming, changed files, chain retention, missing snapshot, restore
+    chain, deleted file disappears, list/verify, --at (45/45).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 23:19:28 +0300
+
 kwbackup (0.99.52) unstable; urgency=medium
 
   * docs: connection examples for MySQL, PostgreSQL and SQLite

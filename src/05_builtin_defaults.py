@@ -42,6 +42,12 @@ BUILTIN_DEFAULTS = {
         "mode": "copy",
         "include": ["*"],
         "exclude": [],
+    },
+    "incremental": {
+        "enabled": False,
+        "initial_day": 1,
+        "include": ["*"],
+        "exclude": [],
     }
 }
 

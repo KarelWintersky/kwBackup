@@ -90,6 +90,35 @@ def action_list(cfg, args):
                 for f in files[-3:]:
                     print(f"      {f.name}  {fmt_bytes(f.size)}")
 
+    if cfg.incremental.enabled or args.force:
+        inc = cfg.incremental
+        print(f"\nINCREMENTAL  (day {inc.initial_day})")
+        for target in inc.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            uploader = rclone_for(cfg, target.partition(":")[0], inc)
+            remote_dir = target.rstrip("/")
+            print(f"  {remote_dir}")
+            groups = {}
+            for chain, kind, ts, f in inc_entries(uploader.lsf(remote_dir), inc.name):
+                groups.setdefault(chain, {"full": [], "inc": []})[kind].append((ts, f))
+            if not groups:
+                print("    no chains")
+                rc = EXIT_VERIFY
+                continue
+            for chain in sorted(groups):
+                group = groups[chain]
+                fulls = sorted(ts for ts, _ in group["full"] if ts)
+                incs = sorted(ts for ts, _ in group["inc"] if ts)
+                total = sum(f.size for _, f in group["full"] + group["inc"])
+                if not fulls:
+                    print(f"    {chain}  {len(incs)} inc without a full")
+                    rc = EXIT_VERIFY
+                    continue
+                last = max(incs + fulls)
+                print(f"    {chain}  full {fulls[0]:%Y-%m-%d %H:%M}, "
+                      f"{len(incs)} inc, last {last:%Y-%m-%d}, {fmt_bytes(total)}")
+
     print()
     return rc
 
@@ -141,6 +170,8 @@ def _verify_one(uploader, remote_dir, rf, workdir, kind):
             head = _peek_decompressed(local)
             if head and not any(m in head for m in MARKERS):
                 return "decompresses, but no SQL header found"
+        elif kind == "incremental":
+            run(["tar", "-tf", str(local)])
         elif kind == "archive":
             head = _peek_decompressed(local, 1024)
             if head and not head.startswith(b"\x00") and not _tar_readable(local):
@@ -221,6 +252,30 @@ def action_verify(cfg, args):
                 report(label, _verify_one(uploader, remote_dir, rf,
                                           cfg.temp_dir, "archive"))
                 checked += 1
+
+    if (cfg.incremental.enabled or args.force) and cfg.incremental.targets:
+        inc = cfg.incremental
+        for target in inc.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            uploader = rclone_for(cfg, target.partition(":")[0], inc)
+            remote_dir = target.rstrip("/")
+            groups = {}
+            for chain, kind, _ts, rf in inc_entries(uploader.lsf(remote_dir), inc.name):
+                groups.setdefault(chain, {"full": [], "inc": []})[kind].append(rf)
+            chains = sorted(groups)
+            for chain in (chains if args.all else chains[-1:]):
+                group = groups[chain]
+                if not group["full"]:
+                    continue
+                fulls = sorted(group["full"], key=lambda f: f.ts or dt.datetime.min)
+                incs = sorted(group["inc"], key=lambda f: f.ts or dt.datetime.min)
+                for rf in [fulls[-1]] + ([incs[-1]] if incs else []):
+                    label = f"{remote_dir}/{rf.name}"
+                    LOG.info("verifying %s (%s)", label, fmt_bytes(rf.size))
+                    report(label, _verify_one(uploader, remote_dir, rf,
+                                              cfg.temp_dir, "incremental"))
+                    checked += 1
 
     if not checked:
         print("nothing to verify: no copies found")
