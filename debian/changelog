@@ -1,3 +1,20 @@
+kwbackup (0.99.49) unstable; urgency=medium
+
+  * fix(packaging): the /etc/default conffile lives in debian/
+
+    A system conffile is not an example. debian/kwbackup.default is now the
+    source, and dh_installinit installs it as /etc/default/kwbackup by itself
+    (debian/<package>.default is its documented convention). The line disappears
+    from debian/kwbackup.install.
+
+    docs no longer point at examples/ for a system file: source installs copy
+    debian/kwbackup.default.
+
+    Verified by building: /etc/default/kwbackup is 0600, marked as a conffile,
+    and byte-identical to debian/kwbackup.default.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 20:02:14 +0300
+
 kwbackup (0.99.48) unstable; urgency=medium
 
   * chore: drop the bootstrap changelog generator, stop advertising systemd

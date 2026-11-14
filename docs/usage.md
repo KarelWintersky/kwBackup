@@ -20,7 +20,7 @@ sudo install -m 600 examples/defaults.yaml /etc/kwbackup/defaults.yaml
 # задача: project, target, базы, ключи бакета
 sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 # секреты, которые передаются через окружение
-sudo install -m 600 examples/default/kwbackup /etc/default/kwbackup
+sudo install -m 600 debian/kwbackup.default /etc/default/kwbackup
 sudoedit /etc/default/kwbackup
 ```
 

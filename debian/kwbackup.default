@@ -1,5 +1,5 @@
-# /etc/default/kwbackup — переменные окружения для kwBackup.
-# Режим 0600, владелец root: файл предназначен для секретов.
+# debian/kwbackup.default — conffile пакета, устанавливается как
+# /etc/default/kwbackup (dh_installinit), режим 0600: файл для секретов.
 #
 # Формат: простые присваивания КЛЮЧ=значение, без export, без пробелов
 # вокруг "=". Такой файл понимают и systemd (EnvironmentFile=), и shell:

@@ -83,7 +83,7 @@ sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 sudoedit /etc/kwbackup/shop.yaml
 
 # 4. пароль БД и прочие секреты — в окружение
-sudo install -m 600 examples/default/kwbackup /etc/default/kwbackup
+sudo install -m 600 debian/kwbackup.default /etc/default/kwbackup
 sudoedit /etc/default/kwbackup
 
 # 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
