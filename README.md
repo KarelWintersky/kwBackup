@@ -75,7 +75,7 @@ rclone config
 
 # 2. общие настройки хоста: логи, rclone.config/remote, глубина хранения
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
-sudo install -m 600 examples/defaults.yaml /etc/kwbackup/defaults.yaml
+sudo install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
 
 # 3. задача: project, target, базы и ключи бакета
 #    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
@@ -125,7 +125,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 
 ## Конфиг
 
-Общие настройки — один раз на хост, [`examples/defaults.yaml`](examples/defaults.yaml):
+Общие настройки — один раз на хост, [`debian/kwbackup.defaults.yaml`](debian/kwbackup.defaults.yaml):
 логи, `rclone.config`, `rclone.remote`, тип БД, компрессор, глубина хранения.
 
 Файл задачи после этого короткий (полный самодостаточный пример —

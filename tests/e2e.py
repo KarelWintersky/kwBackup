@@ -605,7 +605,7 @@ def test_documented_examples_validate():
         assert files, "no example configs found"
         for path in files:
             env.run("-c", path, "--check",
-                    "--defaults", ROOT / "examples" / "defaults.yaml",
+                    "--defaults", ROOT / "debian" / "kwbackup.defaults.yaml",
                     extra_env=secret_env)
     finally:
         env.cleanup()
@@ -732,9 +732,9 @@ def _value(data, path):
 def test_defaults_file_covers_builtins():
     """The shipped defaults file must be at least as complete as BUILTIN_DEFAULTS."""
     kw = _artifact()
-    raw = kw.yaml_loads((ROOT / "examples" / "defaults.yaml").read_text(encoding="utf-8"))
+    raw = kw.yaml_loads((ROOT / "debian" / "kwbackup.defaults.yaml").read_text(encoding="utf-8"))
     missing = _key_paths(kw.BUILTIN_DEFAULTS) - _key_paths(raw)
-    assert not missing, f"examples/defaults.yaml misses built-in keys: {sorted(missing)}"
+    assert not missing, f"debian/kwbackup.defaults.yaml misses built-in keys: {sorted(missing)}"
     for path in ("runtime.temp_dir", "runtime.keep_temp", "rclone.binary",
                  "database.mode", "archive.mode", "storage.mode",
                  "archive.include", "archive.exclude"):

@@ -28,7 +28,7 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
   defaults: none (built-in defaults only)
 ```
 
-Поставляемый `examples/defaults.yaml` (он же conffile `/etc/kwbackup/defaults.yaml`)
+Поставляемый `debian/kwbackup.defaults.yaml` (он же conffile `/etc/kwbackup/defaults.yaml`)
 содержит **не меньше** ключей, чем встроенные дефолты: там перечислены все
 значения по умолчанию, чтобы их можно было посмотреть и поправить в YAML, а не
 в исходниках. Файл можно свободно сокращать: удалённый ключ снова начнёт

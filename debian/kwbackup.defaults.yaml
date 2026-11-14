@@ -1,4 +1,5 @@
-# /etc/kwbackup/defaults.yaml — все настройки по умолчанию для этого хоста.
+# debian/kwbackup.defaults.yaml — conffile пакета, устанавливается как
+# /etc/kwbackup/defaults.yaml (см. override_dh_install в debian/rules).
 #
 # Это единственный файл, который читает программа. Ниже него лежат встроенные
 # дефолты (src/05_builtin_defaults.py): если ключа здесь нет, берётся оттуда.

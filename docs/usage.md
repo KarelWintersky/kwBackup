@@ -16,7 +16,7 @@ kwbackup --selftest
 ```bash
 sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
 # общие настройки хоста
-sudo install -m 600 examples/defaults.yaml /etc/kwbackup/defaults.yaml
+sudo install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
 # задача: project, target, базы, ключи бакета
 sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
 # секреты, которые передаются через окружение

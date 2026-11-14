@@ -11,6 +11,12 @@ override_dh_fixperms:
 	# the environment file is meant for secrets
 	chmod 600 debian/kwbackup/etc/default/kwbackup
 
+override_dh_install:
+	dh_install
+	# debian/<pkg>.defaults.yaml must land as /etc/kwbackup/defaults.yaml
+	install -D -m 644 debian/kwbackup.defaults.yaml \
+		debian/kwbackup/etc/kwbackup/defaults.yaml
+
 override_dh_installchangelogs:
 	# CHANGELOG.md is our project changelog, not the upstream one:
 	# keep it as a normal doc file, the Debian changelog stays changelog.gz

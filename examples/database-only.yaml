@@ -1,5 +1,5 @@
 # Бэкап БД. Общие настройки (log, rclone.config/remote, компрессор, retention)
-# берутся из /etc/kwbackup/defaults.yaml — см. examples/defaults.yaml.
+# берутся из /etc/kwbackup/defaults.yaml — см. debian/kwbackup.defaults.yaml.
 project: shop
 
 rclone:

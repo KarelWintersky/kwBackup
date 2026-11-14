@@ -1,3 +1,17 @@
+kwbackup (0.99.50) unstable; urgency=medium
+
+  * fix(packaging): the defaults conffile lives in debian/
+
+    The shipped /etc/kwbackup/defaults.yaml was taken from examples/defaults.yaml,
+    so an example doubled as a system file. The source is now
+    debian/kwbackup.defaults.yaml; override_dh_install installs it under its final
+    name, because dh_install always keeps the source basename.
+
+    Docs and the e2e test point at the packaging file. Verified by building: the
+    conffile is 0644, byte-identical to the source, and listed in conffiles.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sat, 14 Nov 2026 20:18:25 +0300
+
 kwbackup (0.99.49) unstable; urgency=medium
 
   * fix(packaging): the /etc/default conffile lives in debian/
