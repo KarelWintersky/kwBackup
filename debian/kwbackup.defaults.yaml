@@ -25,6 +25,29 @@ runtime:
   verbose: false            # = --verbose: консоль на info + rclone --progress
   debug: false              # = --debug: консоль на debug (включает verbose)
 
+# Уведомления. Пустой `on` (или отсутствие каналов) = полностью выключено,
+# включая записи в лог. Сообщение содержит только: файл задачи, проект, хост,
+# тип запуска, статус, длительность, сводку по действиям и имена того, что
+# сломалось (БД, апстрим, причина). Команд и ключей в нём нет.
+notify:
+  on: [failure]             # failure | success | always; [] или null = выкл.
+  retries: 0                # повторов доставки на канал
+  retry_delay: 3            # пауза между попытками, секунды
+  timeout: 10               # таймаут SMTP/HTTP, секунды
+  # mail:
+  #   to: [admin@example.com]
+  #   from: kwbackup@host
+  #   smtp_host: localhost
+  #   port: 25
+  #   tls: false
+  #   user_env: SMTP_USER
+  #   password_env: SMTP_PASS
+  # webhook:
+  #   url: https://monitor.example/hook
+  #   headers: {Authorization: "Bearer ${HOOK_TOKEN}"}
+  # telegram:
+  #   token_env: TG_TOKEN
+  #   chat_id: "..."
 rclone:
   binary: rclone
   args:

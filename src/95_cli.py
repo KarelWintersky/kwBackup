@@ -101,8 +101,14 @@ def main(argv=None):
     if args.list:
         return action_list(cfg, args)
     if args.verify:
-        return action_verify(cfg, args)
+        started = dt.datetime.now()
+        rc = action_verify(cfg, args)
+        state = "ok" if rc == EXIT_OK else "problems found"
+        failures = ([{"action": "verify", "reason": "problems found"}]
+                    if rc != EXIT_OK else None)
+        return finish(cfg, "verify", rc, [f"verify: {state}"], started, failures)
     if args.restore:
+        started = dt.datetime.now()
         try:
             stats = action_restore(cfg, args)
         except Locked as exc:
@@ -110,20 +116,27 @@ def main(argv=None):
             return EXIT_LOCKED
         except (ActionFailed, CommandError, OSError) as exc:
             LOG.error("%s", exc)
-            return EXIT_ERROR
+            return finish(cfg, "restore", EXIT_ERROR, [], started,
+                          failure_entries(exc, "restore"))
         LOG.info("restore: %d file(s), %s", stats["files"], fmt_bytes(stats["bytes"]))
-        return EXIT_OK
+        summary = f"restore: {stats['files']} file(s), {fmt_bytes(stats['bytes'])}"
+        return finish(cfg, "restore", EXIT_OK, [summary], started)
 
     actions = requested_actions(args)
     if not actions:
         show_available_actions(cfg)
         return EXIT_OK
 
-    if not preflight(cfg, actions):
-        return EXIT_ERROR
+    started = dt.datetime.now()
+    problems = preflight_problems(cfg, actions)
+    if problems:
+        for problem in problems:
+            LOG.error("preflight: %s", problem)
+        return finish(cfg, "backup", EXIT_ERROR, [], started,
+                      [{"action": "preflight", "reason": p} for p in problems])
 
     rc = EXIT_OK
-    started = dt.datetime.now()
+    details = []
     handlers = {
         "database": (action_database, "{databases} db(s), {uploaded} uploaded, {deleted} pruned, {size}"),
         "storage": (action_storage, "{sources} source(s), {remote_files} file(s) in cloud"),
@@ -139,14 +152,23 @@ def main(argv=None):
             fields = dict(stats)
             fields["size"] = fmt_bytes(stats.get("bytes", 0))
             LOG.info("%s: %s", name, template.format(**fields))
+            details.append(f"{name}: " + template.format(**fields))
     except Locked as exc:
         LOG.error("%s", exc)
         return EXIT_LOCKED
     except (ActionFailed, CommandError, ConfigError, OSError) as exc:
         LOG.error("%s", exc)
-        return EXIT_ERROR
+        failed = actions[len(details)] if len(details) < len(actions) else "run"
+        return finish(cfg, "backup", EXIT_ERROR, details, started,
+                      failure_entries(exc, failed))
     LOG.info("done in %.1fs, exit %d", (dt.datetime.now() - started).total_seconds(), rc)
-    return rc
+    return finish(cfg, "backup", rc, details, started)
+
+
+def finish(cfg, kind, code, details, started, failures=None):
+    """Notify about the run; a delivery problem never changes the exit code."""
+    Notifier.run(cfg, kind, code, details, started, failures)
+    return code
 
 
 ACTIONS = ("database", "storage", "archive", "incremental")
@@ -344,6 +366,26 @@ def check_config(cfg, args):
             print(f"  {_label(name, 9)} {_color('enabled', green)} "
                   f"{_color('(' + detail + ')', dim)}")
             _print_section(cfg, name, section)
+        print()
+
+    notify = cfg.notify
+    if notify and notify.channels():
+        channels = notify.channels()
+        print(f"  {_label('notify')}")
+        print(f"    {_label('on', 10)} {', '.join(notify.on) or 'off'}")
+        print(f"    {_label('retries', 10)} {notify.retries}, "
+              f"delay {notify.retry_delay}s, timeout {notify.timeout}s")
+        if notify.mail:
+            tls = ", tls" if notify.mail.tls else ""
+            print(f"    {_label('mail', 10)} {', '.join(notify.mail.to)} "
+                  f"via {notify.mail.smtp_host}:{notify.mail.port}{tls}")
+        if notify.webhook:
+            parts = urllib.parse.urlsplit(notify.webhook.url)
+            headers = f", {len(notify.webhook.headers)} header(s)" if notify.webhook.headers else ""
+            print(f"    {_label('webhook', 10)} {parts.scheme}://{parts.netloc}{headers}")
+        if notify.telegram:
+            print(f"    {_label('telegram', 10)} chat {notify.telegram.chat_id}, "
+                  f"token from {notify.telegram.token_env}")
         print()
 
     if cfg.warnings:

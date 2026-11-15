@@ -47,6 +47,12 @@ BUILTIN_DEFAULTS = {
         "include": ["*"],
         "exclude": [],
     },
+    "notify": {
+        "on": ["failure"],
+        "retries": 0,
+        "retry_delay": 3,
+        "timeout": 10,
+    },
     "incremental": {
         "enabled": False,
         "initial_day": 1,

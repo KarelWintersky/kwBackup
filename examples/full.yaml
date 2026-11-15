@@ -29,6 +29,29 @@ runtime:
   temp_dir: /tmp/kwbackup # куда пишутся дампы/архивы перед заливкой
   keep_temp: false        # true = не удалять локальную копию после заливки
 
+# ---------------------------------------------------------------- уведомления
+# Один запуск — одно сообщение. Пустой on, отсутствие блоков или секции =
+# полная тишина. В сообщении нет команд и ключей.
+notify:
+  on: [failure]             # failure | success | always; [] или null = выкл.
+  retries: 0                # повторов доставки на канал
+  retry_delay: 3            # пауза между попытками, секунды
+  timeout: 10               # таймаут SMTP/HTTP, секунды
+  # mail:
+  #   to: [admin@example.com]
+  #   from: kwbackup@host
+  #   smtp_host: localhost
+  #   port: 25
+  #   tls: false
+  #   user_env: SMTP_USER
+  #   password_env: SMTP_PASS
+  # webhook:
+  #   url: https://monitor.example/hook
+  #   headers: {Authorization: "Bearer ${HOOK_TOKEN}"}
+  # telegram:
+  #   token_env: TG_TOKEN
+  #   chat_id: "-1001234567890"
+
 # ---------------------------------------------------------------- rclone
 rclone:
   binary: rclone          # путь или имя в PATH

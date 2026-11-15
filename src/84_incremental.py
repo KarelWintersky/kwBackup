@@ -56,7 +56,7 @@ def action_incremental(cfg, args):
     out_name = f"{inc.name}_{chain}_{kind}_{stamp}.tar"
     out_path = cfg.temp_dir / out_name
     stats = {"uploaded": 0, "deleted": 0, "bytes": 0, "kind": kind, "chain": chain}
-    failures = []
+    failures, details = [], []
 
     try:
         with task_lock(f"{cfg.project}.incremental", cfg.path):
@@ -96,10 +96,14 @@ def action_incremental(cfg, args):
                             LOG.info("incremental: pruned chain file %s", stale)
                 except (CommandError, OSError) as exc:
                     LOG.error("incremental: upstream %s: %s", upstream, exc)
-                    failures.append(f"{upstream}: {exc}")
+                    reason = failure_reason(exc)
+                    failures.append(f"{upstream}: {reason}")
+                    details.append({"action": "incremental", "entity": upstream,
+                                    "reason": reason})
     finally:
         if not cfg.keep_temp and out_path.exists():
             out_path.unlink()
     if failures:
-        raise ActionFailed("incremental backup failed: " + "; ".join(failures))
+        raise ActionFailed("incremental backup failed: " + "; ".join(failures),
+                           details)
     return stats

@@ -8,12 +8,15 @@ that print SQL. Real tar/zstd/gzip are used.
     python3 tests/e2e.py [-v]
 """
 
+import http.server
+import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -1519,6 +1522,148 @@ database:
         env.cleanup()
 
 
+class _HookHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        self.server.requests.append(json.loads(self.rfile.read(length)))
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+class _HookServer:
+    """Local webhook receiver for the notification tests."""
+
+    def __enter__(self):
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), _HookHandler)
+        self.server.requests = []
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/hook"
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+    @property
+    def requests(self):
+        return self.server.requests
+
+
+def _notify_config(env, hook_url, on="[failure]", broken=False, root=None):
+    upstream = (f"  broken: {{config: {env.dir / 'broken.conf'}}}"
+                if broken else "  fake: {}")
+    target = "broken:/A" if broken else "fake:/A"
+    return env.write_config(f"""
+project: notifytest
+log: {{level: info}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone:
+  binary: {env.bin / "rclone"}
+  s3-custom-options:
+    s3-secret-access-key: SUPERSECRET
+upstreams:
+{upstream}
+archive:
+  enabled: true
+  name: site
+  root: {root}
+  targets: ["{target}"]
+  retention: {{keep: 1}}
+notify:
+  on: {on}
+  webhook: {{url: "{hook_url}"}}
+""")
+
+
+def _notify_source(env):
+    src = env.dir / "src"
+    src.mkdir(exist_ok=True)
+    (src / "a.txt").write_text("a", encoding="utf-8")
+    (env.dir / "broken.conf").write_text("[broken]\n", encoding="utf-8")
+    return src
+
+
+def test_notify_webhook_on_failure():
+    env = Env()
+    try:
+        src = _notify_source(env)
+        with _HookServer() as hook:
+            _notify_config(env, hook.url, broken=True, root=src)
+            env.run("-c", env.config, "-a", expect=1)
+            assert len(hook.requests) == 1, hook.requests
+            body = hook.requests[0]
+            assert body["source"] == "kwbackup", body
+            assert "backup failed (exit 1)" in body["subject"], body["subject"]
+            assert str(env.config) in body["text"], body["text"]
+            assert "archive → broken: rclone exited with 1" in body["text"], body["text"]
+            assert "FAILED, exit 1" in body["text"], body["text"]
+            # commands and keys must never reach the channel
+            assert "SUPERSECRET" not in body["text"], body["text"]
+            assert "s3-secret-access-key" not in body["text"], body["text"]
+    finally:
+        env.cleanup()
+
+
+def test_notify_success_only():
+    env = Env()
+    try:
+        src = _notify_source(env)
+        with _HookServer() as hook:
+            _notify_config(env, hook.url, on="[success]", root=src)
+            env.run("-c", env.config, "-a")
+            assert len(hook.requests) == 1, hook.requests
+            assert "backup ok" in hook.requests[0]["subject"], hook.requests[0]
+            _notify_config(env, hook.url, on="[success]", broken=True, root=src)
+            env.run("-c", env.config, "-a", expect=1)
+            assert len(hook.requests) == 1, "success-only must stay silent on failure"
+    finally:
+        env.cleanup()
+
+
+def test_notify_empty_on_is_silent():
+    env = Env()
+    try:
+        src = _notify_source(env)
+        with _HookServer() as hook:
+            _notify_config(env, hook.url, on="[]", broken=True, root=src)
+            res = env.run("-c", env.config, "-a", expect=1)
+            assert hook.requests == [], hook.requests
+            assert "notify" not in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def test_notify_unreachable_webhook_keeps_exit_code():
+    env = Env()
+    try:
+        src = _notify_source(env)
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        _notify_config(env, f"http://127.0.0.1:{port}/hook", on="[success]", root=src)
+        res = env.run("-c", env.config, "-a")
+        assert "notify: webhook" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def test_notify_check_does_not_send():
+    env = Env()
+    try:
+        src = _notify_source(env)
+        with _HookServer() as hook:
+            _notify_config(env, hook.url, root=src)
+            env.run("-c", env.config, "--check")
+            assert hook.requests == [], hook.requests
+    finally:
+        env.cleanup()
+
+
 def _syslog_listener(path):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     sock.bind(str(path))
@@ -1745,6 +1890,11 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_notify_webhook_on_failure,
+         test_notify_success_only,
+         test_notify_empty_on_is_silent,
+         test_notify_unreachable_webhook_keeps_exit_code,
+         test_notify_check_does_not_send,
          test_syslog_sink_next_to_file,
          test_syslog_respects_log_level,
          test_syslog_true_uses_system_socket,

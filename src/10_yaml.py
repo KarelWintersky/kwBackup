@@ -126,7 +126,7 @@ def _scalar(text, lineno):
             key, sep, val = part.partition(":")
             if not sep:
                 raise YamlError(f"expected 'key: value' in flow mapping, got {part!r}", lineno, text)
-            result[_scalar(key, lineno)] = _scalar(val, lineno)
+            result[_key_scalar(key, lineno)] = _scalar(val, lineno)
         return result
     if text in ("~", "null", "Null", "NULL"):
         return None
@@ -142,6 +142,23 @@ def _scalar(text, lineno):
         return float(text)
     except ValueError:
         pass
+    return text
+
+
+def _key_scalar(text, lineno):
+    """A mapping key always stays a string.
+
+    YAML 1.1 turns plain `on`, `off`, `yes` and `no` into booleans, which broke
+    `notify.on` (it arrived as the key True). Keys in a config are names, not
+    values, so no scalar conversion happens here.
+    """
+    text = text.strip()
+    if not text:
+        raise YamlError("empty mapping key", lineno, text)
+    if text[0] in "\"'":
+        return _scalar(text, lineno)
+    if text[0] in "[{&*!|>":
+        raise YamlError("bad mapping key", lineno, text)
     return text
 
 
@@ -221,7 +238,7 @@ class _YamlParser:
             key, sep, rest = _partition_key(body)
             if not sep:
                 raise YamlError("expected 'key: value'", line.no, line.text)
-            key = _scalar(key, line.no)
+            key = _key_scalar(key, line.no)
             if key in result:
                 raise YamlError(f"duplicate key {key!r}", line.no, line.text)
             self.i += 1

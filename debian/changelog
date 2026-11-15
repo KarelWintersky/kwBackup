@@ -1,3 +1,34 @@
+kwbackup (0.99.61) unstable; urgency=medium
+
+  * feat(notify): mail, webhook and telegram notifications
+
+    One message per run, sent on failure by default: notify.on takes failure,
+    success or always, while an empty on, null or no channels switch the whole
+    thing off. Channels: SMTP via smtplib, HTTPS POST via urllib, Telegram Bot
+    API. No new dependencies and no curl: a token in argv would be visible in ps.
+
+    The text is built from a whitelist: task file path, project (when it differs
+    from the file stem), host, kind, status and exit code, duration, per-action
+    summaries and structured failures {action, entity, reason} collected by the
+    actions - database name, upstream, or a safe reason such as "rclone exited
+    with 1" or "No space left on device". Command lines, stderr and keys never
+    enter the message, although --debug keeps writing full commands to the log
+    on purpose.
+
+    Silence rules: no section, empty on or zero channels send nothing and log
+    nothing. --list, --dry-run and exit 4 stay silent; --check only validates.
+    Delivery errors are warnings and never change the exit code; notify.retries
+    and retry_delay control repeated attempts.
+
+    YAML mapping keys are no longer scalar-converted: `on:` used to arrive as the
+    key True (YAML 1.1), which would have silently ignored notify.on.
+
+    tests: webhook on failure, success, empty on, closed port and --check;
+    selftest for the message body, gating, failure_reason, mail and telegram
+    (49 checks, 62/62 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Mon, 16 Nov 2026 00:16:17 +0300
+
 kwbackup (0.99.60) unstable; urgency=medium
 
   * fix(runner): no leftovers when the progress line shrinks

@@ -133,6 +133,22 @@ database:
         except ConfigError as exc:
             check("disabled section strict", "unknown upstream" in str(exc), str(exc))
 
+        with_notify = good + """
+notify:
+  on: [success]
+  webhook: {url: "http://127.0.0.1:9999/hook"}
+"""
+        cfg_n = load_config(write(with_notify))
+        check("notify parsed", cfg_n.notify is not None
+              and cfg_n.notify.on == ["success"]
+              and cfg_n.notify.webhook.url.endswith("/hook"), cfg_n.notify)
+        bad_notify = good + "\nnotify:\n  on: [never]\n"
+        try:
+            load_config(write(bad_notify))
+            check("notify on validated", False, "accepted 'never'")
+        except ConfigError as exc:
+            check("notify on validated", "notify.on" in str(exc), str(exc))
+
         typo = good.replace("databases: [db1]", "databeses: [db1]")
         try:
             load_config(write(typo))
@@ -161,6 +177,82 @@ database:
               source_bytes(root, ["*"], ["*.tmp"]))
         check("source_bytes include", source_bytes(root, ["sub"], []) == 50,
               source_bytes(root, ["sub"], []))
+
+    # notifications: safe reasons, message contents, channel plumbing
+    check("yaml keys stay strings",
+          yaml_loads("notify:\n  on: [success]\n")["notify"].get("on") == ["success"],
+          yaml_loads("notify:\n  on: [success]\n"))
+    reason = failure_reason(CommandError(
+        "rclone --s3-secret-access-key=SECRET copyto a b", 3))
+    check("failure reason", reason == "rclone exited with 3", reason)
+
+    hook = WebhookCfg(url="http://127.0.0.1:9/hook")
+    on_failure = NotifyCfg(on=["failure"], webhook=hook)
+    check("notify gating",
+          Notifier.enabled(on_failure, 1)
+          and not Notifier.enabled(on_failure, 0)
+          and not Notifier.enabled(NotifyCfg(on=[], webhook=hook), 1)
+          and not Notifier.enabled(NotifyCfg(on=["failure"]), 1),
+          "on/off gating is wrong")
+
+    fake_cfg = SimpleNamespace(path=Path("/etc/kwbackup/shop.yaml"), project="shop")
+    subject, text = Notifier.build_message(
+        fake_cfg, "backup", 1, ["database: 2 db(s), 30 MiB"], None,
+        [{"action": "archive", "entity": "s3a", "reason": "rclone exited with 1"}])
+    check("notify message",
+          "shop" in subject and "FAILED, exit 1" in text
+          and "archive \u2192 s3a: rclone exited with 1" in text
+          and "database: 2 db(s)" in text and "SECRET" not in text, text)
+
+    sent = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            sent.update(host=host, port=port)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self):
+            sent["tls"] = True
+
+        def login(self, user, password):
+            sent["login"] = (user, password)
+
+        def send_message(self, message):
+            sent["subject"] = message["Subject"]
+            sent["to"] = message["To"]
+
+    real_smtp = smtplib.SMTP
+    smtplib.SMTP = FakeSMTP
+    try:
+        Notifier._send_mail(
+            MailCfg(to=["a@example.com", "b@example.com"],
+                    sender="kw@example.com", tls=True), "subj", "body", 5)
+    finally:
+        smtplib.SMTP = real_smtp
+    check("mail delivery", sent.get("subject") == "subj"
+          and sent.get("to") == "a@example.com, b@example.com"
+          and sent.get("tls") is True, sent)
+
+    posted = {}
+    real_http = Notifier._http_json
+    Notifier._http_json = staticmethod(
+        lambda url, payload, headers, timeout: posted.update(url=url, payload=payload))
+    os.environ["KW_TEST_TG"] = "token-123"
+    try:
+        Notifier._send_telegram(
+            TelegramCfg(token_env="KW_TEST_TG", chat_id="42"), "subj", "body", 5)
+    finally:
+        Notifier._http_json = real_http
+        os.environ.pop("KW_TEST_TG", None)
+    check("telegram delivery",
+          posted.get("payload", {}).get("chat_id") == "42"
+          and posted.get("url", "").endswith("/sendMessage")
+          and "token-123" in posted.get("url", ""), posted)
 
     if failures:
         for f in failures:

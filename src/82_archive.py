@@ -109,7 +109,7 @@ def action_archive(cfg, args):
     out_name = f"{ar.name}_{stamp}{ARCHIVE_EXT[ar.compressor]}"
     out_path = cfg.temp_dir / out_name
     stats = {"uploaded": 0, "deleted": 0, "bytes": 0}
-    failures = []
+    failures, details = [], []
 
     try:
         with task_lock(f"{cfg.project}.archive", cfg.path):
@@ -158,10 +158,14 @@ def action_archive(cfg, args):
                             LOG.info("archive: pruned %s", stale)
                 except (CommandError, OSError) as exc:
                     LOG.error("archive: upstream %s: %s", upstream, exc)
-                    failures.append(f"{upstream}: {exc}")
+                    reason = failure_reason(exc)
+                    failures.append(f"{upstream}: {reason}")
+                    details.append({"action": "archive", "entity": upstream,
+                                    "reason": reason})
     finally:
         if not cfg.keep_temp and out_path.exists():
             out_path.unlink()
     if failures:
-        raise ActionFailed("archive backup failed: " + "; ".join(failures))
+        raise ActionFailed("archive backup failed: " + "; ".join(failures),
+                           details)
     return stats

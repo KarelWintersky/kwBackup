@@ -223,6 +223,59 @@ rclone запускается с наследованием терминала, 
 видны сразу; без флагов его вывод захватывается и попадает в сообщение только
 при ошибке.
 
+### Уведомления
+
+Один запуск — одно сообщение. Email, вебхук или Telegram (можно всё сразу):
+
+```yaml
+notify:
+  on: [failure]                # failure | success | always; [] или null = выкл.
+  retries: 0
+  retry_delay: 3
+  timeout: 10
+  mail:
+    to: [admin@example.com]
+    from: kwbackup@host
+    smtp_host: localhost
+    port: 25
+    tls: false
+    user_env: SMTP_USER        # имена переменных, не значения
+    password_env: SMTP_PASS
+  webhook:
+    url: https://monitor.example/hook
+    headers: {Authorization: "Bearer ${HOOK_TOKEN}"}
+  telegram:
+    token_env: TG_TOKEN
+    chat_id: "-1001234567890"
+```
+
+Почта уходит через `smtplib` напрямую на `smtp_host`: нужен доступный
+SMTP-сервер (свой MTA на `localhost:25` или внешний с `tls: true` и AUTH).
+Ни `mail`, ни `sendmail` не используются.
+
+Сообщение:
+
+```
+[kwbackup] shop: backup failed (exit 1)
+
+task:      /etc/kwbackup/shop.yaml
+project:   shop
+host:      web1
+kind:      backup
+status:    FAILED, exit 1
+duration:  42.3s
+actions:
+  database: 2 db(s), 2 uploaded, 30 MiB
+failures:
+  archive → upstream blacktower1: rclone exited with 1
+```
+
+Командных строк, stderr и ключей в нём нет: причина — короткая и безопасная
+(`rclone exited with 1`, `No space left on device`, `environment variable X is
+not set`), а сломанное называется по имени (БД, апстрим). Ошибка доставки не
+меняет код возврата бэкапа. Пустой `on`, отсутствие каналов или секции —
+полная тишина, в том числе в логе.
+
 ### syslog / journald
 
 ```yaml

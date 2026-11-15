@@ -17,7 +17,7 @@ SYSLOG_FACILITIES = ("auth", "authpriv", "cron", "daemon", "ftp", "kern", "lpr",
 
 
 SECTIONS = {
-    "root": {"project", "log", "runtime", "rclone", "upstreams",
+    "root": {"project", "log", "runtime", "rclone", "upstreams", "notify",
              "database", "storage", "archive", "incremental"},
     "log": {"level", "file", "syslog", "facility"},
     "runtime": {"temp_dir", "keep_temp", "verbose", "debug"},
@@ -33,6 +33,11 @@ SECTIONS = {
                 "retention_mode", "s3-custom-options"},
     "incremental": {"enabled", "name", "root", "include", "exclude", "targets",
                     "initial_day", "snapshot", "retention", "s3-custom-options"},
+    "notify": {"on", "retries", "retry_delay", "timeout",
+               "mail", "webhook", "telegram"},
+    "mail": {"to", "from", "smtp_host", "port", "tls", "user_env", "password_env"},
+    "webhook": {"url", "headers"},
+    "telegram": {"token_env", "chat_id"},
     "retention": {"keep", "max_age"},
     "source": {"path", "dest"},
 }
@@ -40,6 +45,7 @@ SECTIONS = {
 # Enumerations checked in load_config.
 COMPRESSORS = ("zstd", "gzip", "pigz", "rar", "none")
 DB_TYPES = ("mysql", "mariadb", "postgres", "pgsql", "sqlite")
+NOTIFY_ON = ("failure", "success", "always")
 
 # Retention classes: validated here and iterated by the actions and reports.
 RETENTION_CLASSES = ("daily", "weekly", "monthly")
@@ -173,6 +179,43 @@ class IncrementalCfg:
 
 
 @dataclass
+class MailCfg:
+    to: list = field(default_factory=list)
+    sender: str = ""
+    smtp_host: str = "localhost"
+    port: int = 25
+    tls: bool = False
+    user_env: str = ""
+    password_env: str = ""
+
+
+@dataclass
+class WebhookCfg:
+    url: str = ""
+    headers: dict = field(default_factory=dict)
+
+
+@dataclass
+class TelegramCfg:
+    token_env: str = ""
+    chat_id: str = ""
+
+
+@dataclass
+class NotifyCfg:
+    on: list = field(default_factory=list)          # empty = notifications off
+    retries: int = 0
+    retry_delay: int = 3
+    timeout: int = 10
+    mail: MailCfg | None = None
+    webhook: WebhookCfg | None = None
+    telegram: TelegramCfg | None = None
+
+    def channels(self):
+        return [ch for ch in (self.mail, self.webhook, self.telegram) if ch]
+
+
+@dataclass
 class Config:
     path: Path
     project: str
@@ -194,6 +237,7 @@ class Config:
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
     incremental: IncrementalCfg = field(default_factory=IncrementalCfg)
+    notify: NotifyCfg | None = None
 
 
 def find_defaults(explicit=None):
@@ -312,6 +356,29 @@ def _expand_env(value, path, errors):
     return value
 
 
+def _as_str_map(value, path, errors):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        errors.append(f"{path}: expected a mapping")
+        return {}
+    out = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            errors.append(f"{path}: keys must be strings")
+            continue
+        if isinstance(item, bool):
+            out[key] = "true" if item else "false"      # YAML turns yes/no into bool
+        elif isinstance(item, (int, float)):
+            out[key] = str(item)
+        elif isinstance(item, str):
+            out[key] = item
+        else:
+            errors.append(f"{path}.{key}: expected a string")
+            continue
+    return out
+
+
 def _parse_retention(value, path, errors, warnings, mode_hint=None):
     """Parse one retention class. Returns Retention or None (class disabled)."""
     if value is None or value is False:
@@ -366,6 +433,120 @@ class _Errors(list):
             self.cfg.deferred_errors.append(message)
         else:
             super().append(message)
+
+
+def _parse_notify(data, errors, warnings):
+    """The notify section; None means notifications are entirely off."""
+    raw = data.get("notify")
+    if raw is None or raw is False:
+        return None
+    if not isinstance(raw, dict):
+        errors.append("config.notify: expected a mapping")
+        return None
+    _check_keys(raw, "notify", "config.notify", warnings)
+
+    if "on" not in raw:
+        on = ["failure"]
+    elif raw["on"] is None:
+        on = []                                   # `on:` with no value = off
+    else:
+        on = []
+        for index, item in enumerate(_as_list(raw["on"], "config.notify.on", errors)):
+            item = item.strip().lower()
+            if item in ("", "none", "off", "false"):
+                continue
+            if item not in NOTIFY_ON:
+                errors.append(f"config.notify.on[{index}]: expected one of "
+                              f"{', '.join(NOTIFY_ON)}, got {item!r}")
+                continue
+            if item not in on:
+                on.append(item)
+
+    retries = _as_int(raw.get("retries"), "config.notify.retries", errors,
+                      0, minimum=0)
+    retry_delay = _as_int(raw.get("retry_delay"), "config.notify.retry_delay",
+                          errors, 3, minimum=0)
+    timeout = _as_int(raw.get("timeout"), "config.notify.timeout", errors,
+                      10, minimum=1)
+    if timeout is not None and timeout > 300:
+        errors.append("config.notify.timeout: must be <= 300 seconds")
+        timeout = 300
+
+    mail = None
+    if raw.get("mail") is not None:
+        m = raw["mail"]
+        if not isinstance(m, dict):
+            errors.append("config.notify.mail: expected a mapping")
+        else:
+            _check_keys(m, "mail", "config.notify.mail", warnings)
+            mail = MailCfg(
+                to=_as_list(m.get("to"), "config.notify.mail.to", errors),
+                sender=_as_str(m.get("from"), "config.notify.mail.from",
+                               errors) or "",
+                smtp_host=_as_str(m.get("smtp_host"),
+                                  "config.notify.mail.smtp_host",
+                                  errors) or "localhost",
+                port=_as_int(m.get("port"), "config.notify.mail.port", errors,
+                             25, minimum=1) or 25,
+                tls=_as_bool(m.get("tls"), "config.notify.mail.tls", errors),
+                user_env=_as_str(m.get("user_env"),
+                                 "config.notify.mail.user_env", errors) or "",
+                password_env=_as_str(m.get("password_env"),
+                                     "config.notify.mail.password_env",
+                                     errors) or "",
+            )
+            if not mail.to:
+                errors.append("config.notify.mail.to: required")
+            if not mail.sender:
+                errors.append("config.notify.mail.from: required")
+            if mail.port > 65535:
+                errors.append("config.notify.mail.port: must be 1..65535")
+            if mail.user_env and not mail.password_env:
+                errors.append("config.notify.mail.password_env: required "
+                              "when user_env is set")
+
+    webhook = None
+    if raw.get("webhook") is not None:
+        w = raw["webhook"]
+        if not isinstance(w, dict):
+            errors.append("config.notify.webhook: expected a mapping")
+        else:
+            _check_keys(w, "webhook", "config.notify.webhook", warnings)
+            url = _as_str(w.get("url"), "config.notify.webhook.url", errors) or ""
+            if not url:
+                errors.append("config.notify.webhook.url: required")
+            elif not url.startswith(("http://", "https://")):
+                errors.append("config.notify.webhook.url: expected http:// or https://")
+            webhook = WebhookCfg(
+                url=url,
+                headers=_as_str_map(w.get("headers"),
+                                    "config.notify.webhook.headers", errors),
+            )
+
+    telegram = None
+    if raw.get("telegram") is not None:
+        t = raw["telegram"]
+        if not isinstance(t, dict):
+            errors.append("config.notify.telegram: expected a mapping")
+        else:
+            _check_keys(t, "telegram", "config.notify.telegram", warnings)
+            chat = t.get("chat_id")
+            if isinstance(chat, int) and not isinstance(chat, bool):
+                chat = str(chat)
+            chat_id = _as_str(chat, "config.notify.telegram.chat_id", errors) or ""
+            token_env = _as_str(t.get("token_env"),
+                                "config.notify.telegram.token_env",
+                                errors) or ""
+            if not chat_id:
+                errors.append("config.notify.telegram.chat_id: required")
+            if not token_env:
+                errors.append("config.notify.telegram.token_env: required")
+            telegram = TelegramCfg(token_env=token_env, chat_id=chat_id)
+
+    return NotifyCfg(on=on, retries=retries or 0,
+                     retry_delay=retry_delay if retry_delay is not None else 3,
+                     timeout=timeout if timeout is not None else 10,
+                     mail=mail, webhook=webhook, telegram=telegram)
 
 
 def load_config(path, env=None, defaults=None, strict=False):
@@ -453,6 +634,7 @@ def load_config(path, env=None, defaults=None, strict=False):
                            _default("runtime", "verbose"))
     cfg.debug = _as_bool(rt.get("debug"), "config.runtime.debug", errors,
                          _default("runtime", "debug"))
+    cfg.notify = _parse_notify(data, errors, warnings)
 
     rl = data.get("rclone") or {}
     if not isinstance(rl, dict):

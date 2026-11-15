@@ -3,7 +3,15 @@
 # ============================================================================
 
 class ActionFailed(Exception):
-    """An action finished with errors; the message is already user-facing."""
+    """An action finished with errors; the message is already user-facing.
+
+    failures is a list of {action, entity, reason} dicts for notifications:
+    the message may quote a command line, those entries never do.
+    """
+
+    def __init__(self, message, failures=None):
+        super().__init__(message)
+        self.failures = failures or []
 
 
 class CommandError(Exception):
@@ -15,6 +23,27 @@ class CommandError(Exception):
 
 def _fmt_cmd(cmd):
     return " ".join(cmd)
+
+
+def failure_reason(exc):
+    """Short, safe reason for a notification: no command lines, no keys."""
+    if isinstance(exc, CommandError):
+        stage = str(exc.stage or "").split()
+        tool = Path(stage[0]).name if stage else "command"
+        return f"{tool} exited with {exc.returncode}"
+    if isinstance(exc, OSError):
+        return exc.strerror or type(exc).__name__
+    if isinstance(exc, ActionFailed):
+        return str(exc)[:500]
+    return type(exc).__name__
+
+
+def failure_entries(exc, action):
+    """Structured failures for the notifier; falls back to a safe reason."""
+    entries = getattr(exc, "failures", None)
+    if entries:
+        return entries
+    return [{"action": action, "reason": failure_reason(exc)}]
 
 
 def run(cmd, env=None, check=True, timeout=None, capture=True, banner=False):

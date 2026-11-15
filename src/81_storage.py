@@ -20,7 +20,7 @@ def action_storage(cfg, args):
         raise ActionFailed(f"storage: unsupported mode {mode!r}, expected sync or copy")
 
     stats = {"sources": 0, "remote_files": 0}
-    failures = []
+    failures, details = [], []
 
     with task_lock(f"{cfg.project}.storage", cfg.path):
         for target in st.targets:
@@ -40,7 +40,11 @@ def action_storage(cfg, args):
                              remote_dir)
             except (CommandError, OSError) as exc:
                 LOG.error("storage: upstream %s: %s", upstream, exc)
-                failures.append(f"{upstream}: {exc}")
+                reason = failure_reason(exc)
+                failures.append(f"{upstream}: {reason}")
+                details.append({"action": "storage", "entity": upstream,
+                                "reason": reason})
     if failures:
-        raise ActionFailed("storage backup failed: " + "; ".join(failures))
+        raise ActionFailed("storage backup failed: " + "; ".join(failures),
+                           details)
     return stats

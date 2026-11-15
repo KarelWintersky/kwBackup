@@ -58,7 +58,7 @@ def action_database(cfg, args):
     ext = COMPRESSOR_EXT[db.compressor]
     multi = len(db.databases) > 1
     total = {"databases": 0, "uploaded": 0, "deleted": 0, "bytes": 0}
-    failures = []
+    failures, details = [], []
 
     for dbname in db.databases:
         out_name = f"{dbname}_{stamp}.sql{ext}"
@@ -118,17 +118,24 @@ def action_database(cfg, args):
                                 LOG.info("[%s] pruned %s/%s", dbname, cls.upper(), stale)
                     except (CommandError, OSError) as exc:
                         LOG.error("[%s] upstream %s: %s", dbname, upstream, exc)
-                        failures.append(f"{dbname}@{upstream}: {exc}")
+                        reason = failure_reason(exc)
+                        failures.append(f"{dbname}@{upstream}: {reason}")
+                        details.append({"action": "database",
+                                        "entity": f"{dbname}@{upstream}",
+                                        "reason": reason})
                 total["databases"] += 1
                 total["bytes"] += size
         except Locked:
             raise
         except (CommandError, OSError) as exc:
             LOG.error("[%s] %s", dbname, exc)
-            failures.append(f"{dbname}: {exc}")
+            reason = failure_reason(exc)
+            failures.append(f"{dbname}: {reason}")
+            details.append({"action": "database", "entity": dbname, "reason": reason})
         finally:
             if not cfg.keep_temp and out_path.exists():
                 out_path.unlink()
     if failures:
-        raise ActionFailed("database backup failed: " + "; ".join(failures))
+        raise ActionFailed("database backup failed: " + "; ".join(failures),
+                           details)
     return total
