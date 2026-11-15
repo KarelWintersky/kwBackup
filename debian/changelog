@@ -1,3 +1,17 @@
+kwbackup (0.99.63) unstable; urgency=medium
+
+  * docs: bring CHANGELOG.md up to date
+
+    The user-facing changelog stopped at 0.99.42, twenty versions ago. Added a
+    consolidated 0.99.62 section (Added/Changed/Fixed/Removed) covering the
+    incremental task, multiple upstreams, notifications, hooks, syslog, the
+    console modes, packing progress, --check and the disabled-section handling.
+
+    The per-commit history stays in debian/changelog; the policy is now written
+    down in AGENTS.md so the two files do not drift silently again.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Mon, 16 Nov 2026 00:55:31 +0300
+
 kwbackup (0.99.62) unstable; urgency=medium
 
   * feat(hooks): before/after commands per task
