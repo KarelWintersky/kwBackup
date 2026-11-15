@@ -1436,6 +1436,88 @@ def test_incremental_at():
         env.cleanup()
 
 
+def test_runtime_verbose_from_config():
+    env = Env()
+    try:
+        env.write_config(f"""
+project: quiet
+log: {{level: info, file: {env.dir / "kwbackup.log"}}}
+runtime: {{temp_dir: {env.tmp}, verbose: true}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        res = env.run("-c", env.config, "-d")
+        assert "dumping" in res.stderr, res.stderr
+        assert "run:" not in res.stderr, res.stderr
+        assert "--progress" in (env.dir / "rclone.log").read_text()
+    finally:
+        env.cleanup()
+
+
+def test_runtime_debug_from_config_implies_verbose():
+    env = Env()
+    try:
+        env.write_config(f"""
+project: dbg
+log: {{level: info, file: {env.dir / "kwbackup.log"}}}
+runtime: {{temp_dir: {env.tmp}, verbose: false, debug: true}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        res = env.run("-c", env.config, "-d")
+        assert "dumping" in res.stderr, res.stderr
+        assert "run:" in res.stderr, res.stderr
+        assert "--progress" in (env.dir / "rclone.log").read_text()
+    finally:
+        env.cleanup()
+
+
+def test_console_and_file_levels_are_separate():
+    env = Env()
+    try:
+        logfile = env.dir / "kwbackup.log"
+        task = env.dir / "task.yaml"
+
+        def write(level, runtime):
+            task.write_text(f"""
+project: levels
+log: {{level: {level}, file: {logfile}}}
+runtime: {{temp_dir: {env.tmp}{runtime}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""", encoding="utf-8")
+
+        # console debug, file warning: commands on screen, not in the file
+        write("warning", ", debug: true")
+        res = env.run("-c", task, "-d")
+        assert "run:" in res.stderr, res.stderr
+        assert "run:" not in logfile.read_text(encoding="utf-8")
+
+        # file debug, console quiet: commands in the file, not on screen
+        logfile.unlink()
+        write("debug", "")
+        res = env.run("-c", task, "-d")
+        assert "run:" not in res.stderr, res.stderr
+        assert "run:" in logfile.read_text(encoding="utf-8")
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -1457,6 +1539,9 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_incremental_restore_applies_deletion,
          test_incremental_list_and_verify,
          test_incremental_at,
+         test_runtime_verbose_from_config,
+         test_runtime_debug_from_config_implies_verbose,
+         test_console_and_file_levels_are_separate,
          test_multiple_upstreams_upload, test_upstream_failure_keeps_going,
          test_restore_from_upstream, test_unknown_upstream_rejected,
          test_shared_target_keeps_foreign_archives,

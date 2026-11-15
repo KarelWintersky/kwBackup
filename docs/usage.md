@@ -59,6 +59,8 @@ kwBackup: Backup tool over rclone: database dumps, file storage, archives (Versi
   config     /etc/kwbackup/shop.yaml
   defaults   /etc/kwbackup/defaults.yaml
   project    shop
+  log        level info, file /var/log/kwbackup/shop.log
+  console    quiet (warnings and errors)
 
   rclone
     binary     rclone
@@ -183,12 +185,15 @@ sudo install -m 644 examples/cron/kwbackup /etc/cron.d/kwbackup
 
 ## Подробность вывода
 
-| Флаг | Терминал (stderr) | Лог-файл | rclone |
+| Режим | Терминал (stderr) | Лог-файл | rclone |
 |---|---|---|---|
-| без флагов | только предупреждения и ошибки | `info` | молчит |
-| `--verbose` | `info` | `info` | `--progress`, вывод идёт прямо в терминал |
-| `--debug` | `debug`: каждая команда и её аргументы | `debug` | `--progress`, вывод в терминал |
-| `--dry-run` | `info` (печатается план) | `info` | ничего не запускается |
+| тихий (по умолчанию) | только предупреждения и ошибки | `log.level` | молчит |
+| `--verbose` / `runtime.verbose: true` | `info` | `log.level` | `--progress`, вывод идёт прямо в терминал |
+| `--debug` / `runtime.debug: true` | `debug`: каждая команда (включает verbose) | `log.level` | `--progress`, вывод в терминал |
+| `--dry-run` | `info` (печатается план) | `log.level` | ничего не запускается |
+
+Уровень файла задаётся только `log.level`; `verbose`/`debug` — про консоль.
+Хотите команды в файле — `log.level: debug`.
 
 Фоновый запуск из cron/systemd по умолчанию ничего не пишет в журнал, кроме
 предупреждений и ошибок; ход работы — в `log.file`. При `--verbose`/`--debug`

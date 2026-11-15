@@ -38,8 +38,11 @@ def build_parser():
                                                     "a live database (needs --yes)")
     p.add_argument("--yes", action="store_true", help="confirm destructive operations")
     p.add_argument("--verbose", action="store_true",
-                   help="info messages on the terminal and rclone --progress")
-    p.add_argument("--debug", action="store_true", help="debug messages, print every command")
+                   help="info messages on the terminal and rclone --progress "
+                        "(same as runtime.verbose: true)")
+    p.add_argument("--debug", action="store_true",
+                   help="debug messages, print every command; implies --verbose "
+                        "(same as runtime.debug: true)")
     p.add_argument("--selftest", action="store_true", help="run internal tests and exit")
     p.add_argument("--version", action="store_true", help="print version and exit")
     return p
@@ -73,8 +76,13 @@ def main(argv=None):
         return EXIT_CONFIG
 
     DRY = args.dry_run
-    VERBOSE = args.verbose or args.debug
-    setup_logging(cfg, args.verbose, args.debug, dry_run=args.dry_run)
+    verbose = args.verbose or cfg.verbose
+    debug = args.debug or cfg.debug
+    if debug:
+        verbose = True                 # debug implies verbose
+    VERBOSE = verbose
+    setup_logging(cfg, args.verbose or cfg.verbose, args.debug or cfg.debug,
+                  dry_run=args.dry_run)
     if not args.check:
         for warning in cfg.warnings:
             LOG.warning("%s", warning)
@@ -278,6 +286,11 @@ def check_config(cfg, args):
     print(f"  {_label('config', 10)} {cfg.path}")
     print(f"  {_label('defaults', 10)} {cfg.defaults_path or 'none (built-in defaults only)'}")
     print(f"  {_label('project', 10)} {cfg.project}")
+    console = ("debug" if (args.debug or cfg.debug)
+               else "verbose" if (args.verbose or cfg.verbose)
+               else "quiet (warnings and errors)")
+    print(f"  {_label('log', 10)} level {cfg.log_level}, file {cfg.log_file or 'none'}")
+    print(f"  {_label('console', 10)} {console}")
     print()
 
     print(f"  {_label('rclone')}")

@@ -13,7 +13,7 @@ SECTIONS = {
     "root": {"project", "log", "runtime", "rclone", "upstreams",
              "database", "storage", "archive", "incremental"},
     "log": {"level", "file"},
-    "runtime": {"temp_dir", "keep_temp"},
+    "runtime": {"temp_dir", "keep_temp", "verbose", "debug"},
     "rclone": {"binary", "args", "env", "s3-custom-options"},
     "upstream": {"config", "args", "env", "s3-custom-options"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
@@ -176,6 +176,8 @@ class Config:
     log_file: str | None = None
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
     keep_temp: bool = _default("runtime", "keep_temp")
+    verbose: bool = _default("runtime", "verbose")
+    debug: bool = _default("runtime", "debug")
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
     upstreams: dict = field(default_factory=dict)   # name -> UpstreamCfg
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
@@ -389,6 +391,10 @@ def load_config(path, env=None, defaults=None):
     cfg.temp_dir = Path(_as_str(rt.get("temp_dir"), "config.runtime.temp_dir", errors,
                                 _default("runtime", "temp_dir")))
     cfg.keep_temp = _as_bool(rt.get("keep_temp"), "config.runtime.keep_temp", errors)
+    cfg.verbose = _as_bool(rt.get("verbose"), "config.runtime.verbose", errors,
+                           _default("runtime", "verbose"))
+    cfg.debug = _as_bool(rt.get("debug"), "config.runtime.debug", errors,
+                         _default("runtime", "debug"))
 
     rl = data.get("rclone") or {}
     if not isinstance(rl, dict):

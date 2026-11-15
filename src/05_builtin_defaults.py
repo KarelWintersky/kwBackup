@@ -20,6 +20,8 @@ BUILTIN_DEFAULTS = {
     "runtime": {
         "temp_dir": "/tmp/kwbackup",
         "keep_temp": False,
+        "verbose": False,
+        "debug": False,
     },
     "rclone": {
         "binary": "rclone",

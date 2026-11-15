@@ -19,6 +19,8 @@ log:
 runtime:
   temp_dir: /tmp/kwbackup
   keep_temp: false          # true = не удалять локальную копию после заливки
+  verbose: false            # = --verbose: консоль на info + rclone --progress
+  debug: false              # = --debug: консоль на debug (включает verbose)
 
 rclone:
   binary: rclone

@@ -1,3 +1,22 @@
+kwbackup (0.99.56) unstable; urgency=medium
+
+  * feat(config): runtime.verbose and runtime.debug
+
+    The console mode can be set in the config, not only with CLI flags:
+    runtime.verbose (info + rclone --progress) and runtime.debug (debug, every
+    command; implies verbose). CLI flags still enable the same modes per run.
+
+    log.level/log.file now control the file only, as their names suggest: --debug
+    no longer forces debug into log.file. To get commands in the file, set
+    log.level: debug.
+
+    --check prints the effective log level/file and the console mode.
+
+    tests: verbose from config, debug implies verbose, console and file levels are
+    independent (48/48).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sun, 15 Nov 2026 09:15:17 +0300
+
 kwbackup (0.99.55) unstable; urgency=medium
 
   * docs: document the incremental task and --at

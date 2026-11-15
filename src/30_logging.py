@@ -13,20 +13,21 @@ class _Fmt(logging.Formatter):
 
 
 def setup_logging(cfg, verbose=False, debug=False, dry_run=False):
-    """The terminal is quiet by default: info goes to the log file only.
+    """log.level/log.file control the file, verbose/debug control the console.
 
-    no flags      terminal: warnings and errors, file: info
-    --verbose     terminal: info (plus rclone --progress), file: info
-    --debug       terminal and file: debug (every external command)
-    --dry-run     terminal: info, because the plan itself is the output
+    quiet (default)  terminal: warnings and errors, file: log.level
+    verbose          terminal: info (plus rclone --progress), file: log.level
+    debug            terminal: debug (every command; implies verbose)
+    dry-run          terminal: info, because the plan itself is the output
     """
     base = getattr(logging, cfg.log_level.upper())
+    file_level = base
     if debug:
-        console_level, file_level = logging.DEBUG, logging.DEBUG
+        console_level = logging.DEBUG
     elif verbose or dry_run:
-        console_level, file_level = min(base, logging.INFO), base
+        console_level = min(base, logging.INFO)
     else:
-        console_level, file_level = max(base, logging.WARNING), base
+        console_level = max(base, logging.WARNING)
 
     LOG.handlers.clear()
     LOG.propagate = False
