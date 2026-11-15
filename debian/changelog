@@ -1,3 +1,23 @@
+kwbackup (0.99.58) unstable; urgency=medium
+
+  * feat(config): disabled sections are parsed but not enforced
+
+    A section with enabled: false used to be fully validated, so a stale upstream
+    name or a half-written task broke every run, even --list and the action list.
+    Now its errors are collected in Config.deferred_errors instead of being fatal:
+    the action list marks the section "disabled, invalid config (see --check)" and
+    --verbose logs each problem, but the other tasks keep working.
+
+    --check still validates every section and exits 2. A run that would actually
+    execute the section is strict as well: --force and --restore by that section.
+    Errors in the enabled flag itself and in the root (project, upstreams, log,
+    runtime) stay fatal.
+
+    tests: disabled section is not enforced, bad enabled type is fatal, forced run
+    is strict, selftest for load_config(strict=True) (57/57, 36 embedded checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sun, 15 Nov 2026 09:46:07 +0300
+
 kwbackup (0.99.57) unstable; urgency=medium
 
   * feat(log): syslog as a sink next to the log file

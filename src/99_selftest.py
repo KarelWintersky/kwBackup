@@ -121,6 +121,18 @@ database:
         check("unknown key warns", any("nonsense" in w for w in cfg_w.warnings),
               cfg_w.warnings)
 
+        off = good.replace("enabled: true", "enabled: false").replace(
+            "targets: [r:/DB]", "targets: [nope:/DB]")
+        cfg_off = load_config(write(off))
+        check("disabled section deferred",
+              any("unknown upstream" in m for m in cfg_off.deferred_errors),
+              cfg_off.deferred_errors)
+        try:
+            load_config(write(off), strict=True)
+            check("disabled section strict", False, "strict accepted the error")
+        except ConfigError as exc:
+            check("disabled section strict", "unknown upstream" in str(exc), str(exc))
+
         typo = good.replace("databases: [db1]", "databeses: [db1]")
         try:
             load_config(write(typo))

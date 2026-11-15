@@ -111,7 +111,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
 | `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup --config FILE --check` | проверить конфиг и наличие бинарников |
+| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и бинарники |
 | `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |
 | `kwbackup --config FILE --verify [--all]` | скачать и проверить копию |
 | `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |
@@ -120,6 +120,11 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --restore --database --into-db db --yes` | залить в живую БД |
 | `kwbackup migrate old.conf -o new.yaml` | конвертировать bash-конфиг |
 | `kwbackup --selftest` | встроенные тесты |
+
+Секция с `enabled: false` не мешает запуску: её ошибки не фатальны, список
+действий помечает её `disabled, invalid config (see --check)`, а `--check`
+проверяет и её. Строгая проверка включается и тогда, когда секция реально
+выполняется — через `--force` или `--restore`.
 
 Полная справка: [`docs/usage.md`](docs/usage.md).
 Справочник по всем ключам конфига: [`docs/configuration.md`](docs/configuration.md).

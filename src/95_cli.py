@@ -69,8 +69,12 @@ def main(argv=None):
         print("ERROR: -c/--config is required", file=sys.stderr)
         return EXIT_USAGE
 
+    # Disabled sections are parsed but not enforced. They are enforced by
+    # --check and by runs that would actually execute them (--force, --restore).
+    requested = [name for name in ACTIONS if getattr(args, name)]
+    strict = args.check or bool(requested and (args.force or args.restore))
     try:
-        cfg = load_config(args.config, defaults=args.defaults)
+        cfg = load_config(args.config, defaults=args.defaults, strict=strict)
     except ConfigError as exc:
         print(f"{APP}: {exc}", file=sys.stderr)
         return EXIT_CONFIG
@@ -88,6 +92,8 @@ def main(argv=None):
             LOG.warning("%s", warning)
     LOG.debug("config: %s (project %s)", cfg.path, cfg.project)
     LOG.debug("defaults: %s", cfg.defaults_path or "none (built-in)")
+    for message in cfg.deferred_errors:
+        LOG.info("config: %s [section disabled: not enforced, see --check]", message)
 
     if args.check:
         return check_config(cfg, args)
@@ -168,6 +174,13 @@ def print_banner(stream=sys.stdout):
           f"(Version: {VERSION})", file=stream)
 
 
+def deferred_for(cfg, name):
+    """Config problems of a disabled section, if any."""
+    prefix = f"config.{name}"
+    return [m for m in cfg.deferred_errors
+            if m.startswith(prefix + ".") or m.startswith(prefix + ":")]
+
+
 def show_available_actions(cfg):
     """Same shape as the legacy shell script: one line per action, the
     option name highlighted, plus whether the action is usable in this file."""
@@ -179,10 +192,13 @@ def show_available_actions(cfg):
     reset = _ansi("\033[0m")
     print("No one backup action(s) requested. Allowed:")
     for name in ACTIONS:
+        bad = deferred_for(cfg, name)
         if getattr(cfg, name).enabled:
             state = f"{green}enabled{reset}"
         elif name in cfg.present_sections:
             state = f"{dim}disabled{reset}"
+            if bad:
+                state += f", {yellow}invalid config{reset} (see --check)"
         else:
             state = f"{dim}not configured{reset}"
         option = f"{yellow}{('--' + name):<10}{reset}"

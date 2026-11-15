@@ -1537,6 +1537,59 @@ def _syslog_drain(sock):
     return data
 
 
+def test_disabled_section_is_not_enforced():
+    env = Env()
+    try:
+        env.base_config(extra="""
+incremental:
+  enabled: false
+  root: /tmp
+  snapshot: /tmp/state.snar
+  targets: ["missing:/INCR"]
+  retention: {keep: 2}
+""")
+        out = env.run("-c", env.config)
+        assert "disabled" in out.stdout, out.stdout
+        assert "invalid config" in out.stdout, out.stdout
+        assert "see --check" in out.stdout, out.stdout
+        env.run("-c", env.config, "--list")            # reports still work
+        res = env.run("-c", env.config, "--check", expect=2)
+        assert "unknown upstream 'missing'" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def test_disabled_section_enabled_key_is_still_fatal():
+    env = Env()
+    try:
+        env.base_config(extra="""
+storage:
+  enabled: "yes"
+""")
+        res = env.run("-c", env.config, expect=2)
+        assert "config.storage.enabled" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def test_disabled_section_forced_run_is_strict():
+    env = Env()
+    try:
+        env.base_config(extra="""
+incremental:
+  enabled: false
+  root: /tmp
+  snapshot: /tmp/state.snar
+  targets: ["missing:/INCR"]
+  retention: {keep: 2}
+""")
+        env.run("-c", env.config, "-i")                # skipped, exit 0
+        res = env.run("-c", env.config, "-i", "--force", expect=2)
+        assert "unknown upstream 'missing'" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
 def test_syslog_sink_next_to_file():
     env = Env()
     try:
@@ -1689,6 +1742,9 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_runtime_verbose_from_config,
          test_runtime_debug_from_config_implies_verbose,
          test_console_and_file_levels_are_separate,
+         test_disabled_section_is_not_enforced,
+         test_disabled_section_enabled_key_is_still_fatal,
+         test_disabled_section_forced_run_is_strict,
          test_syslog_sink_next_to_file,
          test_syslog_respects_log_level,
          test_syslog_true_uses_system_socket,

@@ -179,6 +179,7 @@ class Config:
     defaults_path: Path | None = None
     present_sections: set = field(default_factory=set)   # seen in defaults/task, not builtins
     warnings: list = field(default_factory=list)         # unknown keys and the like
+    deferred_errors: list = field(default_factory=list)  # disabled sections, --check reports
     log_level: str = _default("log", "level")
     log_file: str | None = None
     log_syslog: bool | str = _default("log", "syslog")   # False | True | socket path
@@ -347,10 +348,32 @@ def _parse_retention(value, path, errors, warnings, mode_hint=None):
 
 
 
-def load_config(path, env=None, defaults=None):
+class _Errors(list):
+    """Fatal config errors; while parsing a disabled section they are deferred.
+
+    A disabled section is still parsed -- typos and stale upstream names must
+    not crash a host that has the task switched off -- but the messages are
+    kept in cfg.deferred_errors, shown by --list and enforced by --check.
+    """
+
+    def __init__(self, cfg, initial=()):
+        super().__init__(initial)
+        self.cfg = cfg
+        self.deferred = False
+
+    def append(self, message):
+        if self.deferred:
+            self.cfg.deferred_errors.append(message)
+        else:
+            super().append(message)
+
+
+def load_config(path, env=None, defaults=None, strict=False):
     """Read, merge with the defaults file and validate a config.
 
     Raises ConfigError with every problem found, not just the first one.
+    Sections with enabled: false are parsed but not enforced unless strict
+    (--check, or a run that would actually execute them).
     """
     path = Path(path)
     if env is not None:
@@ -370,14 +393,16 @@ def load_config(path, env=None, defaults=None):
     present_sections = set(raw)
     data = deep_merge(BUILTIN_DEFAULTS, raw)
 
-    errors, warnings = [], []
+    fatal, warnings = [], []
     _check_keys(data, "root", "config", warnings)
-    data = _expand_env(data, "config", errors)
+    data = _expand_env(data, "config", fatal)
 
-    cfg = Config(path=path, project=_as_str(data.get("project"), "config.project",
-                                            errors, required=True) or path.stem,
+    project = _as_str(data.get("project"), "config.project", fatal,
+                      required=True) or path.stem
+    cfg = Config(path=path, project=project,
                  defaults_path=chosen, present_sections=present_sections,
                  warnings=warnings)
+    errors = _Errors(cfg, fatal)
 
     log_raw = data.get("log") or {}
     if not isinstance(log_raw, dict):
@@ -454,9 +479,12 @@ def load_config(path, env=None, defaults=None):
 
     db = data.get("database") or {}
     if not isinstance(db, dict):
-        errors.append("config.database: expected a mapping")
+        (errors if strict else cfg.deferred_errors).append(
+            "config.database: expected a mapping")
         db = {}
     _check_keys(db, "database", "config.database", warnings)
+    db_enabled = _as_bool(db.get("enabled"), "config.database.enabled", errors)
+    errors.deferred = not (db_enabled or strict)
     retention_mode = _as_str(db.get("retention_mode"), "config.database.retention_mode", errors)
     if retention_mode not in (None, "keep", "max_age"):
         errors.append("config.database.retention_mode: expected keep or max_age")
@@ -491,7 +519,7 @@ def load_config(path, env=None, defaults=None):
                                           f"config.database.retention.{cls}",
                                           errors, warnings, retention_mode)
     cfg.database = DatabaseCfg(
-        enabled=_as_bool(db.get("enabled"), "config.database.enabled", errors),
+        enabled=db_enabled,
         mode=db_mode,
         type=db_type,
         host=_as_str(db.get("host"), "config.database.host", errors,
@@ -509,6 +537,7 @@ def load_config(path, env=None, defaults=None):
         s3_options=_as_s3_options(db.get("s3-custom-options"),
                                   "config.database.s3-custom-options", errors),
     )
+    errors.deferred = False
     if cfg.database.enabled and not cfg.database.databases:
         errors.append("config.database.databases: required when database.enabled is true")
     if cfg.database.enabled and not cfg.database.targets:
@@ -518,11 +547,14 @@ def load_config(path, env=None, defaults=None):
 
     st = data.get("storage") or {}
     if not isinstance(st, dict):
-        errors.append("config.storage: expected a mapping")
+        (errors if strict else cfg.deferred_errors).append(
+            "config.storage: expected a mapping")
         st = {}
     _check_keys(st, "storage", "config.storage", warnings)
+    st_enabled = _as_bool(st.get("enabled"), "config.storage.enabled", errors)
+    errors.deferred = not (st_enabled or strict)
     cfg.storage = StorageCfg(
-        enabled=_as_bool(st.get("enabled"), "config.storage.enabled", errors),
+        enabled=st_enabled,
         mode=_as_str(st.get("mode"), "config.storage.mode", errors,
                      _default("storage", "mode")) or "sync",
         targets=_as_targets(st.get("targets"), "config.storage.targets", errors,
@@ -532,14 +564,18 @@ def load_config(path, env=None, defaults=None):
         s3_options=_as_s3_options(st.get("s3-custom-options"),
                                   "config.storage.s3-custom-options", errors),
     )
+    errors.deferred = False
     if cfg.storage.enabled and (not cfg.storage.targets or not cfg.storage.sources):
         errors.append("config.storage: targets and sources are required when enabled")
 
     ar = data.get("archive") or {}
     if not isinstance(ar, dict):
-        errors.append("config.archive: expected a mapping")
+        (errors if strict else cfg.deferred_errors).append(
+            "config.archive: expected a mapping")
         ar = {}
     _check_keys(ar, "archive", "config.archive", warnings)
+    ar_enabled = _as_bool(ar.get("enabled"), "config.archive.enabled", errors)
+    errors.deferred = not (ar_enabled or strict)
     archive_mode = (_as_str(ar.get("mode"), "config.archive.mode", errors,
                             _default("archive", "mode")) or "copy").lower()
     if archive_mode != "copy":
@@ -551,7 +587,7 @@ def load_config(path, env=None, defaults=None):
         errors.append("config.archive.retention_mode: expected keep or max_age")
         ar_mode = None
     cfg.archive = ArchiveCfg(
-        enabled=_as_bool(ar.get("enabled"), "config.archive.enabled", errors),
+        enabled=ar_enabled,
         mode=archive_mode,
         compressor=(_as_str(ar.get("compressor"), "config.archive.compressor", errors,
                             _default("archive", "compressor")) or "zstd").lower(),
@@ -567,20 +603,24 @@ def load_config(path, env=None, defaults=None):
         s3_options=_as_s3_options(ar.get("s3-custom-options"),
                                   "config.archive.s3-custom-options", errors),
     )
+    errors.deferred = False
     if cfg.archive.enabled and (not cfg.archive.targets or not cfg.archive.root):
         errors.append("config.archive: targets and root are required when enabled")
 
     inc = data.get("incremental") or {}
     if not isinstance(inc, dict):
-        errors.append("config.incremental: expected a mapping")
+        (errors if strict else cfg.deferred_errors).append(
+            "config.incremental: expected a mapping")
         inc = {}
     _check_keys(inc, "incremental", "config.incremental", warnings)
+    inc_enabled = _as_bool(inc.get("enabled"), "config.incremental.enabled", errors)
+    errors.deferred = not (inc_enabled or strict)
     initial_day = _as_int(inc.get("initial_day"), "config.incremental.initial_day",
                           errors, _default("incremental", "initial_day"), minimum=1)
     if initial_day is not None and initial_day > 28:
         errors.append("config.incremental.initial_day: must be between 1 and 28")
     cfg.incremental = IncrementalCfg(
-        enabled=_as_bool(inc.get("enabled"), "config.incremental.enabled", errors),
+        enabled=inc_enabled,
         name=_as_str(inc.get("name"), "config.incremental.name", errors) or cfg.project,
         root=_as_str(inc.get("root"), "config.incremental.root", errors) or "",
         include=_as_list(inc.get("include"), "config.incremental.include", errors),
@@ -594,6 +634,7 @@ def load_config(path, env=None, defaults=None):
         s3_options=_as_s3_options(inc.get("s3-custom-options"),
                                   "config.incremental.s3-custom-options", errors),
     )
+    errors.deferred = False
     if cfg.incremental.enabled:
         if not cfg.incremental.root:
             errors.append("config.incremental.root: required when incremental.enabled is true")
