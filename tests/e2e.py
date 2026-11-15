@@ -1553,6 +1553,121 @@ class _HookServer:
         return self.server.requests
 
 
+def _hook_config(env, hooks, enabled=True, timeout=10):
+    src = env.dir / "src"
+    src.mkdir(exist_ok=True)
+    (src / "a.txt").write_text("a", encoding="utf-8")
+    return env.write_config(f"""
+project: hooktest
+log: {{level: info}}
+runtime: {{temp_dir: {env.tmp}, hook_timeout: {timeout}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+archive:
+  enabled: {str(enabled).lower()}
+  name: site
+  root: {src}
+  targets: ["fake:/A"]
+  retention: {{keep: 1}}
+{hooks}
+""")
+
+
+def test_hooks_run_in_order_with_env():
+    env = Env()
+    try:
+        order = env.dir / "order.txt"
+        envfile = env.dir / "env.txt"
+        _hook_config(env, f"""  before:
+    - "echo before1 >> {order}"
+    - "echo before2 >> {order}"
+    - "env | grep ^KWBACKUP_ | sort >> {envfile}"
+  after:
+    - "echo after:$KWBACKUP_STATUS >> {order}"
+""")
+        env.run("-c", env.config, "-a")
+        assert order.read_text().splitlines() == ["before1", "before2", "after:ok"], \
+            order.read_text()
+        values = envfile.read_text().splitlines()
+        for expected in ("KWBACKUP_ACTION=archive", "KWBACKUP_PHASE=before",
+                         "KWBACKUP_STATUS=starting", "KWBACKUP_PROJECT=hooktest",
+                         f"KWBACKUP_TASK_FILE={env.config}"):
+            assert expected in values, values
+    finally:
+        env.cleanup()
+
+
+def test_before_hook_failure_aborts_task():
+    env = Env()
+    try:
+        after = env.dir / "after.txt"
+        _hook_config(env, f"""  before:
+    - "exit 7"
+  after:
+    - "echo after:$KWBACKUP_STATUS >> {after}"
+""")
+        res = env.run("-c", env.config, "-a", expect=1)
+        assert "before hook failed" in res.stderr, res.stderr
+        assert after.read_text().strip() == "after:failed", after.read_text()
+        assert env.cloud_tree() == [], env.cloud_tree()
+    finally:
+        env.cleanup()
+
+
+def test_after_hook_failure_is_a_warning():
+    env = Env()
+    try:
+        _hook_config(env, """  after:
+    - "exit 3"
+""")
+        res = env.run("-c", env.config, "-a")
+        assert "after hook failed" in res.stderr, res.stderr
+        assert env.cloud_tree(), "the backup itself must succeed"
+    finally:
+        env.cleanup()
+
+
+def test_hook_timeout():
+    env = Env()
+    try:
+        _hook_config(env, """  before:
+    - "sleep 5"
+""", timeout=1)
+        started = time.monotonic()
+        res = env.run("-c", env.config, "-a", expect=1)
+        assert "timed out" in res.stderr, res.stderr
+        assert time.monotonic() - started < 5
+    finally:
+        env.cleanup()
+
+
+def test_hooks_skipped_on_dry_run():
+    env = Env()
+    try:
+        marker = env.dir / "ran.txt"
+        _hook_config(env, f"""  before:
+    - "echo ran >> {marker}"
+""")
+        env.run("-c", env.config, "-a", "--dry-run")
+        assert not marker.exists(), "dry-run must not execute hooks"
+    finally:
+        env.cleanup()
+
+
+def test_hooks_not_run_for_disabled_task():
+    env = Env()
+    try:
+        marker = env.dir / "ran.txt"
+        _hook_config(env, f"""  before:
+    - "echo ran >> {marker}"
+""", enabled=False)
+        res = env.run("-c", env.config, "-a")
+        assert "disabled" in res.stderr, res.stderr
+        assert not marker.exists(), "a disabled task must not run hooks"
+    finally:
+        env.cleanup()
+
+
 def _notify_config(env, hook_url, on="[failure]", broken=False, root=None):
     upstream = (f"  broken: {{config: {env.dir / 'broken.conf'}}}"
                 if broken else "  fake: {}")
@@ -1890,6 +2005,12 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_hooks_run_in_order_with_env,
+         test_before_hook_failure_aborts_task,
+         test_after_hook_failure_is_a_warning,
+         test_hook_timeout,
+         test_hooks_skipped_on_dry_run,
+         test_hooks_not_run_for_disabled_task,
          test_notify_webhook_on_failure,
          test_notify_success_only,
          test_notify_empty_on_is_silent,

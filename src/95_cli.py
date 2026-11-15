@@ -146,7 +146,7 @@ def main(argv=None):
     try:
         for name in actions:
             handler, template = handlers[name]
-            stats = handler(cfg, args)
+            stats = run_action(cfg, name, args, handler)
             if stats.get("skipped"):
                 continue
             fields = dict(stats)
@@ -308,6 +308,10 @@ def _print_section(cfg, name, section):
         row("include", ", ".join(section.include) or "(none)")
         row("exclude", ", ".join(section.exclude) or "(none)")
 
+    for phase in ("before", "after"):
+        commands = getattr(section, phase, None) or []
+        if commands:
+            row(phase, f"{len(commands)} hook(s)")
     overrides = _s3_overrides(cfg, section)
     if overrides:
         colored = " ".join(_color(part, chr(27) + "[33m") for part in overrides)

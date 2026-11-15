@@ -133,6 +133,24 @@ database:
         except ConfigError as exc:
             check("disabled section strict", "unknown upstream" in str(exc), str(exc))
 
+        with_hooks = good + """
+archive:
+  enabled: false
+  before: ["echo a", "echo b"]
+  after: ["echo c"]
+"""
+        cfg_h = load_config(write(with_hooks))
+        check("hooks parsed", cfg_h.archive.before == ["echo a", "echo b"]
+              and cfg_h.archive.after == ["echo c"], cfg_h.archive.before)
+        try:
+            load_config(write(good + "\narchive:\n  enabled: false\n  before: 5\n"),
+                       strict=True)
+            check("hook type validated", False, "accepted a number as a hook")
+        except ConfigError as exc:
+            check("hook type validated", "before" in str(exc), str(exc))
+        cfg_t = load_config(write(good + "\nruntime:\n  hook_timeout: 30\n"))
+        check("hook timeout", cfg_t.hook_timeout == 30, cfg_t.hook_timeout)
+
         with_notify = good + """
 notify:
   on: [success]

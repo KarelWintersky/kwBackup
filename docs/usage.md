@@ -156,6 +156,30 @@ kwbackup --config /etc/kwbackup/blog.yaml --database &
 Один и тот же проект параллельно не запустится: второй процесс получит
 код 4 (`already running (pid=..., since=..., config=...)`).
 
+## Хуки до и после
+
+У каждой задачи сценария можно задать `before` и `after` — массивы команд
+для `/bin/sh -c`:
+
+```yaml
+database:
+  before: ["redis-cli BGSAVE"]
+  after:  ["redis-cli CONFIG REWRITE"]
+archive:
+  before: ["touch /srv/app/maintenance.on"]
+  after:  ["rm -f /srv/app/maintenance.on"]
+```
+
+Окружение хука: `KWBACKUP_PROJECT`, `KWBACKUP_ACTION`, `KWBACKUP_PHASE`,
+`KWBACKUP_STATUS` (`starting` для before, `ok`/`failed` для after),
+`KWBACKUP_TASK_FILE`.
+
+* `before` — по порядку, первый сбой отменяет задачу (код 1);
+* `after` — всегда, включая упавший `before`; его ошибки только предупреждают;
+* таймаут — `runtime.hook_timeout`, по умолчанию 60 с;
+* `--dry-run` и выключенная задача хуки не запускают; при занятой блокировке
+  `after` не вызывается.
+
 ## Расписание
 
 ### systemd

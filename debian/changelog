@@ -1,3 +1,32 @@
+kwbackup (0.99.62) unstable; urgency=medium
+
+  * feat(hooks): before/after commands per task
+
+    Each task in a scenario (database, storage, archive, incremental) accepts
+    before: and after: lists of shell commands, run via /bin/sh -c with
+    KWBACKUP_PROJECT, KWBACKUP_ACTION, KWBACKUP_PHASE, KWBACKUP_STATUS and
+    KWBACKUP_TASK_FILE in the environment.
+
+    before runs in order and the first failure aborts the task (exit 1, reported
+    as a structured notification failure). after runs always - after success,
+    after a task error and after a failed before - and its failures are warnings
+    that never change the exit code. One hook is limited by runtime.hook_timeout
+    (60s); on timeout the whole process group is killed.
+
+    Hooks are skipped for --dry-run and for a disabled task without --force;
+    after is skipped when the lock is busy, because nothing was done. Hook output
+    goes to the log: stdout at info, stderr at debug, stderr of a failed hook is
+    included in the error message.
+
+    --check shows the hook counts per task. Terminology fixed in the docs: the
+    YAML file is a scenario, database/storage/archive/incremental are its tasks.
+
+    tests: order and environment, before failure aborts (after still runs),
+    after failure is a warning, timeout, dry-run, disabled task (68/68 e2e,
+    52 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Mon, 16 Nov 2026 00:33:53 +0300
+
 kwbackup (0.99.61) unstable; urgency=medium
 
   * feat(notify): mail, webhook and telegram notifications

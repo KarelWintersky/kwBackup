@@ -3,6 +3,9 @@
 Полный пример со всеми ключами: [`examples/full.yaml`](../examples/full.yaml).
 Проверка файла: `kwbackup --config FILE --check`.
 
+Терминология: файл YAML — **сценарий**, а `database`, `storage`, `archive` и
+`incremental` — **задачи** внутри него.
+
 ## Слои конфигурации
 
 ```
@@ -134,6 +137,7 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | `keep_temp` | bool | `false` | `true` — не удалять локальный файл после заливки |
 | `verbose` | bool | `false` | консоль на `info` + rclone `--progress` (как `--verbose`) |
 | `debug` | bool | `false` | консоль на `debug`, печать команд; включает `verbose` |
+| `hook_timeout` | int | `60` | таймаут одного `before`/`after`-хука, секунды |
 
 `temp_dir` должен быть на диске с запасом: одновременно живёт один файл
 дампа или архива.
@@ -278,7 +282,7 @@ upstreams:
 
 | Ключ | Тип | По умолчанию | Смысл |
 |---|---|---|---|
-| `enabled` | bool | `false` | включает сценарий |
+| `enabled` | bool | `false` | включает задачу |
 | `type` | enum | `mysql` | `mysql` \| `mariadb` \| `postgres` \| `pgsql` \| `sqlite` |
 | `host` | str | `localhost` | для sqlite — путь к файлу `.db` |
 | `port` | int | не задан | если не задан — клиент использует свой |
@@ -294,6 +298,8 @@ upstreams:
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для БД |
 | `retention_mode` | enum | нет | `keep` \| `max_age`: запрет смешивать |
 | `retention` | map | обяз. при `enabled` | см. «Ротация» |
+| `before` | list | `[]` | команды до задачи, см. «Хуки» |
+| `after` | list | `[]` | команды после задачи, см. «Хуки» |
 
 ### Дамп
 
@@ -406,10 +412,12 @@ weekly при следующем запуске. По умолчанию вык�
 
 | Ключ | Тип | По умолчанию | Смысл |
 |---|---|---|---|
-| `enabled` | bool | `false` | включает сценарий |
+| `enabled` | bool | `false` | включает задачу |
 | `mode` | enum | `sync` | `sync` — зеркало; `copy` — только добавлять |
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `sources` | list | обяз. при `enabled` | любое количество источников, см. ниже |
+| `before` | list | `[]` | команды до задачи, см. «Хуки» |
+| `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для storage |
 
 `sources` — список, источников может быть **сколько угодно**, элементы
@@ -456,7 +464,7 @@ storage:
 
 | Ключ | Тип | По умолчанию | Смысл |
 |---|---|---|---|
-| `enabled` | bool | `false` | включает сценарий |
+| `enabled` | bool | `false` | включает задачу |
 | `compressor` | enum | `zstd` | `zstd` \| `gzip` \| `pigz` \| `rar` \| `none` |
 | `compressor_args` | list | `[]` | например `["-9"]` |
 | `name` | str | имя `project` | префикс файла: `<name>_<timestamp>.tar.zst` |
@@ -467,6 +475,8 @@ storage:
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `retention` | map | нет | `{keep: N}` или `{max_age: 7d}` |
 | `retention_mode` | enum | нет | `keep` \| `max_age` |
+| `before` | list | `[]` | команды до задачи, см. «Хуки» |
+| `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для архива |
 
 * `include: ["*"]` (по умолчанию) — весь каталог, **включая dotfiles**
@@ -506,6 +516,8 @@ storage:
 | `initial_day` | int | `1` | день месяца (1..28), с которого начинается цепочка |
 | `snapshot` | str | обяз. при `enabled` | файл состояния GNU tar |
 | `retention` | map | обяз. при `enabled` | `{keep: 3}` (цепочки) или `{max_age: 180d}` |
+| `before` | list | `[]` | команды до задачи, см. «Хуки» |
+| `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает апстрим для этой задачи |
 
 Имена файлов: `<name>_<YYYY-MM>_full_<ts>.tar` и `<name>_<YYYY-MM>_inc_<ts>.tar`.
@@ -517,6 +529,41 @@ storage:
 а восстановление возьмёт самый новый `full_*` и инкременты после него.
 
 Ротация удаляет цепочку целиком (все её файлы), никогда отдельный инкремент.
+
+## Хуки
+
+`before` и `after` есть у каждой задачи сценария (`database`, `storage`,
+`archive`, `incremental`). Это массивы shell-команд, каждая выполняется через
+`/bin/sh -c`.
+
+| Переменная | Значение |
+|---|---|
+| `KWBACKUP_PROJECT` | `project` из сценария |
+| `KWBACKUP_ACTION` | `database` \| `storage` \| `archive` \| `incremental` |
+| `KWBACKUP_PHASE` | `before` \| `after` |
+| `KWBACKUP_STATUS` | `starting` для `before`; `ok` \| `failed` для `after` |
+| `KWBACKUP_TASK_FILE` | полный путь к файлу сценария |
+
+* `before` выполняется по порядку; первый ненулевой код отменяет задачу
+  (код 1), а в уведомление попадает `before hook failed (exit N)`;
+* `after` выполняется **всегда** — после успеха, после ошибки и после
+  упавшего `before`; его ошибки только предупреждают и код не меняют;
+* таймаут одного хука — `runtime.hook_timeout` (60 с), по истечении
+  убивается вся группа процессов;
+* `--dry-run` хуки не выполняет; выключенная задача без `--force` — тоже;
+* `before` выполняется до взятия блокировки; если задача не запустилась
+  из-за занятой блокировки, `after` не вызывается;
+* stdout хука пишется в лог на `info`, stderr — на `debug`; при ошибке
+  stderr попадает в сообщение.
+
+```yaml
+archive:
+  before: ["touch /srv/app/maintenance.on"]
+  after:  ["rm -f /srv/app/maintenance.on"]
+
+database:
+  before: ["redis-cli BGSAVE"]
+```
 
 ## Выключенные секции
 

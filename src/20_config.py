@@ -20,19 +20,21 @@ SECTIONS = {
     "root": {"project", "log", "runtime", "rclone", "upstreams", "notify",
              "database", "storage", "archive", "incremental"},
     "log": {"level", "file", "syslog", "facility"},
-    "runtime": {"temp_dir", "keep_temp", "verbose", "debug"},
+    "runtime": {"temp_dir", "keep_temp", "verbose", "debug", "hook_timeout"},
     "rclone": {"binary", "args", "env", "s3-custom-options"},
     "upstream": {"config", "args", "env", "s3-custom-options"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
                  "args", "compressor", "compressor_args", "targets", "mode",
                  "databases", "retention", "retention_mode", "catch_up",
-                 "s3-custom-options"},
-    "storage": {"enabled", "mode", "targets", "sources", "s3-custom-options"},
+                 "before", "after", "s3-custom-options"},
+    "storage": {"enabled", "mode", "targets", "sources", "before", "after",
+                "s3-custom-options"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "targets", "mode", "retention",
-                "retention_mode", "s3-custom-options"},
+                "retention_mode", "before", "after", "s3-custom-options"},
     "incremental": {"enabled", "name", "root", "include", "exclude", "targets",
-                    "initial_day", "snapshot", "retention", "s3-custom-options"},
+                    "initial_day", "snapshot", "retention", "before", "after",
+                    "s3-custom-options"},
     "notify": {"on", "retries", "retry_delay", "timeout",
                "mail", "webhook", "telegram"},
     "mail": {"to", "from", "smtp_host", "port", "tls", "user_env", "password_env"},
@@ -137,6 +139,8 @@ class DatabaseCfg:
     databases: list = field(default_factory=list)
     retention: dict = field(default_factory=dict)      # class -> Retention | None
     catch_up: bool = _default("database", "catch_up")
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -146,6 +150,8 @@ class StorageCfg:
     mode: str = _default("storage", "mode")
     targets: list = field(default_factory=list)
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -161,6 +167,8 @@ class ArchiveCfg:
     exclude: list = field(default_factory=list)
     targets: list = field(default_factory=list)
     retention: Retention | None = None
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -175,6 +183,8 @@ class IncrementalCfg:
     initial_day: int = _default("incremental", "initial_day")
     snapshot: str = ""
     retention: Retention | None = None
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -231,6 +241,7 @@ class Config:
     keep_temp: bool = _default("runtime", "keep_temp")
     verbose: bool = _default("runtime", "verbose")
     debug: bool = _default("runtime", "debug")
+    hook_timeout: int = _default("runtime", "hook_timeout")
     rclone: RcloneCfg = field(default_factory=RcloneCfg)
     upstreams: dict = field(default_factory=dict)   # name -> UpstreamCfg
     database: DatabaseCfg = field(default_factory=DatabaseCfg)
@@ -634,6 +645,9 @@ def load_config(path, env=None, defaults=None, strict=False):
                            _default("runtime", "verbose"))
     cfg.debug = _as_bool(rt.get("debug"), "config.runtime.debug", errors,
                          _default("runtime", "debug"))
+    cfg.hook_timeout = _as_int(rt.get("hook_timeout"),
+                               "config.runtime.hook_timeout", errors,
+                               _default("runtime", "hook_timeout"), minimum=1)
     cfg.notify = _parse_notify(data, errors, warnings)
 
     rl = data.get("rclone") or {}
@@ -716,6 +730,8 @@ def load_config(path, env=None, defaults=None, strict=False):
         databases=_as_list(db.get("databases"), "config.database.databases", errors),
         retention=retention,
         catch_up=_as_bool(db.get("catch_up"), "config.database.catch_up", errors),
+        before=_as_list(db.get("before"), "config.database.before", errors),
+        after=_as_list(db.get("after"), "config.database.after", errors),
         s3_options=_as_s3_options(db.get("s3-custom-options"),
                                   "config.database.s3-custom-options", errors),
     )
@@ -743,6 +759,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                             cfg.upstreams),
         sources=_as_sources(st.get("sources"), "config.storage.sources",
                             errors, warnings),
+        before=_as_list(st.get("before"), "config.storage.before", errors),
+        after=_as_list(st.get("after"), "config.storage.after", errors),
         s3_options=_as_s3_options(st.get("s3-custom-options"),
                                   "config.storage.s3-custom-options", errors),
     )
@@ -782,6 +800,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                             cfg.upstreams),
         retention=_parse_retention(ar.get("retention"), "config.archive.retention",
                                    errors, warnings, ar_mode),
+        before=_as_list(ar.get("before"), "config.archive.before", errors),
+        after=_as_list(ar.get("after"), "config.archive.after", errors),
         s3_options=_as_s3_options(ar.get("s3-custom-options"),
                                   "config.archive.s3-custom-options", errors),
     )
@@ -813,6 +833,8 @@ def load_config(path, env=None, defaults=None, strict=False):
         snapshot=_as_str(inc.get("snapshot"), "config.incremental.snapshot", errors) or "",
         retention=_parse_retention(inc.get("retention"), "config.incremental.retention",
                                    errors, warnings),
+        before=_as_list(inc.get("before"), "config.incremental.before", errors),
+        after=_as_list(inc.get("after"), "config.incremental.after", errors),
         s3_options=_as_s3_options(inc.get("s3-custom-options"),
                                   "config.incremental.s3-custom-options", errors),
     )

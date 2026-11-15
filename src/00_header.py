@@ -40,6 +40,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import smtplib
 import socket
 import stat

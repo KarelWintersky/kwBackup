@@ -24,6 +24,7 @@ BUILTIN_DEFAULTS = {
         "keep_temp": False,
         "verbose": False,
         "debug": False,
+        "hook_timeout": 60,
     },
     "rclone": {
         "binary": "rclone",

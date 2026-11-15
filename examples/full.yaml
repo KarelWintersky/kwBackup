@@ -131,6 +131,10 @@ database:
       keep: 12            # эквивалент DB_MIN_AGE_MONTHLY=360d
     # daily: false        # класс отключён
 
+  # Хуки вокруг задачи: массив команд для /bin/sh -c, окружение KWBACKUP_*.
+  # before: ["redis-cli BGSAVE"]
+  # after: ["redis-cli CONFIG REWRITE"]
+
 # ---------------------------------------------------------------- storage
 storage:
   enabled: false
@@ -169,6 +173,8 @@ archive:
     - s3b:/ARCHIVE
   retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
   # retention_mode: keep
+  # before: ["touch /srv/app/maintenance.on"]
+  # after: ["rm -f /srv/app/maintenance.on"]
 
 # ---------------------------------------------------------------- инкремент
 incremental:

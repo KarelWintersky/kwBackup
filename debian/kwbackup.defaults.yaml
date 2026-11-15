@@ -24,6 +24,7 @@ runtime:
   keep_temp: false          # true = не удалять локальную копию после заливки
   verbose: false            # = --verbose: консоль на info + rclone --progress
   debug: false              # = --debug: консоль на debug (включает verbose)
+  hook_timeout: 60          # таймаут одного before/after-хука, секунды
 
 # Уведомления. Пустой `on` (или отсутствие каналов) = полностью выключено,
 # включая записи в лог. Сообщение содержит только: файл задачи, проект, хост,
