@@ -185,21 +185,40 @@ sudo install -m 644 examples/cron/kwbackup /etc/cron.d/kwbackup
 
 ## Подробность вывода
 
-| Режим | Терминал (stderr) | Лог-файл | rclone |
+| Режим | Терминал (stderr) | Стоки (`file`, `syslog`) | rclone |
 |---|---|---|---|
 | тихий (по умолчанию) | только предупреждения и ошибки | `log.level` | молчит |
 | `--verbose` / `runtime.verbose: true` | `info` | `log.level` | `--progress`, вывод идёт прямо в терминал |
 | `--debug` / `runtime.debug: true` | `debug`: каждая команда (включает verbose) | `log.level` | `--progress`, вывод в терминал |
 | `--dry-run` | `info` (печатается план) | `log.level` | ничего не запускается |
 
-Уровень файла задаётся только `log.level`; `verbose`/`debug` — про консоль.
-Хотите команды в файле — `log.level: debug`.
+Уровень стоков задаётся только `log.level`; `verbose`/`debug` — про консоль.
+Хотите команды в файле или в syslog — `log.level: debug`.
 
-Фоновый запуск из cron/systemd по умолчанию ничего не пишет в журнал, кроме
-предупреждений и ошибок; ход работы — в `log.file`. При `--verbose`/`--debug`
+Фоновый запуск из cron/systemd по умолчанию ничего не пишет в терминал, кроме
+предупреждений и ошибок; ход работы — в `log.file` или в syslog. При `--verbose`/`--debug`
 rclone запускается с наследованием терминала, поэтому прогресс и статистика
 видны сразу; без флагов его вывод захватывается и попадает в сообщение только
 при ошибке.
+
+### syslog / journald
+
+```yaml
+log:
+  level: info
+  syslog: true           # /dev/log; при его отсутствии — localhost:514/udp
+  facility: daemon
+```
+
+```bash
+journalctl -t kwbackup -f                    # следить
+journalctl -t kwbackup --since today -p warning
+```
+
+`file` при этом можно убрать — сообщения пойдут только в syslog. В контейнере
+без `/dev/log` укажите сокет явно: `syslog: /run/syslog.sock`. `log.level`
+действует на syslog так же, как на файл, а `runtime.verbose`/`debug` — только
+на консоль.
 
 ## Мониторинг
 
@@ -287,7 +306,7 @@ kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 ## Логи и блокировки
 
 ```
-/var/log/kwbackup/<project>.log          # если задан log.file
+/var/log/kwbackup/<project>.log          # если задан log.file (или log.syslog)
 /run/kwbackup/<project>.db.<db>.lock
 /run/kwbackup/<project>.storage.lock
 /run/kwbackup/<project>.archive.lock

@@ -15,6 +15,9 @@
 log:
   level: info
   file: /var/log/kwbackup/kwbackup.log
+  syslog: false             # true = системный сокет /dev/log; можно путь к сокету
+  facility: daemon          # кем писать в syslog: daemon, user, local0..local7 ...
+                            # оба стока независимы: можно писать в файл и в syslog
 
 runtime:
   temp_dir: /tmp/kwbackup

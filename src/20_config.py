@@ -9,10 +9,17 @@ class ConfigError(Exception):
 # Validation schema: the allowed keys of every section. Anything else is a
 # warning with the list of valid keys - a typo stays visible, but an old file
 # with a leftover key still runs. Missing or invalid values remain fatal.
+# syslog facilities accepted in log.facility (logging.handlers.SysLogHandler names)
+SYSLOG_FACILITIES = ("auth", "authpriv", "cron", "daemon", "ftp", "kern", "lpr",
+                     "mail", "news", "syslog", "user", "uucp",
+                     "local0", "local1", "local2", "local3", "local4",
+                     "local5", "local6", "local7")
+
+
 SECTIONS = {
     "root": {"project", "log", "runtime", "rclone", "upstreams",
              "database", "storage", "archive", "incremental"},
-    "log": {"level", "file"},
+    "log": {"level", "file", "syslog", "facility"},
     "runtime": {"temp_dir", "keep_temp", "verbose", "debug"},
     "rclone": {"binary", "args", "env", "s3-custom-options"},
     "upstream": {"config", "args", "env", "s3-custom-options"},
@@ -174,6 +181,8 @@ class Config:
     warnings: list = field(default_factory=list)         # unknown keys and the like
     log_level: str = _default("log", "level")
     log_file: str | None = None
+    log_syslog: bool | str = _default("log", "syslog")   # False | True | socket path
+    log_facility: str = _default("log", "facility")
     temp_dir: Path = Path(_default("runtime", "temp_dir"))
     keep_temp: bool = _default("runtime", "keep_temp")
     verbose: bool = _default("runtime", "verbose")
@@ -382,6 +391,30 @@ def load_config(path, env=None, defaults=None):
         level = "info"
     cfg.log_level = level
     cfg.log_file = _as_str(log_raw.get("file"), "config.log.file", errors)
+
+    syslog = log_raw.get("syslog")
+    if syslog is None:
+        cfg.log_syslog = _default("log", "syslog")
+    elif isinstance(syslog, bool):
+        cfg.log_syslog = syslog
+    elif isinstance(syslog, str):
+        if not syslog.strip():
+            errors.append("config.log.syslog: expected true/false or a socket path")
+            cfg.log_syslog = False
+        else:
+            cfg.log_syslog = syslog.strip()
+    else:
+        errors.append("config.log.syslog: expected true/false or a socket path, "
+                      f"got {type(syslog).__name__}")
+        cfg.log_syslog = False
+
+    facility = (_as_str(log_raw.get("facility"), "config.log.facility", errors,
+                        _default("log", "facility")) or "daemon").lower()
+    if facility not in SYSLOG_FACILITIES:
+        errors.append(f"config.log.facility: unknown facility {facility!r} "
+                      f"(allowed: {', '.join(SYSLOG_FACILITIES)})")
+        facility = "daemon"
+    cfg.log_facility = facility
 
     rt = data.get("runtime") or {}
     if not isinstance(rt, dict):

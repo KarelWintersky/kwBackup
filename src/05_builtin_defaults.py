@@ -16,6 +16,8 @@
 BUILTIN_DEFAULTS = {
     "log": {
         "level": "info",
+        "syslog": False,
+        "facility": "daemon",
     },
     "runtime": {
         "temp_dir": "/tmp/kwbackup",

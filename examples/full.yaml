@@ -19,8 +19,10 @@ project: example          # имя проекта: lock-файлы (/run/kwbacku
 # ---------------------------------------------------------------- логирование
 log:
   level: info             # debug | info | warning | error (по умолчанию info)
-  file: /var/log/kwbackup/example.log   # необязательно; вывод идёт и в stderr
-                          # каталог создаётся автоматически
+  file: /var/log/kwbackup/example.log   # необязательно; каталог создаётся
+  syslog: false           # true = /dev/log (journald); можно путь к сокету
+  facility: daemon        # кем писать в syslog: daemon, user, local0..local7
+                          # file и syslog независимы; консоль — runtime.verbose
 
 # ---------------------------------------------------------------- окружение
 runtime:

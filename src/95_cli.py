@@ -289,7 +289,13 @@ def check_config(cfg, args):
     console = ("debug" if (args.debug or cfg.debug)
                else "verbose" if (args.verbose or cfg.verbose)
                else "quiet (warnings and errors)")
-    print(f"  {_label('log', 10)} level {cfg.log_level}, file {cfg.log_file or 'none'}")
+    if cfg.log_syslog:
+        where = "system socket" if cfg.log_syslog is True else cfg.log_syslog
+        syslog = f"syslog {cfg.log_facility} ({where})"
+    else:
+        syslog = "syslog off"
+    print(f"  {_label('log', 10)} level {cfg.log_level}, "
+          f"file {cfg.log_file or 'none'}, {syslog}")
     print(f"  {_label('console', 10)} {console}")
     print()
 

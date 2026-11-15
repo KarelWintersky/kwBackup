@@ -10,6 +10,7 @@ that print SQL. Real tar/zstd/gzip are used.
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1518,6 +1519,152 @@ database:
         env.cleanup()
 
 
+def _syslog_listener(path):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    sock.bind(str(path))
+    sock.settimeout(1.0)
+    return sock
+
+
+def _syslog_drain(sock):
+    data = b""
+    while True:
+        try:
+            data += sock.recv(65535)
+        except socket.timeout:
+            break
+    sock.close()
+    return data
+
+
+def test_syslog_sink_next_to_file():
+    env = Env()
+    try:
+        path = env.dir / "syslog.sock"
+        listener = _syslog_listener(path)
+        logfile = env.dir / "kwbackup.log"
+        env.write_config(f"""
+project: sylog
+log: {{level: info, file: {logfile}, syslog: "{path}", facility: local0}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        env.run("-c", env.config, "-d")
+        data = _syslog_drain(listener)
+        assert data.startswith(b"<134>"), data          # local0 (16) * 8 + info (6)
+        assert b"kwbackup[" in data, data               # tag = SYSLOG_IDENTIFIER
+        assert b"dumping" in data, data
+        assert "dumping" in logfile.read_text(encoding="utf-8"), "file sink must stay"
+    finally:
+        env.cleanup()
+
+
+def test_syslog_respects_log_level():
+    env = Env()
+    try:
+        path = env.dir / "syslog.sock"
+        listener = _syslog_listener(path)
+        env.write_config(f"""
+project: sylog
+log: {{level: error, syslog: "{path}"}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+        env.run("-c", env.config, "-d")
+        data = _syslog_drain(listener)
+        assert b"INFO" not in data, data
+    finally:
+        env.cleanup()
+
+
+def test_syslog_true_uses_system_socket():
+    env = Env()
+    try:
+        env.base_config(extra="")
+        task = env.dir / "task.yaml"
+        task.write_text(f"""
+project: sylog
+log: {{level: info, syslog: true}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+""", encoding="utf-8")
+        out = env.run("-c", task, "--check")
+        assert "syslog daemon (system socket)" in out.stdout, out.stdout
+    finally:
+        env.cleanup()
+
+
+def _syslog_task(env, log_line):
+    return env.write_config(f"""
+project: sylog
+log: {log_line}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 2}}}}
+""")
+
+
+def test_syslog_missing_socket_is_a_warning():
+    env = Env()
+    try:
+        _syslog_task(env, f'{{level: info, syslog: "{env.dir / "nope.sock"}"}}')
+        res = env.run("-c", env.config, "-d")
+        assert "not found" in res.stderr, res.stderr
+        assert env.cloud_tree(), "backup must still run"
+    finally:
+        env.cleanup()
+
+
+def test_syslog_dead_socket_does_not_break_run():
+    """A socket file without a reader refuses datagrams; the run must survive."""
+    env = Env()
+    try:
+        path = env.dir / "dead.sock"
+        _syslog_listener(path).close()          # the path stays, nobody listens
+        _syslog_task(env, f'{{level: info, syslog: "{path}"}}')
+        res = env.run("-c", env.config, "-d")
+        assert "syslog" in res.stderr, res.stderr
+        assert env.cloud_tree(), "backup must still run"
+    finally:
+        env.cleanup()
+
+
+def test_syslog_bad_facility_is_fatal():
+    env = Env()
+    try:
+        env.base_config(extra="")
+        task = env.dir / "task.yaml"
+        task.write_text(f"""
+project: sylog
+log: {{level: info, syslog: true, facility: local9}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+""", encoding="utf-8")
+        res = env.run("-c", task, "--check", expect=2)
+        assert "facility" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
@@ -1542,6 +1689,12 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_runtime_verbose_from_config,
          test_runtime_debug_from_config_implies_verbose,
          test_console_and_file_levels_are_separate,
+         test_syslog_sink_next_to_file,
+         test_syslog_respects_log_level,
+         test_syslog_true_uses_system_socket,
+         test_syslog_missing_socket_is_a_warning,
+         test_syslog_dead_socket_does_not_break_run,
+         test_syslog_bad_facility_is_fatal,
          test_multiple_upstreams_upload, test_upstream_failure_keeps_going,
          test_restore_from_upstream, test_unknown_upstream_rejected,
          test_shared_target_keeps_foreign_archives,

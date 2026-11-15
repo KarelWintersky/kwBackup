@@ -1,3 +1,27 @@
+kwbackup (0.99.57) unstable; urgency=medium
+
+  * feat(log): syslog as a sink next to the log file
+
+    log.syslog: true sends records to the system socket (/dev/log, on systemd
+    journald; /var/run/syslog and localhost:514/udp as fallbacks). A string instead
+    of true is an explicit socket path, which is what containers and tests need.
+    log.facility (daemon by default) selects the syslog facility.
+
+    file and syslog are independent sinks: enable both, either one or none. Both
+    obey log.level, so runtime.verbose and runtime.debug still affect the console
+    only. Records carry the tag kwbackup[pid], which makes journalctl -t kwbackup
+    and rsyslog programname rules work.
+
+    A missing socket, a dead one or a failing emit degrades to a single warning
+    instead of a logging traceback in the middle of a run.
+
+    --check prints the syslog destination next to the log level and file.
+
+    tests: syslog sink next to the file (facility, tag, level), log.level filter,
+    true -> system socket, missing socket, dead socket, bad facility (54/54).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sun, 15 Nov 2026 09:31:29 +0300
+
 kwbackup (0.99.56) unstable; urgency=medium
 
   * feat(config): runtime.verbose and runtime.debug

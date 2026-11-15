@@ -89,26 +89,42 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 |---|---|---|---|
 | `level` | enum | `info` | `debug` \| `info` \| `warning` \| `error` |
 | `file` | str | нет | путь к файлу лога; каталог создаётся |
+| `syslog` | bool \| str | `false` | `true` — системный сокет; строка — путь к сокету |
+| `facility` | enum | `daemon` | `daemon`, `user`, `local0`…`local7`, `auth`, `cron`, `mail`, `news`, `uucp`, `ftp`, `lpr`, `kern`, `authpriv`, `syslog` |
 
-**`log.level`/`log.file` управляют файлом, `runtime.verbose`/`runtime.debug` —
+**`log.*` управляют стоками (файл и syslog), `runtime.verbose`/`runtime.debug` —
 консолью.** Это независимые вещи: можно писать `debug` в файл и при этом
 молчать в терминале, и наоборот.
 
+`file` и `syslog` — два стока, они независимы: можно включить оба, любой один
+или ни одного. Оба пишут на уровне `log.level`.
+
+* `syslog: true` — системный сокет: `/dev/log` (на systemd это journald),
+  если его нет — `/var/run/syslog`, если нет и его — `localhost:514/udp`;
+* `syslog: /path/to/socket` — явный путь к сокету: контейнеры, нестандартный
+  syslog, тесты;
+* `facility` используется только при включённом syslog.
+
+Сообщения уходят с тегом `kwbackup[pid]`, поэтому работают и
+`journalctl -t kwbackup`, и правила rsyslog по имени программы.
+
 По умолчанию терминал молчит: в stderr попадают только предупреждения и
-ошибки, а вся информация пишется в `file` на уровне `log.level`.
+ошибки, а вся информация пишется в стоки на уровне `log.level`.
 
 * `runtime.verbose: true` (или `--verbose`) — `info` в терминал и rclone
   получает `--progress`, его вывод идёт **прямо в терминал**;
 * `runtime.debug: true` (или `--debug`) — `debug` в терминал, печатается
-  каждая внешняя команда; **включает verbose**; файл при этом остаётся на
-  `log.level` — чтобы получить команды в файле, задайте `log.level: debug`;
+  каждая внешняя команда; **включает verbose**; стоки при этом остаются
+  на `log.level` — чтобы получить команды в файле или syslog, задайте
+  `log.level: debug`;
 * `--dry-run` — печатает план в терминал, даже без verbose.
 
 Так фоновый запуск из cron/systemd ничего не шумит, но предупреждения и
 ошибки всё равно видны в journal и в почте.
 
-Если `file` не задан, а флаги не указаны, информация о прогоне не сохраняется
-нигде: задайте `log.file` в `/etc/kwbackup/defaults.yaml`.
+Если не заданы ни `file`, ни `syslog`, а флаги не указаны, информация о
+прогоне не сохраняется нигде: задайте `log.file` или `log.syslog: true` в
+`/etc/kwbackup/defaults.yaml`.
 
 ## `runtime`
 
