@@ -140,6 +140,24 @@ database:
         except ConfigError as exc:
             check("typo still fatal", "databases: required" in str(exc), str(exc))
 
+    # progress line and the source size behind the percentage
+    line = progress_line("packing", 1536, 1024, None, "a.tar")
+    check("progress line", line == "  packing 1.5 KiB, 1.0 KiB/s (a.tar)", line)
+    line = progress_line("dumping", 2048, 512, 34.6, "db.sql.zst")
+    check("progress percent",
+          line == "  dumping 2.0 KiB, 512 B/s, 35% (db.sql.zst)", line)
+
+    with tempfile.TemporaryDirectory() as src_dir:
+        root = Path(src_dir)
+        (root / "a").write_bytes(b"x" * 100)
+        (root / "b.tmp").write_bytes(b"x" * 200)
+        (root / "sub").mkdir()
+        (root / "sub" / "c").write_bytes(b"x" * 50)
+        check("source_bytes", source_bytes(root, ["*"], ["*.tmp"]) == 150,
+              source_bytes(root, ["*"], ["*.tmp"]))
+        check("source_bytes include", source_bytes(root, ["sub"], []) == 50,
+              source_bytes(root, ["sub"], []))
+
     if failures:
         for f in failures:
             print(f"FAIL {f}")

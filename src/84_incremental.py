@@ -66,7 +66,10 @@ def action_incremental(cfg, args):
             if is_full:
                 extra.append("--level=0")
             cmd = [base[0]] + extra + base[1:]
-            run_pipeline([cmd], str(out_path))
+            total = None
+            if cfg.debug or getattr(args, "debug", False):
+                total = source_bytes(root, inc.include, inc.exclude)
+            run_pipeline([cmd], str(out_path), progress="packing", total=total)
 
             if not DRY:
                 size = out_path.stat().st_size

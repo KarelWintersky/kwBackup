@@ -6,6 +6,62 @@ ARCHIVE_EXT = {"zstd": ".tar.zst", "gzip": ".tar.gz", "pigz": ".tar.gz",
                "rar": ".rar", "none": ".tar"}
 
 
+def _excluded(rel, patterns):
+    for pattern in patterns:
+        if pattern and (fnmatch.fnmatch(rel, pattern)
+                        or fnmatch.fnmatch("/" + rel, pattern)
+                        or fnmatch.fnmatch(os.path.basename(rel), pattern)):
+            return True
+    return False
+
+
+def source_bytes(root, include, exclude):
+    """How much tar is going to read, for the percentage in debug mode.
+
+    Mirrors tar_args: the default include list walks the whole root, an
+    explicit list is expanded with glob. --exclude patterns are matched
+    approximately (fnmatch on the relative path and the basename).
+    """
+    root = Path(root)
+    patterns = [p for p in (exclude or []) if p]
+    includes = [p for p in (include or []) if p]
+    if includes and includes != ["*"]:
+        targets = []
+        for pattern in includes:
+            targets.extend(glob.glob(str(root / pattern), recursive=True))
+    else:
+        targets = [str(root)]
+
+    total, seen = 0, set()
+    for target in targets:
+        path = Path(target)
+        if path.is_file():
+            rel = os.path.relpath(path, root)
+            if str(path) not in seen and not _excluded(rel, patterns):
+                seen.add(str(path))
+                try:
+                    total += path.lstat().st_size
+                except OSError:
+                    pass
+            continue
+        for dirpath, dirnames, filenames in os.walk(path):
+            rel_dir = os.path.relpath(dirpath, root)
+            dirnames[:] = [d for d in dirnames
+                           if not _excluded(os.path.join(rel_dir, d), patterns)]
+            for name in filenames:
+                full = Path(dirpath) / name
+                if str(full) in seen or _excluded(os.path.relpath(full, root), patterns):
+                    continue
+                seen.add(str(full))
+                try:
+                    st = full.lstat()
+                except OSError:
+                    continue
+                if stat.S_ISREG(st.st_mode):
+                    total += st.st_size
+    return total
+
+
 def tar_args(root, include, exclude):
     """tar to stdout; include patterns are relative to root (-C)."""
     cmd = ["tar", "-C", str(root), "-cf", "-"]
@@ -66,7 +122,11 @@ def action_archive(cfg, args):
                 if writes_file:
                     comp_cmd[-1] = str(out_path)
                 stages.append(comp_cmd)
-            run_pipeline(stages, str(out_path), last_writes_file=writes_file)
+            total = None
+            if cfg.debug or getattr(args, "debug", False):
+                total = source_bytes(ar.root, ar.include, ar.exclude)
+            run_pipeline(stages, str(out_path), last_writes_file=writes_file,
+                         progress="packing", total=total)
 
             if not DRY:
                 size = out_path.stat().st_size

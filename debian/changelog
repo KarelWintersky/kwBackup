@@ -1,3 +1,27 @@
+kwbackup (0.99.59) unstable; urgency=medium
+
+  * feat(runner): live packing progress on the terminal
+
+    With --verbose the packing and dump phases now draw a line once a second:
+
+      packing 1.2 GiB, 84 MiB/s (site_2026-11-15-18-39-52.tar.zst)
+
+    The size is polled from the output file, so no data is copied through Python
+    and rar (which writes the file itself) is covered too. The line is printed
+    only when stderr is a tty: cron and systemd logs stay clean, the final size
+    still goes to the log.
+
+    In debug mode the line also shows a percentage: the tree is walked once more
+    (source_bytes, with include/exclude) and the bytes read by the last stage come
+    from /proc/<pid>/io rchar, which for 'tar | zstd' is the uncompressed stream.
+
+    No new dependencies: polling a stat() and /proc replaces pv.
+
+    tests: progress_line format with and without percent, source_bytes with
+    exclude and with an explicit include list (36 checks, 57/57 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sun, 15 Nov 2026 18:55:48 +0300
+
 kwbackup (0.99.58) unstable; urgency=medium
 
   * feat(config): disabled sections are parsed but not enforced

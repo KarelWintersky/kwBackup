@@ -76,7 +76,8 @@ def action_database(cfg, args):
                                                    str(out_path), out_name)
                 if comp:
                     stages.append(comp)
-                run_pipeline(stages, str(out_path), env=env, last_writes_file=writes_file)
+                run_pipeline(stages, str(out_path), env=env, last_writes_file=writes_file,
+                             progress="dumping")
                 size = 0
                 if not DRY:
                     size = out_path.stat().st_size
