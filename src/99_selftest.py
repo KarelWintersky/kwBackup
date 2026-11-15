@@ -147,6 +147,10 @@ database:
     check("progress percent",
           line == "  dumping 2.0 KiB, 512 B/s, 35% (db.sql.zst)", line)
 
+    long_name = "data_2026-11_full_2026-11-15-19-54-31.tar"
+    line = progress_line("packing", 3 * 2**30, 300 * 2**20, 7, long_name, 50)
+    check("progress width", len(line) <= 50 and line.endswith("...)"), line)
+
     with tempfile.TemporaryDirectory() as src_dir:
         root = Path(src_dir)
         (root / "a").write_bytes(b"x" * 100)

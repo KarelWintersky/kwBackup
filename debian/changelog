@@ -1,3 +1,21 @@
+kwbackup (0.99.60) unstable; urgency=medium
+
+  * fix(runner): no leftovers when the progress line shrinks
+
+    The redraw wrote "\r" plus the new line; when the numbers or the rate got
+    shorter, the tail of the previous, longer line stayed on screen
+    ("...tar)r)").
+
+    Every redraw is padded with spaces up to the longest line seen so far and the
+    line is wiped at the end. The filename is shortened with an ellipsis to the
+    terminal width (measured from stderr, not stdout): a wrapped line breaks the
+    \r redraw and leaves a stale row above. The rate is clamped at zero, and 0x0
+    terminal sizes fall back to 80 columns.
+
+    tests: progress_line with a width (ellipsis, fits), 41 checks, 57/57 e2e.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Sun, 15 Nov 2026 20:01:29 +0300
+
 kwbackup (0.99.59) unstable; urgency=medium
 
   * feat(runner): live packing progress on the terminal

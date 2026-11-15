@@ -48,12 +48,25 @@ def run(cmd, env=None, check=True, timeout=None, capture=True, banner=False):
 PROGRESS_INTERVAL = 1.0
 
 
-def progress_line(verb, size, rate, percent, name):
-    """'  packing 1.2 GiB, 84 MiB/s, 35% (site_...tar.zst)'."""
+def progress_line(verb, size, rate, percent, name, width=None):
+    """'  packing 1.2 GiB, 84 MiB/s, 35% (site_...tar.zst)'.
+
+    With width the filename is shortened so the line never wraps: a wrapped
+    line breaks the \r redraw and leaves garbage on the previous row.
+    """
     parts = [fmt_bytes(size), f"{fmt_bytes(rate)}/s"]
     if percent is not None:
         parts.append(f"{percent:.0f}%")
-    return f"  {verb} {', '.join(parts)} ({name})"
+    numbers = ", ".join(parts)
+    if width:
+        head = f"  {verb} {numbers} ("
+        keep = width - len(head) - 1
+        if keep < 8:
+            return f"  {verb} {numbers}"[:width]
+        if len(name) > keep:
+            name = name[:keep - 3] + "..."
+        return head + name + ")"
+    return f"  {verb} {numbers} ({name})"
 
 
 def _file_size(path):
@@ -88,6 +101,13 @@ def _wait_with_progress(procs, out_path, verb, total):
     """
     last = procs[-1]
     name = Path(out_path).name
+    width = 79
+    try:
+        columns = os.get_terminal_size(sys.stderr.fileno()).columns
+        if columns >= 20:              # 0x0 before the first resize
+            width = columns - 1
+    except (OSError, ValueError, AttributeError):
+        pass
     shown, size = 0, 0
     previous = time.monotonic()
     while True:
@@ -99,11 +119,16 @@ def _wait_with_progress(procs, out_path, verb, total):
             current = _file_size(out_path) or 0
             read = _read_bytes(last.pid) if total else None
             percent = min(99.0, 100.0 * read / total) if (total and read) else None
-            rate = (current - size) / (now - previous) if now > previous else 0
-            line = progress_line(verb, current, rate, percent, name)
+            rate = max(0.0, (current - size) / (now - previous)) if now > previous else 0
+            line = progress_line(verb, current, rate, percent, name, width)
+            # A shorter line must overwrite the tail of the previous one.
+            if len(line) < shown:
+                line += " " * (shown - len(line))
+            else:
+                shown = len(line)
             sys.stderr.write("\r" + line)
             sys.stderr.flush()
-            shown, size, previous = len(line), current, now
+            size, previous = current, now
     if shown:
         sys.stderr.write("\r" + " " * shown + "\r")
         sys.stderr.flush()
