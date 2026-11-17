@@ -1,0 +1,27 @@
+# Версионный бэкап файлов: TAR-слои + манифесты, история без месячных full.
+# Первый запуск: --vault --full. Дальше — --vault по вчерашнему журналу.
+project: storage
+
+upstreams:
+  beget:
+    config: /etc/kwbackup/rclone_beget.conf
+    s3-custom-options:
+      s3-access-key-id: <ACCESS_KEY_BUCKET_STORAGE>
+      s3-secret-access-key: <SECRET_KEY_BUCKET_STORAGE>
+      s3-no-check-bucket: true
+
+vault:
+  enabled: true
+  root: /srv/storage
+  state_dir: /var/lib/kwbackup/storage
+  volume_size: 2G                   # ориентир тома; файлы не режутся
+  checksum: none                    # none | sha256
+  journal:
+    type: txt
+    period: daily
+    path: /var/lib/storage/journal  # YYYY-MM-DD.journal.txt
+    keep_done: 7d
+  restore_order:
+    direction: desc                 # свежие слои первыми
+    priority: [photos, videos, titles]
+  targets: ["beget:/VAULT"]

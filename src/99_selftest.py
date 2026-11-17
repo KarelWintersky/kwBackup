@@ -287,6 +287,30 @@ notify:
     check("ignore_table postgres",
           "--exclude-table=audit" in cmd and "--no-owner" in cmd, cmd)
 
+    # vault upload rollback: no manifest may survive a failed multi-target put
+    class FakeStore:
+        name = "fake"
+        path = "/x"
+
+        def __init__(self, fail=False):
+            self.fail, self.deleted = fail, []
+
+        def put(self, files):
+            if self.fail:
+                raise CommandError("rclone", 1)
+
+        def delete(self, name):
+            self.deleted.append(name)
+
+    good, bad = FakeStore(), FakeStore(fail=True)
+    files = [Path("/tmp/x/a.tar.part-001"), Path("/tmp/x/a.manifest.json")]
+    try:
+        _vault_upload([good, bad], files)
+        check("vault upload rollback", False, "upload failure was ignored")
+    except ActionFailed:
+        check("vault upload rollback",
+              good.deleted == ["a.manifest.json"], (good.deleted, bad.deleted))
+
     # notifications: safe reasons, message contents, channel plumbing
     check("yaml keys stay strings",
           yaml_loads("notify:\n  on: [success]\n")["notify"].get("on") == ["success"],

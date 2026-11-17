@@ -1,3 +1,18 @@
+kwbackup (0.99.71) unstable; urgency=medium
+
+  * feat(vault): roll back a half-published layer, add an example
+
+    If one target fails while another has already accepted the layer, the manifest
+    is now removed from every target: no chain is left half-published, and the
+    volumes become orphans for a future prune. The manifest is written last, so it
+    is the only marker of a complete layer.
+
+    Added examples/vault-only.yaml and shipped it in the deb.
+
+    tests: rollback unit check (67 checks, 81/81 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 00:13:09 +0300
+
 kwbackup (0.99.70) unstable; urgency=medium
 
   * feat(vault): --list and --verify

@@ -3,6 +3,14 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.71] — 2026-11-18
+
+### Added
+
+- `examples/vault-only.yaml` (входит в `.deb`).
+- Откат слоя при сбое одного из нескольких targets: манифест удаляется со
+  всех targets, недозалитые тома остаются сиротами до prune.
+
 ## [0.99.70] — 2026-11-18
 
 ### Added

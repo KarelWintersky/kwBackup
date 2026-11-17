@@ -281,6 +281,9 @@ class VaultStore:
     def get(self, name, local):
         raise NotImplementedError
 
+    def delete(self, name):
+        raise NotImplementedError
+
 
 class RcloneStore(VaultStore):
     name = "rclone"
@@ -305,6 +308,9 @@ class RcloneStore(VaultStore):
 
     def get(self, name, local):
         self.rclone.run("copyto", f"{self.remote}/{name}", str(local), check=True)
+
+    def delete(self, name):
+        self.rclone.run("deletefile", f"{self.remote}/{name}", check=False)
 
 
 class RsyncStore(VaultStore):
@@ -355,6 +361,9 @@ class RsyncStore(VaultStore):
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         run(["rsync", "-a"] + self.options + [f"{self.remote}/{name}", str(local)])
 
+    def delete(self, name):
+        self._ssh(f"rm -f -- {shlex.quote(self.path + '/' + name)}")
+
 
 class LocalStore(VaultStore):
     """Internal transport for tests; not exposed in the config yet."""
@@ -377,6 +386,9 @@ class LocalStore(VaultStore):
     def get(self, name, local):
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(self.base / name, local)
+
+    def delete(self, name):
+        (self.base / name).unlink(missing_ok=True)
 
 
 def vault_store(cfg, target):
@@ -460,6 +472,17 @@ def _vault_upload(stores, files):
             details.append({"action": "vault", "entity": store.name,
                             "reason": reason})
     if failures:
+        # The manifest is written last: remove it everywhere so no target
+        # ends up with a half-published layer. Volumes become orphans.
+        manifest = next((Path(name).name for name in files
+                         if Path(name).name.endswith(".manifest.json")), None)
+        if manifest:
+            for store in stores:
+                try:
+                    store.delete(manifest)
+                except (CommandError, OSError) as exc:
+                    LOG.warning("vault: cannot roll back %s on %s: %s",
+                                manifest, store.name, exc)
         raise ActionFailed("vault upload failed: " + "; ".join(failures), details)
 
 
