@@ -423,7 +423,10 @@ def _vault_read_manifest(store, name):
     with tempfile.TemporaryDirectory(prefix="vault-manifest-") as tmp:
         local = Path(tmp) / name
         store.get(name, local)
-        return json.loads(local.read_text(encoding="utf-8"))
+        try:
+            return json.loads(local.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise ActionFailed(f"vault: bad manifest {name}: {exc}") from None
 
 
 def _vault_rebuild_index(stores, index, warnings):
@@ -694,3 +697,22 @@ def vault_restore(cfg, args):
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return stats
+
+
+# ---------------------------------------------------------------- reports
+def vault_layer_names(store):
+    return sorted(name for name in store.list()
+                  if name.endswith(".manifest.json"))
+
+
+def vault_read_layer(store, name):
+    return _vault_read_manifest(store, name)
+
+
+def vault_latest_chain(manifests):
+    """[(name, manifest)] from the last base to the end."""
+    last_base = None
+    for index, (_name, manifest) in enumerate(manifests):
+        if manifest.get("base"):
+            last_base = index
+    return manifests[last_base:] if last_base is not None else []

@@ -1863,6 +1863,25 @@ def test_vault_journal_add_and_delete():
         env.cleanup()
 
 
+def test_vault_list_and_verify():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        out = env.run("-c", env.config, "--list")
+        assert "VAULT" in out.stdout and "FULL" in out.stdout, out.stdout
+        res = env.run("-c", env.config, "--verify")
+        assert "✓" in res.stdout, res.stdout
+        volume = sorted((env.cloud / "V").glob("*.tar.part-*"))[0]
+        volume.unlink()
+        res = env.run("-c", env.config, "--verify", expect=5)
+        assert "missing volume" in res.stdout, res.stdout
+    finally:
+        env.cleanup()
+
+
 def test_vault_restore_latest():
     env = Env()
     try:
@@ -2388,6 +2407,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_rsync_upstream_is_vault_only,
          test_vault_full_and_empty_layer,
          test_vault_journal_add_and_delete,
+         test_vault_list_and_verify,
          test_vault_restore_latest,
          test_vault_restore_at,
          test_vault_reconcile_without_journal,

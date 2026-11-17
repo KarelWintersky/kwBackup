@@ -119,8 +119,60 @@ def action_list(cfg, args):
                 print(f"    {chain}  full {fulls[0]:%Y-%m-%d %H:%M}, "
                       f"{len(incs)} inc, last {last:%Y-%m-%d}, {fmt_bytes(total)}")
 
+    if cfg.vault.enabled or args.force:
+        vault = cfg.vault
+        print("\nVAULT")
+        for target in vault.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            store = vault_store(cfg, target)
+            print(f"  {target}")
+            names = vault_layer_names(store)
+            if not names:
+                print("    no layers  ⚠ empty")
+                rc = EXIT_VERIFY
+                continue
+            chain, dates = [], []
+            for name in names:
+                try:
+                    manifest = vault_read_layer(store, name)
+                except (ActionFailed, CommandError, OSError) as exc:
+                    print(f"    ✗ {exc}")
+                    rc = EXIT_VERIFY
+                    continue
+                if manifest.get("base") and chain:
+                    _vault_gap_report(dates)
+                    chain, dates = [], []
+                stamp = name[:-len(".manifest.json")]
+                volumes = manifest.get("volumes", [])
+                size = sum(volume.get("size", 0) for volume in volumes)
+                label = "FULL" if manifest.get("base") else "    "
+                print(f"    {label} {stamp}  source {manifest.get('source_date', '?')}"
+                      f"  {len(manifest.get('files', []))} file(s)"
+                      f"  {len(volumes)} volume(s)  {fmt_bytes(size)}")
+                dates.append(manifest.get("source_date"))
+            _vault_gap_report(dates)
+
     print()
     return rc
+
+
+def _vault_gap_report(dates):
+    days = []
+    for value in dates:
+        if not value:
+            continue
+        try:
+            day = dt.date.fromisoformat(str(value)[:10])
+        except ValueError:
+            continue
+        if day not in days:
+            days.append(day)
+    if len(days) < 2:
+        return
+    missing = (days[-1] - days[0]).days + 1 - len(days)
+    if missing > 0:
+        print(f"    {'':7} ⚠ {missing} day(s) without a layer")
 
 
 def _peek_decompressed(path, n=4096):
@@ -276,6 +328,57 @@ def action_verify(cfg, args):
                     report(label, _verify_one(uploader, remote_dir, rf,
                                               cfg.temp_dir, "incremental"))
                     checked += 1
+
+    if (cfg.vault.enabled or args.force) and cfg.vault.targets:
+        vault = cfg.vault
+        print("\nVAULT")
+        for target in vault.targets:
+            if not _wanted(target, args.from_upstream):
+                continue
+            store = vault_store(cfg, target)
+            names = vault_layer_names(store)
+            if not names:
+                report(f"{target}: no layers", "empty")
+                continue
+            manifests, broken = [], 0
+            for name in names:
+                try:
+                    manifests.append((name, vault_read_layer(store, name)))
+                except (ActionFailed, CommandError, OSError) as exc:
+                    print(f"  ✗ {exc}")
+                    broken += 1
+            if broken:
+                rc = EXIT_VERIFY
+            selected = manifests if args.all else vault_latest_chain(manifests)
+            if not selected:
+                report(f"{target}: no base layer", "not restorable")
+                continue
+            sizes = store.list()
+            problems, volumes = [], set()
+            for name, manifest in selected:
+                for volume in manifest.get("volumes", []):
+                    volumes.add(volume["name"])
+                    if volume["name"] not in sizes:
+                        problems.append(f"{name}: missing volume {volume['name']}")
+                    elif sizes[volume["name"]] != volume.get("size"):
+                        problems.append(f"{name}: size mismatch {volume['name']}")
+                for entry in manifest.get("files", []):
+                    number = entry.get("volume")
+                    if not isinstance(number, int) or not 1 <= number <= len(manifest.get("volumes", [])):
+                        problems.append(f"{name}: bad volume for {entry.get('path')}")
+                        continue
+                    volume = manifest["volumes"][number - 1]
+                    if entry.get("offset", 0) + entry.get("size", 0) > volume.get("size", 0):
+                        problems.append(f"{name}: offset out of range for {entry.get('path')}")
+            if problems:
+                for problem in problems[:20]:
+                    print(f"  ✗ {problem}")
+                if len(problems) > 20:
+                    print(f"  ✗ ... and {len(problems) - 20} more")
+                rc = EXIT_VERIFY
+            else:
+                print(f"  ✓ {target}: {len(selected)} layer(s), {len(volumes)} volume(s)")
+            checked += len(selected)
 
     if not checked:
         print("nothing to verify: no copies found")

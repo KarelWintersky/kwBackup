@@ -1,3 +1,19 @@
+kwbackup (0.99.70) unstable; urgency=medium
+
+  * feat(vault): --list and --verify
+
+    --list prints vault chains per target: FULL markers, layer stamps, source
+    dates, file and volume counts, sizes and gaps in days.
+
+    --verify checks manifests and volumes: every referenced volume must exist with
+    the recorded size, and every file offset must fit its volume. The default is
+    the latest chain, --all covers old chains. Missing layers or volumes return 5.
+    File contents (sha256) are not re-read yet.
+
+    tests: list + verify green, a removed volume yields 5 (81/81 e2e, 66 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 00:09:40 +0300
+
 kwbackup (0.99.69) unstable; urgency=medium
 
   * feat(vault): restore from the manifest chain
