@@ -18,6 +18,12 @@ def build_parser():
     p.add_argument("-a", "--archive", action="store_true", help="backup file archive")
     p.add_argument("-i", "--incremental", action="store_true",
                    help="incremental tar backup (full monthly + daily increments)")
+    p.add_argument("--vault", action="store_true",
+                   help="versioned file store: TAR layers + manifests")
+    p.add_argument("--full", action="store_true",
+                   help="vault: start a new base chain (full scan)")
+    p.add_argument("--reconcile", action="store_true",
+                   help="vault: full scan without a new base (correction layer)")
     p.add_argument("-m", "--mode", choices=("copy", "sync"),
                    help="override the upload algorithm (storage, database, "
                         "archive); sync mirrors the target directory")
@@ -61,6 +67,9 @@ def main(argv=None):
     if args.version:
         print(f"{APP} (Version: {VERSION})")
         return EXIT_OK
+    if (args.full or args.reconcile) and not args.vault:
+        print("ERROR: --full and --reconcile require --vault", file=sys.stderr)
+        return EXIT_USAGE
     if not args.config:
         print_banner(sys.stderr)
         print(file=sys.stderr)
@@ -116,6 +125,9 @@ def main(argv=None):
         failures = ([{"action": "verify", "reason": "problems found"}]
                     if rc != EXIT_OK else None)
         return finish(cfg, "verify", rc, [f"verify: {state}"], started, failures)
+    if args.restore and args.vault:
+        LOG.error("restore: vault restore is not implemented yet")
+        return EXIT_ERROR
     if args.restore:
         started = dt.datetime.now()
         try:
@@ -151,6 +163,7 @@ def main(argv=None):
         "storage": (action_storage, "{sources} source(s), {remote_files} file(s) in cloud"),
         "archive": (action_archive, "{uploaded} uploaded, {deleted} pruned, {size}"),
         "incremental": (action_incremental, "{uploaded} uploaded, {deleted} pruned, {size}"),
+        "vault": (action_vault, "{layers} layer(s), {files} file(s), {deleted} deleted, {size}"),
     }
     try:
         for name in actions:
@@ -180,7 +193,7 @@ def finish(cfg, kind, code, details, started, failures=None):
     return code
 
 
-ACTIONS = ("database", "storage", "archive", "incremental")
+ACTIONS = ("database", "storage", "archive", "incremental", "vault")
 
 
 def requested_actions(args):
@@ -282,7 +295,22 @@ def _print_section(cfg, name, section):
     def row(label, value):
         print(f"    {_label(label, 10)} {value}")
 
-    if name == "database":
+    if name == "vault":
+        row("root", section.root)
+        row("state_dir", section.state_dir)
+        row("volume_size", fmt_bytes(section.volume_size))
+        row("checksum", section.checksum)
+        if section.journal and section.journal.type == "txt":
+            row("journal", f"txt, {section.journal.path}")
+            keep = section.journal.keep_done
+            row("keep_done", "forever" if keep is None else f"{keep.days}d")
+        else:
+            row("journal", "scan (full every run)")
+        row("targets", ", ".join(section.targets))
+        order = section.restore_order
+        row("restore", f"{order.direction}, priority: "
+                       f"{', '.join(order.priority) or 'none'}")
+    elif name == "database":
         row("mode", section.mode)
         row("targets", ", ".join(section.targets))
         row("databases", ", ".join(section.databases) or "(none)")
@@ -375,7 +403,9 @@ def check_config(cfg, args):
             detail = {"database": lambda: section.type,
                       "storage": lambda: section.mode,
                       "archive": lambda: section.compressor,
-                      "incremental": lambda: f"day {section.initial_day}"}[name]()
+                      "incremental": lambda: f"day {section.initial_day}",
+                      "vault": lambda: (section.journal.type
+                                        if section.journal else "scan")}[name]()
             print(f"  {_label(name, 9)} {_color('enabled', green)} "
                   f"{_color('(' + detail + ')', dim)}")
             _print_section(cfg, name, section)

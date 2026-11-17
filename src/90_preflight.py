@@ -31,7 +31,40 @@ def preflight_problems(cfg, actions):
         if cfg.archive.compressor != "none":
             wanted.append(cfg.archive.compressor)
 
-    if actions and cfg.rclone.binary:
+    if "vault" in actions:
+        vault = cfg.vault
+        wanted.append("tar")
+        root = Path(vault.root or "")
+        if not root.is_dir():
+            problems.append(f"vault root is not a directory: {vault.root}")
+        elif not os.access(root, os.R_OK | os.X_OK):
+            problems.append(f"vault root is not readable: {vault.root}")
+        state = Path(vault.state_dir)
+        try:
+            state.mkdir(parents=True, exist_ok=True)
+            probe = state / f".probe-{os.getpid()}"
+            probe.write_bytes(b"x")
+            probe.unlink()
+        except OSError as exc:
+            problems.append(f"vault state_dir {state}: {exc.strerror}")
+        journal = vault.journal
+        if journal and journal.type == "txt":
+            jdir = Path(journal.path)
+            if not jdir.is_dir():
+                problems.append(f"vault journal path is not a directory: {journal.path}")
+            elif not os.access(jdir, os.R_OK | os.X_OK | os.W_OK):
+                problems.append(f"vault journal path is not readable/writable: "
+                                f"{journal.path}")
+        for target in vault.targets:
+            name = target.partition(":")[0]
+            upstream = cfg.upstreams.get(name)
+            if upstream is None:
+                continue
+            if upstream.type == "rclone":
+                wanted.append(cfg.rclone.binary)
+            elif upstream.type == "rsync":
+                wanted += ["rsync", "ssh"]
+    if any(action != "vault" for action in actions) and cfg.rclone.binary:
         wanted.append(cfg.rclone.binary)
 
     for binary in dict.fromkeys(wanted):

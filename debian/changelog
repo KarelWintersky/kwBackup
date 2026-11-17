@@ -1,3 +1,31 @@
+kwbackup (0.99.68) unstable; urgency=medium
+
+  * feat(vault): versioned file store (backup only)
+
+    New task --vault: immutable TAR layers split by volume_size plus JSON
+    manifests. The first run (--vault --full) scans the source and creates a base;
+    daily runs consume the TXT journal (yesterday's file) or do a full scan when
+    journal.type is scan. Every run creates a layer, even an empty one.
+
+    Layers are named in UTC (YYYY-MM-DDTHHMMSSZ), manifests list
+    added/modified/deleted and per-file volume/offset, and a unique-stamp check
+    prevents one run from overwriting a layer created in the same second. A local
+    sqlite index in state_dir speeds up the diff and is rebuilt from remote
+    manifests if it is lost.
+
+    Transports: upstreams gain type (rclone|rsync), bwlimit, host and ssh_options;
+    non-rclone upstreams are accepted only for vault. TAR volumes hold whole files
+    and are never compressed.
+
+    --reconcile does a full scan without a new base; --full starts a new chain and
+    marks the journals before the run as .done. restore/list/verify for vault are
+    the next step.
+
+    tests: full + empty layer, journal add/delete, reconcile, index rebuild, rsync
+    transport, rsync upstream rejected for other tasks (78/78 e2e, 66 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 00:01:46 +0300
+
 kwbackup (0.99.67) unstable; urgency=medium
 
   * feat(journal): txt-daily journal reader for the vault task

@@ -50,6 +50,11 @@ BUILTIN_DEFAULTS = {
         "include": ["*"],
         "exclude": [],
     },
+    "vault": {
+        "enabled": False,
+        "volume_size": "2G",
+        "checksum": "none",
+    },
     "notify": {
         "on": ["failure"],
         "retries": 0,

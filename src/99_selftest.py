@@ -159,6 +159,29 @@ archive:
         check("allow_empty parsed", cfg_ae.storage.allow_empty is True,
               cfg_ae.storage.allow_empty)
 
+        with_vault = good + """
+vault:
+  enabled: true
+  root: /tmp
+  volume_size: 3G
+  targets: ["r:/V"]
+  journal: {type: txt, period: daily, path: /tmp/journal, keep_done: 10d}
+  restore_order: {direction: asc, priority: [photos]}
+"""
+        cfg_v = load_config(write(with_vault))
+        check("vault parsed", cfg_v.vault.enabled
+              and cfg_v.vault.volume_size == 3 * 1024 ** 3
+              and cfg_v.vault.journal.type == "txt"
+              and cfg_v.vault.journal.keep_done == dt.timedelta(days=10)
+              and cfg_v.vault.restore_order.direction == "asc", cfg_v.vault)
+        cfg_vs = load_config(write(good + """
+vault:
+  enabled: false
+  journal: {type: scan}
+"""))
+        check("vault scan", cfg_vs.vault.journal.type == "scan",
+              cfg_vs.vault.journal)
+
         with_notify = good + """
 notify:
   on: [success]

@@ -29,6 +29,24 @@ runtime:
   temp_dir: /tmp/kwbackup # куда пишутся дампы/архивы перед заливкой
   keep_temp: false        # true = не удалять локальную копию после заливки
 
+# ---------------------------------------------------------------- vault
+# Версионный бэкап файлов: TAR-слои + манифесты. Первый запуск — --vault --full.
+vault:
+  enabled: false
+  root: /srv/storage
+  state_dir: /var/lib/kwbackup/storage
+  volume_size: 2G
+  checksum: none
+  journal:
+    type: txt
+    period: daily
+    path: /var/lib/storage/journal
+    keep_done: 7d
+  restore_order:
+    direction: desc
+    priority: [photos, videos, titles]
+  targets: ["s3a:/VAULT"]
+
 # ---------------------------------------------------------------- уведомления
 # Один запуск — одно сообщение. Пустой on, отсутствие блоков или секции =
 # полная тишина. В сообщении нет команд и ключей.

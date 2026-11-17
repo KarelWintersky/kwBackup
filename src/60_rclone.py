@@ -23,12 +23,14 @@ def rclone_for(cfg, upstream, section=None):
     options = {key: value for key, value in options.items() if value is not None}
     return Rclone(cfg.rclone, config=up.config,
                   args=list(cfg.rclone.args) + list(up.args),
-                  env=up.env, s3_options=options)
+                  env=up.env, s3_options=options, bwlimit=up.bwlimit)
 
 
 class Rclone:
-    def __init__(self, cfg: RcloneCfg, config=None, args=None, env=None, s3_options=None):
+    def __init__(self, cfg: RcloneCfg, config=None, args=None, env=None,
+                 s3_options=None, bwlimit=0):
         self.binary = cfg.binary
+        self.bwlimit = bwlimit
         self.config = config
         self.args = list(cfg.args if args is None else args)
         merged_env = dict(os.environ)
@@ -46,6 +48,8 @@ class Rclone:
             # --verbose / --debug also make rclone talk: transfer stats and
             # a progress line. Without the flag rclone stays quiet in cron.
             cmd.append("--progress")
+        if self.bwlimit:
+            cmd.append(f"--bwlimit={self.bwlimit}")
         cmd += list(self.args)
         # Backend flags go last: a section's s3-custom-options override both
         # rclone.args and the upstream's s3-custom-options for the same flag.

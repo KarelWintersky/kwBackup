@@ -8,6 +8,7 @@ that print SQL. Real tar/zstd/gzip are used.
     python3 tests/e2e.py [-v]
 """
 
+import datetime as dt
 import http.server
 import json
 import os
@@ -23,6 +24,72 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist" / "kwbackup"
+
+FAKE_RSYNC = r'''#!/usr/bin/env python3
+import os, shutil, sys
+from pathlib import Path
+root = Path(os.environ["FAKE_RSYNC_ROOT"])
+args = sys.argv[1:]
+list_only = "--list-only" in args
+clean, i = [], 0
+while i < len(args):
+    a = args[i]
+    if a in ("-a", "--list-only", "--protect-args"):
+        i += 1
+        continue
+    if a == "-e":
+        i += 2
+        continue
+    if a.startswith("--bwlimit="):
+        i += 1
+        continue
+    clean.append(a)
+    i += 1
+args = clean
+
+def local(p):
+    if ":" in p:
+        return root / p.split(":", 1)[1].lstrip("/")
+    return Path(p)
+
+if list_only:
+    remote = local(args[-1])
+    if remote.is_dir():
+        for path in sorted(remote.rglob("*")):
+            if path.is_file():
+                print(f"-rw-r--r-- {path.stat().st_size} 2026/01/01 00:00:00 "
+                      f"{path.relative_to(remote)}")
+    sys.exit(0)
+if len(args) >= 2 and ":" in args[-1]:
+    dst = local(args[-1])
+    dst.mkdir(parents=True, exist_ok=True)
+    for src in args[:-1]:
+        source = local(src)
+        shutil.copy2(source, dst / source.name)
+    sys.exit(0)
+if len(args) == 2 and ":" in args[0]:
+    src, dst = local(args[0]), Path(args[1])
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    sys.exit(0)
+print("fake rsync: unsupported invocation", args, file=sys.stderr)
+sys.exit(2)
+'''
+
+FAKE_SSH = r'''#!/usr/bin/env python3
+import os, sys
+root = os.environ["FAKE_RSYNC_ROOT"]
+args = sys.argv[1:]
+i = 0
+while i < len(args) and args[i].startswith("-"):
+    if args[i] in ("-p", "-i", "-o", "-l", "-F", "-E", "-c"):
+        i += 2
+    else:
+        i += 1
+host = args[i]
+command = " ".join(args[i + 1:]).replace("/srv/backup", root + "/srv/backup")
+os.execvp("/bin/sh", ["/bin/sh", "-c", command])
+'''
 
 FAKE_RCLONE = r'''#!/usr/bin/env python3
 import os, shutil, sys
@@ -1654,6 +1721,172 @@ class _HookServer:
         return self.server.requests
 
 
+def test_vault_rsync_transport():
+    env = Env()
+    try:
+        env._tool("rsync", FAKE_RSYNC)
+        env._tool("ssh", FAKE_SSH)
+        root = env.dir / "vroot"
+        root.mkdir()
+        (root / "a.txt").write_text("a", encoding="utf-8")
+        rsync_root = env.dir / "rsync"
+        config = env.write_config(f"""
+project: vrs
+log: {{level: info}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams:
+  nas:
+    type: rsync
+    host: backup@nas
+    ssh_options: ["-p", "2222"]
+vault:
+  enabled: true
+  root: {root}
+  state_dir: {env.dir / "vstate"}
+  volume_size: 1M
+  targets: ["nas:/srv/backup/vault"]
+  journal: {{type: scan}}
+""")
+        extra = {"FAKE_RSYNC_ROOT": str(rsync_root)}
+        env.run("-c", config, "--vault", "--full", extra_env=extra)
+        remote = rsync_root / "srv" / "backup" / "vault"
+        assert list(remote.glob("*.manifest.json")), list(remote.iterdir())
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", config, "--vault", extra_env=extra)
+        manifests = sorted(remote.glob("*.manifest.json"))
+        assert len(manifests) == 2, manifests
+        last = json.loads(manifests[-1].read_text(encoding="utf-8"))
+        assert last["added"] == ["b.txt"], last
+        shutil.rmtree(env.dir / "vstate")
+        (root / "c.txt").write_text("c", encoding="utf-8")
+        env.run("-c", config, "--vault", extra_env=extra)
+        last = json.loads(sorted(remote.glob("*.manifest.json"))[-1].read_text())
+        assert last["added"] == ["c.txt"], last
+    finally:
+        env.cleanup()
+
+
+def test_rsync_upstream_is_vault_only():
+    env = Env()
+    try:
+        env.write_config(f"""
+project: bad
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams:
+  nas: {{type: rsync, host: backup@nas}}
+database:
+  enabled: true
+  targets: ["nas:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 1}}}}
+""")
+        res = env.run("-c", env.config, "--check", expect=2)
+        assert "needs rclone" in res.stderr, res.stderr
+    finally:
+        env.cleanup()
+
+
+def _vault_setup(env, journal="scan"):
+    root = env.dir / "vroot"
+    root.mkdir(exist_ok=True)
+    (root / "a.txt").write_text("a", encoding="utf-8")
+    jdir = env.dir / "journal"
+    jdir.mkdir(exist_ok=True)
+    extra = f"""
+vault:
+  enabled: true
+  root: {root}
+  state_dir: {env.dir / "vstate"}
+  volume_size: 1M
+  targets: ["fake:/V"]
+"""
+    if journal == "txt":
+        extra += f"  journal: {{type: txt, period: daily, path: {jdir}}}\n"
+    else:
+        extra += "  journal: {type: scan}\n"
+    env.base_config(extra=extra)
+    return root, jdir
+
+
+def _vault_layers(env):
+    return [json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted((env.cloud / "V").glob("*.manifest.json"))]
+
+
+def test_vault_full_and_empty_layer():
+    env = Env()
+    try:
+        _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        layers = _vault_layers(env)
+        assert len(layers) == 1, layers
+        assert layers[0]["base"] is True, layers[0]
+        assert [entry["path"] for entry in layers[0]["files"]] == ["a.txt"], layers[0]
+        env.run("-c", env.config, "--vault")
+        layers = _vault_layers(env)
+        assert len(layers) == 2, layers
+        assert layers[-1]["base"] is False and layers[-1]["files"] == [], layers[-1]
+        names = {p.name for p in (env.cloud / "V").iterdir()}
+        assert len({name.split(".")[0] for name in names}) == 2, names
+    finally:
+        env.cleanup()
+
+
+def test_vault_journal_add_and_delete():
+    env = Env()
+    try:
+        root, jdir = _vault_setup(env, "txt")
+        env.run("-c", env.config, "--vault", "--full")
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        (root / "a.txt").unlink()
+        journal = jdir / f"{yesterday}.journal.txt"
+        journal.write_text(
+            f"{yesterday}T01:00:00Z\tADDED\tb.txt\n"
+            f"{yesterday}T01:00:01Z\tDELETED\ta.txt\n", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        layers = _vault_layers(env)
+        assert layers[-1]["added"] == ["b.txt"], layers[-1]
+        assert layers[-1]["deleted"] == ["a.txt"], layers[-1]
+        assert (jdir / f"{yesterday}.journal.txt.done").exists()
+        env.run("-c", env.config, "--vault")      # no journal -> empty day
+        layers = _vault_layers(env)
+        assert layers[-1]["files"] == [] and layers[-1]["deleted"] == [], layers[-1]
+    finally:
+        env.cleanup()
+
+
+def test_vault_reconcile_without_journal():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "c.txt").write_text("c", encoding="utf-8")
+        env.run("-c", env.config, "--vault", "--reconcile")
+        layers = _vault_layers(env)
+        assert layers[-1]["added"] == ["c.txt"], layers[-1]
+    finally:
+        env.cleanup()
+
+
+def test_vault_rebuilds_index_from_manifests():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "c.txt").write_text("c", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        shutil.rmtree(env.dir / "vstate")
+        (root / "d.txt").write_text("d", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        layers = _vault_layers(env)
+        assert layers[-1]["added"] == ["d.txt"], layers[-1]
+    finally:
+        env.cleanup()
+
+
 def _hook_config(env, hooks, enabled=True, timeout=10):
     src = env.dir / "src"
     src.mkdir(exist_ok=True)
@@ -2106,6 +2339,12 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_vault_rsync_transport,
+         test_rsync_upstream_is_vault_only,
+         test_vault_full_and_empty_layer,
+         test_vault_journal_add_and_delete,
+         test_vault_reconcile_without_journal,
+         test_vault_rebuilds_index_from_manifests,
          test_check_fails_on_preflight_problems,
          test_check_preflight_failure_notifies,
          test_storage_sync_refuses_empty_source,

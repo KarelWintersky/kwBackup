@@ -18,11 +18,12 @@ SYSLOG_FACILITIES = ("auth", "authpriv", "cron", "daemon", "ftp", "kern", "lpr",
 
 SECTIONS = {
     "root": {"project", "log", "runtime", "rclone", "upstreams", "notify",
-             "database", "storage", "archive", "incremental"},
+             "database", "storage", "archive", "incremental", "vault"},
     "log": {"level", "file", "syslog", "facility"},
     "runtime": {"temp_dir", "keep_temp", "verbose", "debug", "hook_timeout"},
     "rclone": {"binary", "args", "env", "s3-custom-options"},
-    "upstream": {"config", "args", "env", "s3-custom-options"},
+    "upstream": {"type", "config", "args", "env", "s3-custom-options",
+                 "bwlimit", "host", "ssh_options"},
     "database": {"enabled", "type", "host", "port", "user", "password_env",
                  "args", "compressor", "compressor_args", "targets", "mode",
                  "databases", "retention", "retention_mode", "catch_up",
@@ -35,6 +36,10 @@ SECTIONS = {
     "incremental": {"enabled", "name", "root", "include", "exclude", "targets",
                     "initial_day", "snapshot", "retention", "before", "after",
                     "s3-custom-options"},
+    "vault": {"enabled", "root", "state_dir", "volume_size", "checksum",
+              "journal", "restore_order", "targets", "before", "after"},
+    "journal": {"type", "period", "path", "keep_done"},
+    "restore_order": {"direction", "priority"},
     "notify": {"on", "retries", "retry_delay", "timeout",
                "mail", "webhook", "telegram"},
     "mail": {"to", "from", "smtp_host", "port", "tls", "user_env", "password_env"},
@@ -115,12 +120,16 @@ class RcloneCfg:
 
 @dataclass
 class UpstreamCfg:
-    """One destination: an rclone remote name plus its own connection settings."""
+    """One destination. rclone is the default transport; vault adds rsync."""
     name: str
+    type: str = "rclone"          # rclone | rsync
     config: str | None = None
     args: list = field(default_factory=list)
     env: dict = field(default_factory=dict)
     s3_options: dict = field(default_factory=dict)
+    bwlimit: int = 0              # bytes/s, 0 = unlimited
+    host: str = ""                # rsync: user@host
+    ssh_options: list = field(default_factory=list)
 
 
 @dataclass
@@ -191,6 +200,34 @@ class IncrementalCfg:
 
 
 @dataclass
+class JournalCfg:
+    type: str = "scan"            # txt | scan
+    period: str = "daily"
+    path: str = ""
+    keep_done: dt.timedelta | None = None
+
+
+@dataclass
+class RestoreOrderCfg:
+    direction: str = "desc"       # asc | desc
+    priority: list = field(default_factory=list)
+
+
+@dataclass
+class VaultCfg:
+    enabled: bool = False
+    root: str = ""
+    state_dir: str = ""
+    volume_size: int = 2 * 1024 ** 3
+    checksum: str = "none"        # none | sha256
+    journal: JournalCfg | None = None
+    restore_order: RestoreOrderCfg = field(default_factory=RestoreOrderCfg)
+    targets: list = field(default_factory=list)
+    before: list = field(default_factory=list)
+    after: list = field(default_factory=list)
+
+
+@dataclass
 class MailCfg:
     to: list = field(default_factory=list)
     sender: str = ""
@@ -250,6 +287,7 @@ class Config:
     storage: StorageCfg = field(default_factory=StorageCfg)
     archive: ArchiveCfg = field(default_factory=ArchiveCfg)
     incremental: IncrementalCfg = field(default_factory=IncrementalCfg)
+    vault: VaultCfg = field(default_factory=VaultCfg)
     notify: NotifyCfg | None = None
 
 
@@ -334,6 +372,53 @@ def _as_int(value, path, errors, default=None, minimum=None):
         errors.append(f"{path}: must be >= {minimum}, got {value}")
         return default
     return value
+
+
+SIZE_RE = re.compile(r"^(\d+)([KMGTP]?)$", re.IGNORECASE)
+SIZE_UNITS = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3,
+              "T": 1024 ** 4, "P": 1024 ** 5}
+
+
+def _as_size(value, path, errors, default=None):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        errors.append(f"{path}: expected a size like 2G")
+        return default
+    if isinstance(value, int):
+        if value < 0:
+            errors.append(f"{path}: must be >= 0")
+            return default
+        return value
+    if isinstance(value, str):
+        match = SIZE_RE.match(value.strip())
+        if match:
+            return int(match.group(1)) * SIZE_UNITS[match.group(2).upper()]
+    errors.append(f"{path}: expected a size like 2G, 500M or 0, got {value!r}")
+    return default
+
+
+def _as_timedelta(value, path, errors, default=None):
+    if value is None:
+        return default
+    if value is False:
+        return None
+    if isinstance(value, bool):
+        errors.append(f"{path}: expected a duration like 7d or false")
+        return default
+    if isinstance(value, int):
+        if value < 0:
+            errors.append(f"{path}: must be >= 0")
+            return default
+        return dt.timedelta(seconds=value)
+    if isinstance(value, str):
+        match = AGE_RE.match(value.strip())
+        if match:
+            return dt.timedelta(seconds=int(match.group(1)) * AGE_UNITS[match.group(2)])
+        if value.strip().lower() in ("false", "none", "off"):
+            return None
+    errors.append(f"{path}: expected a duration like 7d or false, got {value!r}")
+    return default
 
 
 def _as_list(value, path, errors):
@@ -702,7 +787,7 @@ def load_config(path, env=None, defaults=None, strict=False):
     if compressor not in COMPRESSORS:
         errors.append(f"config.database.compressor: unsupported {compressor!r} (allowed: {', '.join(COMPRESSORS)})")
     targets = _as_targets(db.get("targets"), "config.database.targets", errors,
-                          cfg.upstreams)
+                          cfg.upstreams, types=("rclone",))
     retention = {}
     ret_raw = db.get("retention") or {}
     if not isinstance(ret_raw, dict):
@@ -763,7 +848,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         mode=_as_str(st.get("mode"), "config.storage.mode", errors,
                      _default("storage", "mode")) or "sync",
         targets=_as_targets(st.get("targets"), "config.storage.targets", errors,
-                            cfg.upstreams),
+                            cfg.upstreams, types=("rclone",)),
         sources=_as_sources(st.get("sources"), "config.storage.sources",
                             errors, warnings),
         allow_empty=_as_bool(st.get("allow_empty"),
@@ -806,7 +891,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         include=_as_list(ar.get("include"), "config.archive.include", errors),
         exclude=_as_list(ar.get("exclude"), "config.archive.exclude", errors),
         targets=_as_targets(ar.get("targets"), "config.archive.targets", errors,
-                            cfg.upstreams),
+                            cfg.upstreams, types=("rclone",)),
         retention=_parse_retention(ar.get("retention"), "config.archive.retention",
                                    errors, warnings, ar_mode),
         before=_as_list(ar.get("before"), "config.archive.before", errors),
@@ -837,7 +922,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         include=_as_list(inc.get("include"), "config.incremental.include", errors),
         exclude=_as_list(inc.get("exclude"), "config.incremental.exclude", errors),
         targets=_as_targets(inc.get("targets"), "config.incremental.targets",
-                            errors, cfg.upstreams),
+                            errors, cfg.upstreams, types=("rclone",)),
         initial_day=initial_day if initial_day is not None else 1,
         snapshot=_as_str(inc.get("snapshot"), "config.incremental.snapshot", errors) or "",
         retention=_parse_retention(inc.get("retention"), "config.incremental.retention",
@@ -859,6 +944,101 @@ def load_config(path, env=None, defaults=None, strict=False):
         if not cfg.incremental.retention:
             errors.append("config.incremental.retention: required when incremental.enabled "
                           "is true (keep: N chains or max_age)")
+
+    vlt = data.get("vault") or {}
+    if not isinstance(vlt, dict):
+        errors.append("config.vault: expected a mapping")
+        vlt = {}
+    _check_keys(vlt, "vault", "config.vault", warnings)
+    vault_enabled = _as_bool(vlt.get("enabled"), "config.vault.enabled", errors)
+    errors.deferred = not (vault_enabled or strict)
+
+    default_volume = _as_size(_default("vault", "volume_size"),
+                              "config.vault.volume_size", errors, 2 * 1024 ** 3)
+    volume_size = _as_size(vlt.get("volume_size"), "config.vault.volume_size",
+                           errors, default_volume)
+    if volume_size is not None and volume_size <= 0:
+        errors.append("config.vault.volume_size: must be > 0")
+        volume_size = default_volume
+    checksum = (_as_str(vlt.get("checksum"), "config.vault.checksum", errors,
+                        _default("vault", "checksum")) or "none").lower()
+    if checksum not in ("none", "sha256"):
+        errors.append(f"config.vault.checksum: expected none or sha256, got {checksum!r}")
+        checksum = "none"
+
+    journal_raw = vlt.get("journal")
+    journal = None
+    if journal_raw is False:
+        journal = JournalCfg(type="scan")
+    elif journal_raw is not None:
+        if not isinstance(journal_raw, dict):
+            errors.append("config.vault.journal: expected a mapping")
+        else:
+            _check_keys(journal_raw, "journal", "config.vault.journal", warnings)
+            jtype = (_as_str(journal_raw.get("type"), "config.vault.journal.type",
+                             errors) or "txt").lower()
+            if jtype not in ("txt", "scan"):
+                errors.append("config.vault.journal.type: expected txt or scan, "
+                              f"got {jtype!r}")
+                jtype = "txt"
+            period = (_as_str(journal_raw.get("period"),
+                              "config.vault.journal.period", errors)
+                      or "daily").lower()
+            if period != "daily":
+                errors.append("config.vault.journal.period: only daily is supported")
+            path = _as_str(journal_raw.get("path"), "config.vault.journal.path",
+                           errors) or ""
+            keep = _as_timedelta(journal_raw.get("keep_done"),
+                                 "config.vault.journal.keep_done", errors,
+                                 dt.timedelta(days=7))
+            if jtype == "txt":
+                if not path:
+                    errors.append("config.vault.journal.path: required for type txt")
+                journal = JournalCfg(type="txt", period="daily", path=path,
+                                     keep_done=keep)
+            else:
+                for key in ("period", "path", "keep_done"):
+                    if key in journal_raw:
+                        warnings.append(f"config.vault.journal.{key}: "
+                                        "not used with type scan")
+                journal = JournalCfg(type="scan")
+
+    ro_raw = vlt.get("restore_order") or {}
+    if not isinstance(ro_raw, dict):
+        errors.append("config.vault.restore_order: expected a mapping")
+        ro_raw = {}
+    _check_keys(ro_raw, "restore_order", "config.vault.restore_order", warnings)
+    direction = (_as_str(ro_raw.get("direction"),
+                         "config.vault.restore_order.direction", errors)
+                 or "desc").lower()
+    if direction not in ("asc", "desc"):
+        errors.append("config.vault.restore_order.direction: expected asc or desc")
+        direction = "desc"
+    priority = _as_list(ro_raw.get("priority"),
+                        "config.vault.restore_order.priority", errors)
+
+    state_dir = _as_str(vlt.get("state_dir"), "config.vault.state_dir", errors)
+    if not state_dir:
+        state_dir = str(Path("/var/lib/kwbackup") / cfg.project / "vault")
+    cfg.vault = VaultCfg(
+        enabled=vault_enabled,
+        root=_as_str(vlt.get("root"), "config.vault.root", errors) or "",
+        state_dir=state_dir,
+        volume_size=volume_size if volume_size is not None else default_volume,
+        checksum=checksum,
+        journal=journal,
+        restore_order=RestoreOrderCfg(direction=direction, priority=priority),
+        targets=_as_targets(vlt.get("targets"), "config.vault.targets", errors,
+                            cfg.upstreams, types=("rclone", "rsync")),
+        before=_as_list(vlt.get("before"), "config.vault.before", errors),
+        after=_as_list(vlt.get("after"), "config.vault.after", errors),
+    )
+    if cfg.vault.enabled:
+        if not cfg.vault.root:
+            errors.append("config.vault.root: required when vault.enabled is true")
+        if not cfg.vault.targets:
+            errors.append("config.vault.targets: required when vault.enabled is true")
+    errors.deferred = False
 
     if errors:
         raise ConfigError("invalid config:\n  - " + "\n  - ".join(errors))
@@ -895,18 +1075,37 @@ def _as_upstreams(value, path, errors, warnings):
             errors.append(f"{item}: expected a mapping")
             continue
         _check_keys(raw, "upstream", item, warnings)
-        out[name] = UpstreamCfg(
-            name=name,
-            config=_as_str(raw.get("config"), f"{item}.config", errors),
-            args=_as_list(raw.get("args"), f"{item}.args", errors),
-            env=_as_env(raw.get("env"), f"{item}.env", errors),
-            s3_options=_as_s3_options(raw.get("s3-custom-options"),
-                                      f"{item}.s3-custom-options", errors),
-        )
+        kind = (_as_str(raw.get("type"), f"{item}.type", errors) or "rclone").lower()
+        if kind not in ("rclone", "rsync"):
+            errors.append(f"{item}.type: expected rclone or rsync, got {kind!r}")
+            kind = "rclone"
+        bwlimit = _as_size(raw.get("bwlimit"), f"{item}.bwlimit", errors, 0) or 0
+        host = _as_str(raw.get("host"), f"{item}.host", errors) or ""
+        ssh_options = _as_list(raw.get("ssh_options"), f"{item}.ssh_options", errors)
+        if kind == "rsync":
+            if not host:
+                errors.append(f"{item}.host: required for type rsync (user@host)")
+            for key in ("config", "args", "env", "s3-custom-options"):
+                if raw.get(key) is not None:
+                    errors.append(f"{item}.{key}: only for type rclone")
+            out[name] = UpstreamCfg(name=name, type="rsync", host=host,
+                                    ssh_options=ssh_options, bwlimit=bwlimit)
+        else:
+            if host or ssh_options:
+                errors.append(f"{item}.host/ssh_options: only for type rsync")
+            out[name] = UpstreamCfg(
+                name=name, type="rclone",
+                config=_as_str(raw.get("config"), f"{item}.config", errors),
+                args=_as_list(raw.get("args"), f"{item}.args", errors),
+                env=_as_env(raw.get("env"), f"{item}.env", errors),
+                s3_options=_as_s3_options(raw.get("s3-custom-options"),
+                                          f"{item}.s3-custom-options", errors),
+                bwlimit=bwlimit,
+            )
     return out
 
 
-def _as_targets(value, path, errors, upstreams):
+def _as_targets(value, path, errors, upstreams, types=None):
     if value is None:
         return []
     if not isinstance(value, list):
@@ -922,9 +1121,14 @@ def _as_targets(value, path, errors, upstreams):
         if not match:
             errors.append(f"{where}: expected 'upstream:path', got {item!r}")
             continue
-        if match.group("name") not in upstreams:
+        upstream = upstreams.get(match.group("name"))
+        if upstream is None:
             errors.append(f"{where}: unknown upstream {match.group('name')!r} "
                           f"(defined: {', '.join(upstreams) or 'none'})")
+            continue
+        if types and upstream.type not in types:
+            errors.append(f"{where}: upstream {upstream.name!r} has type "
+                          f"{upstream.type}; this task needs {', '.join(types)}")
             continue
         out.append(item)
     return out

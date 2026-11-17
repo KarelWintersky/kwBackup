@@ -3,6 +3,30 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.68] — 2026-11-18
+
+### Added
+
+- **Задача `vault`**: версионный бэкап файлов неизменяемыми TAR-слоями и
+  JSON-манифестами. Первый запуск `--vault --full` создаёт base, дальше идут
+  дельты по журналу `YYYY-MM-DD.journal.txt` или по полному скану
+  (`journal.type: scan`). Каждый запуск создаёт слой, даже пустой.
+- **Транспорты апстримов**: `type: rclone|rsync`, `bwlimit`, `host`,
+  `ssh_options`; `rsync` пока разрешён только задаче `vault`.
+- **`--full` и `--reconcile`** для vault; `--full` начинает новую цепочку
+  и закрывает журналы до даты запуска, `--reconcile` делает корректирующий
+  слой без нового base.
+
+### Changed
+
+- Локальный sqlite-индекс `state_dir/index.sqlite` ускоряет diff и
+  восстанавливается из удалённых манифестов при потере.
+- `rclone` получает `--bwlimit` из апстрима.
+
+### Осталось
+
+- `--list`, `--verify` и `--restore` для vault — следующий шаг.
+
 ## [0.99.64] — 2026-11-17
 
 ### Added

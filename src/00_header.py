@@ -33,6 +33,7 @@ import datetime as dt
 import fcntl
 import fnmatch
 import glob
+import hashlib
 import json
 import logging
 import logging.handlers
@@ -43,9 +44,11 @@ import shutil
 import signal
 import smtplib
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import urllib.error
