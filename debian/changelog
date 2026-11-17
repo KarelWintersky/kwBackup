@@ -1,3 +1,15 @@
+kwbackup (0.99.65) unstable; urgency=medium
+
+  * docs: storage copy default and the monthly sync
+
+    README covers the layered default (CLI -m > scenario > /etc/kwbackup/
+    defaults.yaml > builtin sync), how to switch the host to copy, the monthly
+    copy+sync cadence with a cron line, and that -m/--mode applies to every task
+    of the run - so the monthly mirror must be storage-only. Also notes the
+    empty-source guard and how to check the effective mode.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Tue, 17 Nov 2026 18:27:24 +0300
+
 kwbackup (0.99.64) unstable; urgency=medium
 
   * feat: honest --check, empty-source guard, database options

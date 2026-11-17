@@ -112,7 +112,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --database` | бэкап баз данных из конфига |
 | `kwbackup --config FILE --storage` | синхронизация storage |
 | `kwbackup --config FILE --archive` | упаковка и заливка архива |
-| `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
+| `kwbackup --config FILE --storage -m sync` | зеркало вместо copy (удаляет старое); `-m` глобальный для всех задач запуска |
 | `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
 | `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 1 при проблемах |
@@ -165,6 +165,51 @@ database:
 Списки `rclone.args`,
 `database.args`, `*_compressor_args` и `archive.exclude` дополняются,
 остальные значения задача перекрывает.
+
+### Storage: `copy` по умолчанию и месячный `sync`
+
+Встроенный дефолт `storage.mode` — `sync` (зеркало). Чтобы ежедневный прогон
+ничего не удалял, поставьте `copy` один раз на хосте:
+
+```yaml
+# /etc/kwbackup/defaults.yaml
+storage:
+  mode: copy
+```
+
+Это системный слой: он перекрывает встроенный `sync` для всех сценариев, у
+которых нет своего `storage.mode` в файле задачи. Приоритет:
+`-m/--mode` (CLI) → файл сценария → `/etc/kwbackup/defaults.yaml` →
+`BUILTIN_DEFAULTS`. Эффективное значение видно в `--check`:
+
+```
+storage   enabled (copy)
+  mode       copy
+```
+
+Раз в месяц имеет смысл прогнать зеркало, чтобы убрать из облака файлы,
+удалённые локально:
+
+```bash
+kwbackup -c /etc/kwbackup/shop.yaml --storage -m sync
+```
+
+В cron — 1-го числа, после ночного бэкапа:
+
+```cron
+30 4 1 * * root set -a; . /etc/default/kwbackup; set +a; \
+    /usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --storage -m sync
+```
+
+**`-m/--mode` — глобальный для запуска:** он применяется ко **всем** задачам,
+которые выполняются в этом прогоне. `-m sync` вместе с `--database
+--archive` сделает зеркалом и их (для БД — по одной копии на класс, для
+архива — только новый файл). Поэтому месячный `sync` запускайте только с
+`--storage`.
+
+`sync` удаляет в `target/<dest>` всё, чего нет в источнике. Пустой
+каталог-источник (не смонтировался диск) задача отвергает, пока не задан
+`storage.allow_empty: true`.
 
 Готовые варианты: [`examples/database-only.yaml`](examples/database-only.yaml),
 [`examples/storage-only.yaml`](examples/storage-only.yaml),
