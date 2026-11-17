@@ -204,6 +204,50 @@ notify:
         check("source_bytes include", source_bytes(root, ["sub"], []) == 50,
               source_bytes(root, ["sub"], []))
 
+    # journal: txt-daily, complete lines only, .done rename, TTL cleanup
+    with tempfile.TemporaryDirectory() as jdir:
+        jroot = Path(jdir)
+        old = jroot / "2026-11-10.journal.txt"
+        old.write_text(
+            "2026-11-10T01:00:00Z\tADDED\tphotos/a.jpg\n"
+            "2026-11-10T01:00:01Z\tDELETED\tphotos/old.jpg\n"
+            "2026-11-10T01:00:02Z\tBROKEN\tphotos/x.jpg\n"
+            "2026-11-10T01:00:03Z\tADDED\t../escape\n"
+            "2026-11-10T01:00:04Z\tADDED\tphotos/partial", encoding="utf-8")
+        (jroot / "2026-11-17.journal.txt").write_text(
+            "2026-11-17T02:00:00Z\tADDED\tphotos/2026/11/b.jpg\n", encoding="utf-8")
+        (jroot / "2026-11-18.journal.txt").write_text("", encoding="utf-8")
+        (jroot / "2026-11-09.journal.txt.done").write_text("", encoding="utf-8")
+
+        pending = pending_journals(jroot, today=dt.date(2026, 11, 18))
+        check("journal pending",
+              [day for day, _ in pending] == ["2026-11-10", "2026-11-17"], pending)
+
+        warnings = []
+        events = read_journal(old, warnings)
+        check("journal events",
+              [(e.op, e.path) for e in events]
+              == [("ADDED", "photos/a.jpg"), ("DELETED", "photos/old.jpg")], events)
+        check("journal warnings", len(warnings) == 2, warnings)
+
+        events_all, files = read_pending(jroot, today=dt.date(2026, 11, 18),
+                                 warnings=[])
+        check("journal read_pending",
+              len(files) == 2 and len(events_all) == 3, (files, events_all))
+
+        mark_done(pending[0][1])
+        check("journal mark_done",
+              not pending[0][1].exists()
+              and [day for day, _ in pending_journals(jroot, today=dt.date(2026, 11, 18))]
+              == ["2026-11-17"], pending_journals(jroot, today=dt.date(2026, 11, 18)))
+
+        removed = cleanup_done(jroot, keep=dt.timedelta(days=7),
+                               today=dt.date(2026, 11, 18))
+        check("journal cleanup_done",
+              len(removed) == 2 and not (jroot / "2026-11-09.journal.txt.done").exists(),
+              removed)
+        check("journal cleanup off", cleanup_done(jroot, keep=None) == [])
+
     # dump command: args are appended to the defaults, ignore_table expands
     db_mysql = SimpleNamespace(type="mysql", args=["--skip-extended-insert"],
                                host="localhost", port=None, user=None,

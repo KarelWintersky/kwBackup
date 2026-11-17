@@ -1,3 +1,24 @@
+kwbackup (0.99.67) unstable; urgency=medium
+
+  * feat(journal): txt-daily journal reader for the vault task
+
+    src/87_journal.py discovers <YYYY-MM-DD>.journal.txt files (only complete
+    lines, the current day is skipped), parses "ts<TAB>op<TAB>path" records with
+    validation (UTC timestamp, ADDED/MODIFIED/DELETED, relative path without ..),
+    renames processed files to .done atomically, and removes .done files older
+    than a TTL.
+
+    The journal is only a hint: the future vault task will still stat-compare
+    every path with the current chain, so duplicate, replayed or late records are
+    harmless.
+
+    No config or CLI yet - the vault task is the next step. The module is covered
+    by the embedded selftest (64 checks, 72/72 e2e).
+    TODO_VAULT.md records the deferred ideas: local transport, sqlite journal,
+    physical prune and restore-order details.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Tue, 17 Nov 2026 23:34:44 +0300
+
 kwbackup (0.99.66) unstable; urgency=medium
 
   * docs(cron): monthly storage sync example
