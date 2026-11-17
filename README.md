@@ -115,7 +115,7 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE -d ... -m sync` | зеркало вместо copy (удаляет старое) |
 | `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и бинарники |
+| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 1 при проблемах |
 | `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |
 | `kwbackup --config FILE --verify [--all]` | скачать и проверить копию |
 | `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |

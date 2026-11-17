@@ -18,6 +18,20 @@ def action_storage(cfg, args):
     mode = args.mode or st.mode
     if mode not in ("sync", "copy"):
         raise ActionFailed(f"storage: unsupported mode {mode!r}, expected sync or copy")
+    if mode == "sync" and not st.allow_empty:
+        for path, _dest in st.sources:
+            source = Path(path)
+            if not source.is_dir():
+                continue
+            try:
+                with os.scandir(source) as entries:
+                    empty = next(entries, None) is None
+            except OSError:
+                continue
+            if empty:
+                raise ActionFailed(
+                    f"storage: source {path} is empty; refusing to sync, "
+                    f"set storage.allow_empty: true to override")
 
     stats = {"sources": 0, "remote_files": 0}
     failures, details = [], []

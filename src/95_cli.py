@@ -96,7 +96,16 @@ def main(argv=None):
         LOG.info("config: %s [section disabled: not enforced, see --check]", message)
 
     if args.check:
-        return check_config(cfg, args)
+        started = dt.datetime.now()
+        rc, problems = check_config(cfg, args)
+        if problems:
+            # The report goes to stdout; keep one line in the log and notify.
+            LOG.error("check: %s", "; ".join(problems))
+            return finish(cfg, "check", rc,
+                          [f"check: {len(problems)} preflight problem(s)"],
+                          started,
+                          [{"action": "preflight", "reason": p} for p in problems])
+        return rc
 
     if args.list:
         return action_list(cfg, args)
@@ -404,4 +413,4 @@ def check_config(cfg, args):
             print(f"    {_color('!', red)} {problem}")
     else:
         print(f"  {_label('preflight', 9)} {_color('ok', green)}")
-    return EXIT_OK
+    return (EXIT_ERROR if problems else EXIT_OK), problems

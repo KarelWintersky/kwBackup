@@ -31,6 +31,9 @@ def preflight_problems(cfg, actions):
         if cfg.archive.compressor != "none":
             wanted.append(cfg.archive.compressor)
 
+    if actions and cfg.rclone.binary:
+        wanted.append(cfg.rclone.binary)
+
     for binary in dict.fromkeys(wanted):
         if binary and shutil.which(binary) is None:
             problems.append(f"binary not found in PATH: {binary}")
@@ -48,13 +51,6 @@ def preflight_problems(cfg, actions):
             problems.append(f"rclone config for upstream {upstream.name!r} "
                             f"not found: {upstream.config}")
     return problems
-
-
-def preflight(cfg, actions):
-    problems = preflight_problems(cfg, actions)
-    for problem in problems:
-        LOG.error("preflight: %s", problem)
-    return not problems
 
 
 def _dump_binary(db):

@@ -80,6 +80,7 @@ database:
   compressor_args: ["-3"]
   mode: copy                # в конфиге допустим только copy; -m sync — из CLI
   catch_up: false           # true = догонять пропущенные weekly/monthly
+  ignore_table: []          # таблицы, которые не дампить; db.table или просто table
   retention_mode: keep      # keep | max_age; запрещает смешивать правила
   retention:
     daily:
@@ -92,6 +93,7 @@ database:
 
 storage:
   mode: sync                # sync = зеркало, copy = только доливать
+  allow_empty: false        # true = разрешить sync из пустого каталога
 
 archive:
   compressor: zstd          # zstd | gzip | pigz | rar | none

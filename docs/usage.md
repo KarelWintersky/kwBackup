@@ -56,8 +56,10 @@ kwbackup --config /etc/kwbackup/shop.yaml --verify
 `--check` печатает разобранный конфиг и **preflight**: найден ли
 `rclone`, `mysqldump`/`pg_dump`, `tar`, компрессор; существует ли
 `rclone.config`; доступны ли источники storage, `root` архива, `temp_dir`;
-задана ли переменная с паролем. Предупреждения не меняют код возврата,
-но при реальном запуске preflight уже блокирует работу.
+задана ли переменная с паролем. Если preflight нашёл проблемы, `--check`
+возвращает **1** (конфиг при этом может быть валиден), пишет их в лог и,
+если включены уведомления на `failure`, отправляет сообщение. Ноль — только
+когда всё на месте.
 
 ```
 kwBackup: Backup tool over rclone: database dumps, file storage, archives (Version: 0.99.43)
@@ -403,6 +405,10 @@ kwbackup --config uploads.yaml --restore --storage --to /srv/restore
 не удаляется.
 
 ## Логи и блокировки
+
+`log.file` никто не ротирует: добавьте logrotate, пример —
+[`examples/logrotate.d/kwbackup`](../examples/logrotate.d/kwbackup).
+Файл открывается заново на каждый запуск, сигналы не нужны.
 
 ```
 /var/log/kwbackup/<project>.log          # если задан log.file (или log.syslog)

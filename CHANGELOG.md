@@ -3,6 +3,23 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.64] — 2026-11-17
+
+### Added
+
+- `storage.allow_empty` (по умолчанию `false`): `sync` отказывается работать
+  из пустого каталога-источника — защита от «диск не смонтировался».
+- `database.ignore_table`: `--ignore-table` для mysql/mariadb (без точки —
+  к текущей базе) и `--exclude-table` для postgres.
+- `examples/logrotate.d/kwbackup`; пример ставится и в `.deb`.
+- `--check` теперь возвращает `1` при проблемах preflight и уведомляет об этом
+  при `notify.on: [failure]`.
+
+### Changed
+
+- `database.args` дополняет дефолтные опции дампа, а не заменяет их.
+- preflight проверяет `rclone` для всех задач, включая дампы БД.
+
 ## [0.99.62] — 2026-11-16
 
 Сводка с первой Python-версии. Пошаговая история, запись на каждый коммит, —

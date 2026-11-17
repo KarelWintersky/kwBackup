@@ -9,8 +9,11 @@ def dump_command(cfg, dbname, binary=None):
         return [binary or "sqlite3", db.host, ".dump"]
     if kind in ("mysql", "mariadb"):
         exe = binary or ("mariadb-dump" if kind == "mariadb" else "mysqldump")
-        cmd = [exe] + (db.args or ["--single-transaction", "--quick",
-                                   "--no-tablespaces", "--skip-lock-tables"])
+        cmd = [exe, "--single-transaction", "--quick", "--no-tablespaces",
+               "--skip-lock-tables"] + list(db.args or [])
+        for table in db.ignore_table or []:
+            name = table if "." in table else f"{dbname}.{table}"
+            cmd.append(f"--ignore-table={name}")
         cmd.append(f"--host={db.host}")
         if db.port:
             cmd.append(f"--port={db.port}")
@@ -18,7 +21,9 @@ def dump_command(cfg, dbname, binary=None):
             cmd.append(f"--user={db.user}")
         return cmd + [dbname]
     if kind in ("postgres", "pgsql"):
-        cmd = ["pg_dump"] + (db.args or ["--no-owner", "--no-privileges"])
+        cmd = ["pg_dump", "--no-owner", "--no-privileges"] + list(db.args or [])
+        for table in db.ignore_table or []:
+            cmd.append(f"--exclude-table={table}")
         cmd += ["--host", db.host]
         if db.port:
             cmd += ["--port", str(db.port)]

@@ -288,13 +288,14 @@ upstreams:
 | `port` | int | не задан | если не задан — клиент использует свой |
 | `user` | str | не задан | mysql: `--user`, postgres: `--username` |
 | `password_env` | str | не задан | имя переменной окружения с паролем |
-| `args` | list | см. ниже | опции дампа |
+| `args` | list | см. ниже | **дополнительные** опции к дефолтным |
 | `compressor` | enum | `zstd` | `zstd` \| `gzip` \| `pigz` \| `rar` \| `none` |
 | `compressor_args` | list | `[]` | аргументы компрессора |
 | `mode` | enum | `copy` | в конфиге только `copy`; `-m sync` — из CLI |
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `databases` | list | обяз. при `enabled` | имена БД (для sqlite — не используется) |
 | `catch_up` | bool | `false` | догонять пропущенные weekly/monthly |
+| `ignore_table` | list | `[]` | таблицы, которые не дампить: `db.table` или просто `table` |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для БД |
 | `retention_mode` | enum | нет | `keep` \| `max_age`: запрет смешивать |
 | `retention` | map | обяз. при `enabled` | см. «Ротация» |
@@ -309,6 +310,17 @@ upstreams:
 | `mariadb` | `mariadb-dump` | то же |
 | `postgres`/`pgsql` | `pg_dump` | `--no-owner --no-privileges` |
 | `sqlite` | `sqlite3 <host> .dump` | `args` не используются |
+
+`args` **дополняют** дефолтные опции, а не заменяют их: `args:
+["--skip-extended-insert"]` сохраняет `--single-transaction`. Раньше набор
+заменялся целиком — это было ловушкой.
+
+`ignore_table` разворачивается в флаги исключения таблиц:
+
+* `mysql`/`mariadb` — `--ignore-table=<db>.<table>`; запись без точки
+  получает имя текущей базы, `shop.sessions` уходит как есть;
+* `postgres`/`pgsql` — `--exclude-table=<table>`;
+* `sqlite` — не поддерживается, при непустом списке предупреждение.
 
 Пароли:
 
@@ -414,6 +426,7 @@ weekly при следующем запуске. По умолчанию вык�
 |---|---|---|---|
 | `enabled` | bool | `false` | включает задачу |
 | `mode` | enum | `sync` | `sync` — зеркало; `copy` — только добавлять |
+| `allow_empty` | bool | `false` | разрешить `sync` из пустого каталога |
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `sources` | list | обяз. при `enabled` | любое количество источников, см. ниже |
 | `before` | list | `[]` | команды до задачи, см. «Хуки» |
@@ -451,7 +464,9 @@ storage:
 | `/srv/app/data` | `backup/data` | `rclone sync /srv/app/data target/backup/data` |
 
 **Осторожно:** `sync` приводит `target/<dest>` к состоянию источника и удаляет
-в нём всё лишнее. Если два источника имеют одинаковый `dest` (в частности,
+в нём всё лишнее. Поэтому пустой каталог-источник считается аварийной
+ситуацией (не смонтировался диск): `sync` отказывается работать, пока не задан
+`storage.allow_empty: true`. Если два источника имеют одинаковый `dest` (в частности,
 `""` у обоих), второй прогон удалит файлы первого. Давайте каждому источнику
 свой `dest`; `copy` не удаляет, но смешивает файлы в одном каталоге.
 

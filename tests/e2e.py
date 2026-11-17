@@ -134,6 +134,7 @@ upstreams:
         return self.write_config(body)
 
     def run(self, *args, expect=0, extra_env=None):
+        """expect=None runs without checking the exit code."""
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         env["FAKE_CLOUD"] = str(self.cloud)
@@ -145,12 +146,12 @@ upstreams:
         if VERBOSE:
             print("   $", " ".join(cmd))
         res = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if VERBOSE or res.returncode != expect:
+        if VERBOSE or (expect is not None and res.returncode != expect):
             if res.stdout.strip():
                 print(res.stdout)
             if res.stderr.strip():
                 print(res.stderr)
-        if res.returncode != expect:
+        if expect is not None and res.returncode != expect:
             raise AssertionError(f"expected exit {expect}, got {res.returncode}: "
                                  f"{' '.join(cmd)}")
         return res
@@ -584,7 +585,9 @@ def test_migrate_old_config():
                          "/srv/files.aait", "name: site", "retention: {keep: 71}",
                          "compressor: zstd"):
             assert expected in text, f"missing {expected!r} in:\n{text}"
-        env.run("-c", out, "--check")
+        res = env.run("-c", out, "--check", expect=None)
+        assert res.returncode in (0, 1), res.returncode
+        assert "invalid config" not in res.stderr, res.stderr
         env.run("migrate", old, "-o", out, expect=3)      # no --force
         env.run("migrate", old, "-o", out, "-f")
     finally:
@@ -620,9 +623,107 @@ def test_documented_examples_validate():
                  if p.name != "defaults.yaml"]   # defaults are not a task
         assert files, "no example configs found"
         for path in files:
-            env.run("-c", path, "--check",
-                    "--defaults", ROOT / "debian" / "kwbackup.defaults.yaml",
-                    extra_env=secret_env)
+            res = env.run("-c", path, "--check",
+                          "--defaults", ROOT / "debian" / "kwbackup.defaults.yaml",
+                          extra_env=secret_env, expect=None)
+            # Examples point at real host paths, so preflight may fail (1);
+            # what must never happen is a config error (2).
+            assert res.returncode in (0, 1), (path, res.returncode)
+            assert "invalid config" not in res.stderr, (path, res.stderr)
+    finally:
+        env.cleanup()
+
+
+def test_check_fails_on_preflight_problems():
+    env = Env()
+    try:
+        env.write_config(f"""
+project: checkpre
+log: {{level: info}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: /nonexistent/rclone}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 1}}}}
+""")
+        res = env.run("-c", env.config, "--check", expect=1)
+        assert "preflight problems" in res.stdout, res.stdout
+        assert "binary not found in PATH: /nonexistent/rclone" in res.stdout, res.stdout
+    finally:
+        env.cleanup()
+
+
+def test_check_preflight_failure_notifies():
+    env = Env()
+    try:
+        with _HookServer() as hook:
+            env.write_config(f"""
+project: checknotify
+log: {{level: info}}
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: /nonexistent/rclone}}
+upstreams: {{fake: {{}}}}
+database:
+  enabled: true
+  targets: ["fake:/DB"]
+  databases: [db1]
+  retention: {{daily: {{keep: 1}}}}
+notify:
+  on: [failure]
+  webhook: {{url: "{hook.url}"}}
+""")
+            env.run("-c", env.config, "--check", expect=1)
+            assert len(hook.requests) == 1, hook.requests
+            body = hook.requests[0]
+            assert "check failed (exit 1)" in body["subject"], body["subject"]
+            assert "binary not found" in body["text"], body["text"]
+    finally:
+        env.cleanup()
+
+
+def test_storage_sync_refuses_empty_source():
+    env = Env()
+    try:
+        src = env.dir / "empty"
+        src.mkdir()
+        cloud = env.cloud / "ST" / "empty"      # dest defaults to the basename
+        cloud.mkdir(parents=True)
+        (cloud / "old.txt").write_text("keep me", encoding="utf-8")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  mode: sync
+  sources: ["{src}"]
+  targets: ["fake:/ST"]
+""")
+        res = env.run("-c", env.config, "-s", expect=1)
+        assert "is empty" in res.stderr and "allow_empty" in res.stderr, res.stderr
+        assert (cloud / "old.txt").exists(), "the remote must not be touched"
+    finally:
+        env.cleanup()
+
+
+def test_storage_sync_allows_empty_source_when_flagged():
+    env = Env()
+    try:
+        src = env.dir / "empty"
+        src.mkdir()
+        cloud = env.cloud / "ST" / "empty"
+        cloud.mkdir(parents=True)
+        (cloud / "old.txt").write_text("delete me", encoding="utf-8")
+        env.base_config(extra=f"""
+storage:
+  enabled: true
+  mode: sync
+  allow_empty: true
+  sources: ["{src}"]
+  targets: ["fake:/ST"]
+""")
+        env.run("-c", env.config, "-s")
+        assert not (cloud / "old.txt").exists(), "sync mirrors the empty source"
     finally:
         env.cleanup()
 
@@ -2005,6 +2106,10 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_check_fails_on_preflight_problems,
+         test_check_preflight_failure_notifies,
+         test_storage_sync_refuses_empty_source,
+         test_storage_sync_allows_empty_source_when_flagged,
          test_hooks_run_in_order_with_env,
          test_before_hook_failure_aborts_task,
          test_after_hook_failure_is_a_warning,

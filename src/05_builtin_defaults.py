@@ -38,9 +38,11 @@ BUILTIN_DEFAULTS = {
         "compressor": "zstd",
         "compressor_args": [],
         "catch_up": False,
+        "ignore_table": [],
     },
     "storage": {
         "mode": "sync",
+        "allow_empty": False,
     },
     "archive": {
         "compressor": "zstd",

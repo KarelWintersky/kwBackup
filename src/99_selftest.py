@@ -150,6 +150,14 @@ archive:
             check("hook type validated", "before" in str(exc), str(exc))
         cfg_t = load_config(write(good + "\nruntime:\n  hook_timeout: 30\n"))
         check("hook timeout", cfg_t.hook_timeout == 30, cfg_t.hook_timeout)
+        cfg_it = load_config(write(good.replace(
+            "databases: [db1]", "databases: [db1]\n  ignore_table: [logs]")))
+        check("ignore_table parsed", cfg_it.database.ignore_table == ["logs"],
+              cfg_it.database.ignore_table)
+        cfg_ae = load_config(write(
+            good + "\nstorage:\n  enabled: false\n  allow_empty: true\n"))
+        check("allow_empty parsed", cfg_ae.storage.allow_empty is True,
+              cfg_ae.storage.allow_empty)
 
         with_notify = good + """
 notify:
@@ -195,6 +203,22 @@ notify:
               source_bytes(root, ["*"], ["*.tmp"]))
         check("source_bytes include", source_bytes(root, ["sub"], []) == 50,
               source_bytes(root, ["sub"], []))
+
+    # dump command: args are appended to the defaults, ignore_table expands
+    db_mysql = SimpleNamespace(type="mysql", args=["--skip-extended-insert"],
+                               host="localhost", port=None, user=None,
+                               ignore_table=["logs", "shop.sessions"])
+    cmd = dump_command(SimpleNamespace(database=db_mysql), "shop")
+    check("dump args appended",
+          "--single-transaction" in cmd and "--skip-extended-insert" in cmd, cmd)
+    check("ignore_table mysql",
+          cmd.count("--ignore-table=shop.logs") == 1
+          and "--ignore-table=shop.sessions" in cmd, cmd)
+    db_pg = SimpleNamespace(type="postgres", args=[], host="localhost", port=5432,
+                            user="u", ignore_table=["audit"])
+    cmd = dump_command(SimpleNamespace(database=db_pg), "shop")
+    check("ignore_table postgres",
+          "--exclude-table=audit" in cmd and "--no-owner" in cmd, cmd)
 
     # notifications: safe reasons, message contents, channel plumbing
     check("yaml keys stay strings",

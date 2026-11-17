@@ -26,9 +26,9 @@ SECTIONS = {
     "database": {"enabled", "type", "host", "port", "user", "password_env",
                  "args", "compressor", "compressor_args", "targets", "mode",
                  "databases", "retention", "retention_mode", "catch_up",
-                 "before", "after", "s3-custom-options"},
-    "storage": {"enabled", "mode", "targets", "sources", "before", "after",
-                "s3-custom-options"},
+                 "ignore_table", "before", "after", "s3-custom-options"},
+    "storage": {"enabled", "mode", "targets", "sources", "allow_empty",
+                "before", "after", "s3-custom-options"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "targets", "mode", "retention",
                 "retention_mode", "before", "after", "s3-custom-options"},
@@ -139,6 +139,7 @@ class DatabaseCfg:
     databases: list = field(default_factory=list)
     retention: dict = field(default_factory=dict)      # class -> Retention | None
     catch_up: bool = _default("database", "catch_up")
+    ignore_table: list = field(default_factory=lambda: _default("database", "ignore_table"))
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
     s3_options: dict = field(default_factory=dict)
@@ -148,6 +149,7 @@ class DatabaseCfg:
 class StorageCfg:
     enabled: bool = False
     mode: str = _default("storage", "mode")
+    allow_empty: bool = _default("storage", "allow_empty")
     targets: list = field(default_factory=list)
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
     before: list = field(default_factory=list)
@@ -730,11 +732,16 @@ def load_config(path, env=None, defaults=None, strict=False):
         databases=_as_list(db.get("databases"), "config.database.databases", errors),
         retention=retention,
         catch_up=_as_bool(db.get("catch_up"), "config.database.catch_up", errors),
+        ignore_table=_as_list(db.get("ignore_table"),
+                              "config.database.ignore_table", errors),
         before=_as_list(db.get("before"), "config.database.before", errors),
         after=_as_list(db.get("after"), "config.database.after", errors),
         s3_options=_as_s3_options(db.get("s3-custom-options"),
                                   "config.database.s3-custom-options", errors),
     )
+    if cfg.database.ignore_table and cfg.database.type == "sqlite":
+        warnings.append("config.database.ignore_table: sqlite has no table "
+                        "selection, ignored")
     errors.deferred = False
     if cfg.database.enabled and not cfg.database.databases:
         errors.append("config.database.databases: required when database.enabled is true")
@@ -759,6 +766,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                             cfg.upstreams),
         sources=_as_sources(st.get("sources"), "config.storage.sources",
                             errors, warnings),
+        allow_empty=_as_bool(st.get("allow_empty"),
+                             "config.storage.allow_empty", errors),
         before=_as_list(st.get("before"), "config.storage.before", errors),
         after=_as_list(st.get("after"), "config.storage.after", errors),
         s3_options=_as_s3_options(st.get("s3-custom-options"),

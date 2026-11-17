@@ -90,14 +90,12 @@ database:
   user: backup            # mysql: --user, postgres: --username
   password_env: MYSQL_PWD # имя переменной окружения с паролем;
                           # для postgres значение же копируется в PGPASSWORD
-  args:                   # опции дампа; пусто = дефолты ниже
-    - --single-transaction
-    - --quick
-    - --no-tablespaces
-    - --skip-lock-tables
-  # дефолты, если args не задан:
+  args:                   # ДОПОЛНИТЕЛЬНЫЕ опции к дефолтным (не замена)
+    - --skip-extended-insert
+  # дефолты добавляются всегда:
   #   mysql/mariadb: --single-transaction --quick --no-tablespaces --skip-lock-tables
   #   postgres:      --no-owner --no-privileges
+  ignore_table: []        # таблицы-исключения: db.table или просто table
   compressor: zstd        # zstd | gzip | pigz | rar | none
   compressor_args: ["-3"]
   targets:                # по одной заливке на апстрим
@@ -140,6 +138,8 @@ storage:
   enabled: false
   mode: sync              # sync — зеркало (удаляет лишнее в облаке)
                           # copy — только добавляет/обновляет
+  allow_empty: false      # true = разрешить sync из пустого каталога
+                          # (защита от «диск не смонтировался»)
   # s3-custom-options: {s3-access-key-id: ...}   # перекрыть для storage
   targets:
     - s3a:/STORAGE

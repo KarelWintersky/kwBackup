@@ -1,0 +1,14 @@
+# /etc/logrotate.d/kwbackup
+#
+# kwbackup открывает log.file заново на каждый запуск и не держит дескриптор,
+# поэтому postrotate с сигналом не нужен: достаточно переименовать файл.
+/var/log/kwbackup/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+    su root root
+}

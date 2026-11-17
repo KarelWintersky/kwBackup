@@ -1,3 +1,33 @@
+kwbackup (0.99.64) unstable; urgency=medium
+
+  * feat: honest --check, empty-source guard, database options
+
+    --check now returns 1 when preflight finds problems (missing rclone or a
+    dumper, unreadable sources, no space in temp_dir), logs them in one line and
+    sends the failure notification when notify.on includes failure. Zero means
+    everything is ready, so --check is usable from CI and monitoring.
+
+    storage.allow_empty (false by default): sync refuses to run when a source
+    directory is empty - the classic "the disk was not mounted" case that used to
+    wipe the remote. copy is not affected and the flag lifts the guard.
+
+    database.args now extends the built-in dump options instead of replacing
+    them, so adding an option no longer drops --single-transaction. The new
+    database.ignore_table list expands to --ignore-table=<db>.<table> for
+    mysql/mariadb and --exclude-table=<table> for postgres; sqlite warns.
+
+    Preflight checks cfg.rclone.binary for every action, including database
+    dumps, which upload through rclone as well.
+
+    Added examples/logrotate.d/kwbackup (log.file is opened per run, no signal
+    needed); the example is shipped in the deb.
+
+    tests: check exit code and notification, empty-source refusal and the
+    allow_empty override, dump command assembly, ignore_table and allow_empty
+    parsing (72/72 e2e, 57 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Tue, 17 Nov 2026 18:17:33 +0300
+
 kwbackup (0.99.63) unstable; urgency=medium
 
   * docs: bring CHANGELOG.md up to date

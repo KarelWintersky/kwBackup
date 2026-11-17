@@ -3,3 +3,4 @@ examples/storage-only.yaml
 examples/archive-only.yaml
 examples/full.yaml
 examples/incremental-only.yaml
+examples/logrotate.d/kwbackup
