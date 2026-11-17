@@ -1763,6 +1763,11 @@ vault:
         env.run("-c", config, "--vault", extra_env=extra)
         last = json.loads(sorted(remote.glob("*.manifest.json"))[-1].read_text())
         assert last["added"] == ["c.txt"], last
+        out = env.dir / "restore"
+        env.run("-c", config, "--restore", "--vault", "--from", "nas",
+                "--to", out, extra_env=extra)
+        assert (out / "a.txt").exists() and (out / "b.txt").exists()
+        assert (out / "c.txt").exists(), list(out.iterdir())
     finally:
         env.cleanup()
 
@@ -1854,6 +1859,46 @@ def test_vault_journal_add_and_delete():
         env.run("-c", env.config, "--vault")      # no journal -> empty day
         layers = _vault_layers(env)
         assert layers[-1]["files"] == [] and layers[-1]["deleted"] == [], layers[-1]
+    finally:
+        env.cleanup()
+
+
+def test_vault_restore_latest():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        (root / "a.txt").unlink()
+        env.run("-c", env.config, "--vault")
+        out = env.dir / "restore"
+        env.run("-c", env.config, "--restore", "--vault", "--to", out)
+        assert (out / "b.txt").read_text() == "b", list(out.iterdir())
+        assert not (out / "a.txt").exists(), "deleted file must stay deleted"
+    finally:
+        env.cleanup()
+
+
+def test_vault_restore_at():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        manifest = sorted((env.cloud / "V").glob("*.manifest.json"))[0]
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        data["source_date"] = "2020-01-01"
+        manifest.write_text(json.dumps(data, ensure_ascii=False,
+                                      separators=(",", ":")), encoding="utf-8")
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        old = env.dir / "old"
+        env.run("-c", env.config, "--restore", "--vault", "--to", old,
+                "--at", "2020-01-01")
+        assert (old / "a.txt").exists() and not (old / "b.txt").exists(), list(old.iterdir())
+        latest = env.dir / "latest"
+        env.run("-c", env.config, "--restore", "--vault", "--to", latest)
+        assert (latest / "a.txt").exists() and (latest / "b.txt").exists()
     finally:
         env.cleanup()
 
@@ -2343,6 +2388,8 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_rsync_upstream_is_vault_only,
          test_vault_full_and_empty_layer,
          test_vault_journal_add_and_delete,
+         test_vault_restore_latest,
+         test_vault_restore_at,
          test_vault_reconcile_without_journal,
          test_vault_rebuilds_index_from_manifests,
          test_check_fails_on_preflight_problems,

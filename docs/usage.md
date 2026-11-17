@@ -206,7 +206,26 @@ kwbackup -c /etc/kwbackup/storage.yaml --vault --reconcile
 
 Тома TAR — по `volume_size` (2 ГБ по умолчанию), файлы не режутся. Сжатия
 нет: фото/видео уже сжаты, а смещения в манифесте требуют обычного TAR.
-`--list`/`--verify`/`--restore` для vault — следующий шаг.
+
+Восстановление:
+
+```bash
+# последнее состояние
+kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --to /srv/restore
+
+# состояние на 17 ноября (последний base <= даты + слои после него)
+kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --to /srv/restore \
+    --at 2026-11-17
+
+# с конкретного таргета
+kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --from nas \
+    --to /srv/restore
+```
+
+Порядок задаётся `restore_order`: `direction: desc` — свежие слои первыми
+(аварийный сценарий «сначала текущий месяц»), `priority` — порядок каталогов
+внутри слоя. Удалённые файлы не восстанавливаются; права, владелец и mtime
+берутся из манифеста. `--list` и `--verify` для vault — следующий шаг.
 
 ## Расписание
 

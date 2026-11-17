@@ -160,12 +160,14 @@ def action_restore(cfg, args):
     what = [name for name, flag in (("database", args.database),
                                     ("storage", args.storage),
                                     ("archive", args.archive),
-                                    ("incremental", args.incremental)) if flag]
+                                    ("incremental", args.incremental),
+                                    ("vault", args.vault)) if flag]
     if not what:
         what = [name for name, enabled in (("database", cfg.database.enabled),
                                            ("storage", cfg.storage.enabled),
                                            ("archive", cfg.archive.enabled),
-                                           ("incremental", cfg.incremental.enabled))
+                                           ("incremental", cfg.incremental.enabled),
+                                           ("vault", cfg.vault.enabled))
                 if enabled]
     if not what:
         raise ActionFailed("restore: nothing selected (-d/-s/-a) and nothing enabled in config")
@@ -246,6 +248,11 @@ def action_restore(cfg, args):
                 _extract_incremental(local, dest_dir)
             finally:
                 local.unlink(missing_ok=True)
+
+    if "vault" in what:
+        vault_stats = vault_restore(cfg, args)
+        stats["files"] += vault_stats["files"]
+        stats["bytes"] += vault_stats["bytes"]
 
     if "storage" in what:
         target = _chosen_target(cfg.storage, args.from_upstream, "storage")

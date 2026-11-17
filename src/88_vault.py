@@ -576,3 +576,121 @@ def action_vault(cfg, args):
         for warning in warnings:
             LOG.warning("vault: %s", warning)
     return stats
+
+
+# ---------------------------------------------------------------- restore
+def _vault_restore_target(cfg, name):
+    if name:
+        for target in cfg.vault.targets:
+            if target.partition(":")[0] == name:
+                return target
+        raise ActionFailed(f"vault restore: unknown target {name!r} "
+                           f"(configured: {', '.join(cfg.vault.targets)})")
+    return cfg.vault.targets[0]
+
+
+def _vault_restore_safe(path):
+    return bool(path) and not path.startswith("/") and ".." not in path.split("/")
+
+
+def _vault_manifest_order(name, manifest):
+    return manifest.get("source_date") or name[:10]
+
+
+def vault_restore(cfg, args):
+    """Restore the state of a date (or the latest) from the manifest chain."""
+    destination = Path(args.to)
+    target = _vault_restore_target(cfg, args.from_upstream)
+    store = vault_store(cfg, target)
+    names = sorted(name for name in store.list()
+                   if name.endswith(".manifest.json"))
+    if not names:
+        raise ActionFailed("vault restore: no manifests found in "
+                           f"{target}")
+
+    at = (args.at or "").strip()
+    if at:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}", at):
+            raise ActionFailed(f"vault restore: bad --at {at!r}, expected "
+                               "YYYY-MM-DD")
+        at = at[:10]
+
+    state, layers, seen_base = {}, [], False
+    for name in names:
+        manifest = _vault_read_manifest(store, name)
+        source = _vault_manifest_order(name, manifest)
+        if at and source > at:
+            continue
+        if manifest.get("base"):
+            state.clear()
+            seen_base = True
+        elif not seen_base:
+            continue
+        for entry in manifest.get("files", []):
+            state[entry["path"]] = (name, manifest, entry)
+        for path in manifest.get("deleted", []):
+            state.pop(path, None)
+        layers.append((name, manifest))
+    if not seen_base:
+        raise ActionFailed("vault restore: no base layer found"
+                           + (f" before {at}" if at else ""))
+
+    stats = {"files": 0, "bytes": sum(entry["size"] for _, _, entry in state.values())}
+    if DRY:
+        LOG.info("dry-run: vault restore %d file(s) from %s", len(state), target)
+        return stats
+
+    destination.mkdir(parents=True, exist_ok=True)
+    cfg.temp_dir.mkdir(parents=True, exist_ok=True)
+    order = {name: index for index, (name, _manifest) in enumerate(layers)}
+    priority = {name: index for index, name in
+                enumerate(cfg.vault.restore_order.priority)}
+    descending = cfg.vault.restore_order.direction == "desc"
+
+    groups = {}
+    for path, (name, manifest, entry) in state.items():
+        if not _vault_restore_safe(path):
+            raise ActionFailed(f"vault restore: unsafe path in manifest: {path!r}")
+        volume = manifest["volumes"][entry["volume"] - 1]["name"]
+        groups.setdefault((name, volume), []).append(entry)
+
+    def group_key(item):
+        (layer, _volume), entries = item
+        rank = min((priority.get(entry["path"].split("/")[0], len(priority))
+                    for entry in entries), default=len(priority))
+        index = order.get(layer, len(order))
+        return ((len(order) - index) if descending else index, rank)
+
+    workdir = Path(tempfile.mkdtemp(prefix="vault-restore-", dir=str(cfg.temp_dir)))
+    try:
+        for (layer, volume), entries in sorted(groups.items(), key=group_key):
+            local = workdir / volume
+            store.get(volume, local)
+            members = [entry["path"] for entry in entries]
+            list_file = workdir / (volume + ".list")
+            list_file.write_bytes(
+                b"\0".join(path.encode("utf-8", "surrogateescape")
+                           for path in members) + b"\0")
+            try:
+                run(["tar", "-x", "-p", "-f", str(local), "-C", str(destination),
+                     "--null", "--verbatim-files-from", "-T", str(list_file)])
+            finally:
+                list_file.unlink(missing_ok=True)
+                local.unlink(missing_ok=True)
+            for entry in entries:
+                path = destination / entry["path"]
+                if not path.exists():
+                    LOG.warning("vault restore: %s was not extracted", path)
+                    continue
+                try:
+                    os.chmod(path, stat.S_IMODE(entry["mode"]))
+                    if os.geteuid() == 0:
+                        os.chown(path, entry["uid"], entry["gid"])
+                    os.utime(path, ns=(entry["mtime_ns"], entry["mtime_ns"]))
+                except OSError as exc:
+                    LOG.warning("vault restore: metadata %s: %s", path,
+                                exc.strerror or exc)
+                stats["files"] += 1
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    return stats

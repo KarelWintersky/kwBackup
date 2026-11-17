@@ -1,3 +1,21 @@
+kwbackup (0.99.69) unstable; urgency=medium
+
+  * feat(vault): restore from the manifest chain
+
+    kwbackup --restore --vault --to DIR [--at YYYY-MM-DD] [--from NAME] reads
+    the manifests of the chosen target, keeps the newest base <= the date and
+    applies the following layers; deleted paths are not extracted.
+
+    A restore downloads each needed TAR volume once and extracts only the members
+    present in the target state, then restores mode, uid/gid and mtime from the
+    manifest. Restore order comes from vault.restore_order: direction desc/asc and
+    top-level directory priority.
+
+    Tests: latest restore with a deletion, --at against an older base, restore over
+    the rsync transport, and a full rsync backup (80/80 e2e, 66 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 00:05:52 +0300
+
 kwbackup (0.99.68) unstable; urgency=medium
 
   * feat(vault): versioned file store (backup only)

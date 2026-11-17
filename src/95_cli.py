@@ -125,9 +125,6 @@ def main(argv=None):
         failures = ([{"action": "verify", "reason": "problems found"}]
                     if rc != EXIT_OK else None)
         return finish(cfg, "verify", rc, [f"verify: {state}"], started, failures)
-    if args.restore and args.vault:
-        LOG.error("restore: vault restore is not implemented yet")
-        return EXIT_ERROR
     if args.restore:
         started = dt.datetime.now()
         try:
