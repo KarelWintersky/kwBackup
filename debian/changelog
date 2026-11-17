@@ -1,3 +1,13 @@
+kwbackup (0.99.66) unstable; urgency=medium
+
+  * docs(cron): monthly storage sync example
+
+    examples/cron/kwbackup gets a monthly --storage -m sync line on the 1st,
+    after the daily run, with a comment that -m applies to every task of the run
+    and therefore must stay storage-only.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Tue, 17 Nov 2026 18:29:32 +0300
+
 kwbackup (0.99.65) unstable; urgency=medium
 
   * docs: storage copy default and the monthly sync
