@@ -3,6 +3,16 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.80] — 2026-11-18
+
+### Changed
+
+- Подсветка стала общей: числа и размеры жёлтые во всех INFO-логах и в
+  отчётах `--check`/`--list`/`--verify`; имя успешной задачи и итоги
+  `done`/`restore` — зелёные; ошибки и preflight-проблемы — красные.
+- Ошибки CLI до инициализации логов (`invalid config`, нет `--config`)
+  тоже красные. `log.file` и syslog по-прежнему без ANSI.
+
 ## [0.99.79] — 2026-11-18
 
 ### Changed

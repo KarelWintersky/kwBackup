@@ -4,21 +4,68 @@
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
+# Metric tokens: sizes, percentages, seconds, counts with a unit noun and a
+# few "keyword N" forms. Dates, versions and file names stay uncoloured.
+METRIC_RE = re.compile(
+    r"(?<![\w.-])("
+    r"\d+(?:\.\d+)?\s?(?:[KMGTP]i?B|B)"
+    r"|\d+(?:\.\d+)?%"
+    r"|\d+\.\d+s"
+    r"|(?<=\bkeep )\d+"
+    r"|(?<=\bretries )\d+"
+    r"|(?<=\bdelay )\d+(?:\.\d+)?s?"
+    r"|(?<=\btimeout )\d+(?:\.\d+)?s?"
+    r"|(?<=\bexit )\d+"
+    r"|\d+(?=\s+(?:files?|dbs?|databases?|sources?|uploaded|pruned|deleted|"
+    r"changed|same|skipped|layers?|volumes?|chains?|days?|copies|hooks?|"
+    r"problems?|targets?|flags?|manifests?)\b)"
+    r")")
 
-def _colorize(text, code):
-    if os.environ.get("NO_COLOR") is not None or not sys.stderr.isatty():
+
+def _colorize(text, code, stream=None):
+    stream = stream or sys.stderr
+    if os.environ.get("NO_COLOR") is not None or not stream.isatty():
         return text
     return f"\033[{code}m{text}\033[0m"
 
 
-def hl(value):
-    """Yellow numbers/sizes in terminal log lines; plain in files."""
-    return _colorize(str(value), "33")
+def hl(value, stream=None):
+    """Yellow numbers/sizes in terminal output; plain in files."""
+    return _colorize(str(value), "33", stream)
 
 
-def good(value):
+def good(value, stream=None):
     """Green success markers (green is reserved for success, red for errors)."""
-    return _colorize(str(value), "32")
+    return _colorize(str(value), "32", stream)
+
+
+def bad(value, stream=None):
+    """Red error text for messages printed outside the logging system."""
+    return _colorize(str(value), "31", stream)
+
+
+def highlight_metrics(text, stream=None):
+    """Colour metric numbers yellow without touching existing ANSI codes."""
+    if os.environ.get("NO_COLOR") is not None or not (stream or sys.stderr).isatty():
+        return text
+    parts = re.split(f"({ANSI_RE.pattern})", text)
+    for index in range(0, len(parts), 2):
+        parts[index] = METRIC_RE.sub(
+            lambda match: f"\033[33m{match.group(0)}\033[0m", parts[index])
+    return "".join(parts)
+
+
+def say(*args, **kwargs):
+    """print() with yellow metrics and green/red status marks on stdout."""
+    file = kwargs.pop("file", None) or sys.stdout
+    sep = kwargs.pop("sep", " ")
+    end = kwargs.pop("end", "\n")
+    text = sep.join(str(arg) for arg in args)
+    text = highlight_metrics(text, file)
+    for mark, code in (("✓", "32"), ("✗", "31"), ("⚠", "33")):
+        if mark in text:
+            text = text.replace(mark, _colorize(mark, code, file))
+    print(text, end=end, file=file, **kwargs)
 
 
 class _PlainFmt(logging.Formatter):
@@ -33,7 +80,13 @@ class _Fmt(logging.Formatter):
               logging.WARNING: "\033[33m", logging.ERROR: "\033[31m"}
 
     def format(self, record):
-        msg = super().format(record)
+        if record.levelno == logging.INFO:
+            copy = logging.makeLogRecord(record.__dict__)
+            copy.msg = highlight_metrics(record.getMessage(), sys.stderr)
+            copy.args = None
+            msg = super().format(copy)
+        else:
+            msg = super().format(record)
         color = self.COLORS.get(record.levelno, "")
         return f"{color}{msg}\033[0m" if color and sys.stderr.isatty() else msg
 

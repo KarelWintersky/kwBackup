@@ -13,46 +13,46 @@ def action_list(cfg, args):
 
     if cfg.database.enabled or args.force:
         for dbname in cfg.database.databases:
-            print(f"\nDATABASE {dbname}")
+            say(f"\nDATABASE {dbname}")
             for target in cfg.database.targets:
                 if not _wanted(target, args.from_upstream):
                     continue
                 uploader = rclone_for(cfg, target.partition(":")[0], cfg.database)
-                print(f"  {target}")
+                say(f"  {target}")
                 for cls in RETENTION_CLASSES:
                     retention = cfg.database.retention.get(cls)
                     remote_dir = target_join(
                         target, dbname if multi else None, cls.upper())
                     label = cls.upper().ljust(7)
                     if not retention:
-                        print(f"    {label} disabled")
+                        say(f"    {label} disabled")
                         continue
                     files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
                                   f"{dbname}_")
                     files.sort(key=lambda f: f.ts)
                     if not files:
-                        print(f"    {label} 0 files  ⚠ empty  ({retention.describe()})")
+                        say(f"    {label} 0 files  ⚠ empty  ({retention.describe()})")
                         rc = EXIT_VERIFY
                         continue
                     first, last = files[0].ts, files[-1].ts
-                    print(f"    {label} {len(files):>3} files  "
+                    say(f"    {label} {len(files):>3} files  "
                           f"{first:%Y-%m-%d} .. {last:%Y-%m-%d}"
                           f"  last {fmt_bytes(files[-1].size)}  ({retention.describe()})")
                     if cls == "daily":
                         age = (now.date() - last.date()).days
                         if age > 1:
-                            print(f"    {'':7} ⚠ newest DAILY copy is {age} days old")
+                            say(f"    {'':7} ⚠ newest DAILY copy is {age} days old")
                             rc = EXIT_VERIFY
                         for gap in missing_days(files)[:5]:
-                            print(f"    {'':7} ⚠ gap: {gap:%Y-%m-%d}")
+                            say(f"    {'':7} ⚠ gap: {gap:%Y-%m-%d}")
 
     if cfg.storage.enabled or args.force:
-        print(f"\nSTORAGE  ({cfg.storage.mode})")
+        say(f"\nSTORAGE  ({cfg.storage.mode})")
         for target in cfg.storage.targets:
             if not _wanted(target, args.from_upstream):
                 continue
             uploader = rclone_for(cfg, target.partition(":")[0], cfg.storage)
-            print(f"  {target}")
+            say(f"  {target}")
             for src, dest in cfg.storage.sources:
                 sub = source_dest(src, dest)
                 remote_dir = target_join(target, sub)
@@ -60,50 +60,50 @@ def action_list(cfg, args):
                 total = sum(f.size for f in files)
                 newest = max((f.mtime for f in files if f.mtime), default=None)
                 when = f", newest {newest:%Y-%m-%d %H:%M}" if newest else ""
-                print(f"    {src}")
-                print(f"      {len(files):>5} files, {fmt_bytes(total)}{when}"
+                say(f"    {src}")
+                say(f"      {len(files):>5} files, {fmt_bytes(total)}{when}"
                       f"  ->  {remote_dir}")
                 if not files:
-                    print("             ⚠ nothing in the cloud for this source")
+                    say("             ⚠ nothing in the cloud for this source")
                     rc = EXIT_VERIFY
 
     if cfg.archive.enabled or args.force:
         ar = cfg.archive
-        print(f"\nARCHIVE  ({ar.compressor})")
+        say(f"\nARCHIVE  ({ar.compressor})")
         for target in ar.targets:
             if not _wanted(target, args.from_upstream):
                 continue
             uploader = rclone_for(cfg, target.partition(":")[0], ar)
             remote_dir = target.rstrip("/")
-            print(f"  {remote_dir}")
+            say(f"  {remote_dir}")
             files = owned([f for f in uploader.lsf(remote_dir) if f.ts],
                           f"{ar.name}_")
             files.sort(key=lambda f: f.ts)
             if not files:
-                print("    0 files  ⚠ empty")
+                say("    0 files  ⚠ empty")
                 rc = EXIT_VERIFY
             else:
                 first, last = files[0].ts, files[-1].ts
                 retention = ar.retention.describe() if ar.retention else "no retention"
-                print(f"    {len(files):>3} files  {first:%Y-%m-%d} .. "
+                say(f"    {len(files):>3} files  {first:%Y-%m-%d} .. "
                       f"{last:%Y-%m-%d}  last {fmt_bytes(files[-1].size)}  ({retention})")
                 for f in files[-3:]:
-                    print(f"      {f.name}  {fmt_bytes(f.size)}")
+                    say(f"      {f.name}  {fmt_bytes(f.size)}")
 
     if cfg.incremental.enabled or args.force:
         inc = cfg.incremental
-        print(f"\nINCREMENTAL  (day {inc.initial_day})")
+        say(f"\nINCREMENTAL  (day {inc.initial_day})")
         for target in inc.targets:
             if not _wanted(target, args.from_upstream):
                 continue
             uploader = rclone_for(cfg, target.partition(":")[0], inc)
             remote_dir = target.rstrip("/")
-            print(f"  {remote_dir}")
+            say(f"  {remote_dir}")
             groups = {}
             for chain, kind, ts, f in inc_entries(uploader.lsf(remote_dir), inc.name):
                 groups.setdefault(chain, {"full": [], "inc": []})[kind].append((ts, f))
             if not groups:
-                print("    no chains")
+                say("    no chains")
                 rc = EXIT_VERIFY
                 continue
             for chain in sorted(groups):
@@ -112,24 +112,24 @@ def action_list(cfg, args):
                 incs = sorted(ts for ts, _ in group["inc"] if ts)
                 total = sum(f.size for _, f in group["full"] + group["inc"])
                 if not fulls:
-                    print(f"    {chain}  {len(incs)} inc without a full")
+                    say(f"    {chain}  {len(incs)} inc without a full")
                     rc = EXIT_VERIFY
                     continue
                 last = max(incs + fulls)
-                print(f"    {chain}  full {fulls[0]:%Y-%m-%d %H:%M}, "
+                say(f"    {chain}  full {fulls[0]:%Y-%m-%d %H:%M}, "
                       f"{len(incs)} inc, last {last:%Y-%m-%d}, {fmt_bytes(total)}")
 
     if cfg.vault.enabled or args.force:
         vault = cfg.vault
-        print("\nVAULT")
+        say("\nVAULT")
         for target in vault.targets:
             if not _wanted(target, args.from_upstream):
                 continue
             store = vault_store(cfg, target)
-            print(f"  {target}")
+            say(f"  {target}")
             names = vault_layer_names(store)
             if not names:
-                print("    no layers  ⚠ empty")
+                say("    no layers  ⚠ empty")
                 rc = EXIT_VERIFY
                 continue
             chain, dates = [], []
@@ -137,7 +137,7 @@ def action_list(cfg, args):
                 try:
                     manifest = vault_read_layer(store, name)
                 except (ActionFailed, CommandError, OSError) as exc:
-                    print(f"    ✗ {exc}")
+                    say(f"    ✗ {exc}")
                     rc = EXIT_VERIFY
                     continue
                 if manifest.get("base") and chain:
@@ -154,13 +154,13 @@ def action_list(cfg, args):
                     deleted = 0
                     rc = EXIT_VERIFY
                 label = "FULL" if manifest.get("base") else "    "
-                print(f"    {label} {stamp}  date {manifest.get('date', '?')}"
+                say(f"    {label} {stamp}  date {manifest.get('date', '?')}"
                       f"  {count} file(s)  {deleted} deleted"
                       f"  {len(volumes)} volume(s)  {fmt_bytes(size)}")
                 dates.append(manifest.get("date"))
             _vault_gap_report(dates)
 
-    print()
+    say()
     return rc
 
 
@@ -179,7 +179,7 @@ def _vault_gap_report(dates):
         return
     missing = (days[-1] - days[0]).days + 1 - len(days)
     if missing > 0:
-        print(f"    {'':7} ⚠ {missing} day(s) without a layer")
+        say(f"    {'':7} ⚠ {missing} day(s) without a layer")
 
 
 def _peek_decompressed(path, n=4096):
@@ -272,10 +272,10 @@ def action_verify(cfg, args):
     def report(label, problem):
         nonlocal rc
         if problem:
-            print(f"  ✗ {label}: {problem}")
+            say(f"  ✗ {label}: {problem}")
             rc = EXIT_VERIFY
         else:
-            print(f"  ✓ {label}")
+            say(f"  ✓ {label}")
 
     if (cfg.database.enabled or args.force) and cfg.database.databases:
         for dbname in cfg.database.databases:
@@ -338,7 +338,7 @@ def action_verify(cfg, args):
 
     if (cfg.vault.enabled or args.force) and cfg.vault.targets:
         vault = cfg.vault
-        print("\nVAULT")
+        say("\nVAULT")
         for target in vault.targets:
             if not _wanted(target, args.from_upstream):
                 continue
@@ -352,7 +352,7 @@ def action_verify(cfg, args):
                 try:
                     manifests.append((name, vault_read_layer(store, name)))
                 except (ActionFailed, CommandError, OSError) as exc:
-                    print(f"  ✗ {exc}")
+                    say(f"  ✗ {exc}")
                     broken += 1
             if broken:
                 rc = EXIT_VERIFY
@@ -388,15 +388,15 @@ def action_verify(cfg, args):
                         problems.append(f"{name}: offset out of range for {entry.get('path')}")
             if problems:
                 for problem in problems[:20]:
-                    print(f"  ✗ {problem}")
+                    say(f"  ✗ {problem}")
                 if len(problems) > 20:
-                    print(f"  ✗ ... and {len(problems) - 20} more")
+                    say(f"  ✗ ... and {len(problems) - 20} more")
                 rc = EXIT_VERIFY
             else:
-                print(f"  ✓ {target}: {len(selected)} layer(s), {len(volumes)} volume(s)")
+                say(f"  ✓ {target}: {len(selected)} layer(s), {len(volumes)} volume(s)")
             checked += len(selected)
 
     if not checked:
-        print("nothing to verify: no copies found")
+        say("nothing to verify: no copies found")
         return EXIT_VERIFY
     return rc

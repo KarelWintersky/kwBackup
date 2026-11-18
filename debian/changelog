@@ -1,3 +1,20 @@
+kwbackup (0.99.80) unstable; urgency=medium
+
+  * feat(log): highlight numbers, successes and errors everywhere
+
+    INFO logs and stdout reports now share one palette: metric numbers and sizes
+    are yellow, successful action names and done/restore markers are green, and
+    errors (logging plus early CLI config errors) are red. The report commands
+    (--check, --list, --verify) print through a helper that highlights metrics and
+    the check marks; status marks are green/red/yellow.
+
+    File and syslog handlers still strip ANSI.
+
+    tests: unchanged (70 checks, 88/88 e2e); the plain formatter check keeps logs
+    clean.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 16:33:02 +0300
+
 kwbackup (0.99.79) unstable; urgency=medium
 
   * feat(log): yellow numbers, green success

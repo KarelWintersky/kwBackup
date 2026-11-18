@@ -65,17 +65,18 @@ def main(argv=None):
     if args.selftest:
         return selftest()
     if args.version:
-        print(f"{APP} (Version: {VERSION})")
+        say(f"{APP} (Version: {VERSION})")
         return EXIT_OK
     if (args.full or args.reconcile) and not args.vault:
-        print("ERROR: --full and --reconcile require --vault", file=sys.stderr)
+        say(bad("ERROR: --full and --reconcile require --vault", sys.stderr),
+            file=sys.stderr)
         return EXIT_USAGE
     if not args.config:
         print_banner(sys.stderr)
-        print(file=sys.stderr)
+        say(file=sys.stderr)
         parser.print_usage(sys.stderr)
-        print(file=sys.stderr)
-        print("ERROR: -c/--config is required", file=sys.stderr)
+        say(file=sys.stderr)
+        say(bad("ERROR: -c/--config is required", sys.stderr), file=sys.stderr)
         return EXIT_USAGE
 
     # Disabled sections are parsed but not enforced. They are enforced by
@@ -85,7 +86,7 @@ def main(argv=None):
     try:
         cfg = load_config(args.config, defaults=args.defaults, strict=strict)
     except ConfigError as exc:
-        print(f"{APP}: {exc}", file=sys.stderr)
+        say(bad(f"{APP}: {exc}", sys.stderr), file=sys.stderr)
         return EXIT_CONFIG
 
     DRY = args.dry_run
@@ -171,7 +172,7 @@ def main(argv=None):
                 continue
             fields = dict(stats)
             fields["size"] = fmt_bytes(stats.get("bytes", 0))
-            LOG.info("%s: %s", name, template.format(**fields))
+            LOG.info("%s: %s", good(name), template.format(**fields))
             details.append(f"{name}: " + template.format(**fields))
     except Locked as exc:
         LOG.error("%s", exc)
@@ -181,7 +182,8 @@ def main(argv=None):
         failed = actions[len(details)] if len(details) < len(actions) else "run"
         return finish(cfg, "backup", EXIT_ERROR, details, started,
                       failure_entries(exc, failed))
-    LOG.info("done in %.1fs, exit %d", (dt.datetime.now() - started).total_seconds(), rc)
+    LOG.info("%s in %.1fs, exit %d", good("done"),
+             (dt.datetime.now() - started).total_seconds(), rc)
     return finish(cfg, "backup", rc, details, started)
 
 
@@ -212,7 +214,7 @@ def _ansi(code):
 
 
 def print_banner(stream=sys.stdout):
-    print(f"{APP}: Backup tool over rclone: database dumps, file storage, archives "
+    say(f"{APP}: Backup tool over rclone: database dumps, file storage, archives "
           f"(Version: {VERSION})", file=stream)
 
 
@@ -229,17 +231,17 @@ def show_available_actions(cfg, debug=False):
                if debug or name in cfg.present_sections
                or getattr(cfg, name).enabled]
     print_banner()
-    print()
+    say()
     yellow = _ansi("\033[33m")
     green = _ansi("\033[32m")
     dim = _ansi("\033[2m")
     reset = _ansi("\033[0m")
     if not visible:
-        print("No backup action(s) configured.")
-        print("Add a section to the config or run with --debug to see all options.")
-        print(f"Validate the config with: kwbackup --config {cfg.path} --check")
+        say("No backup action(s) configured.")
+        say("Add a section to the config or run with --debug to see all options.")
+        say(f"Validate the config with: kwbackup --config {cfg.path} --check")
         return
-    print("No one backup action(s) requested. Allowed:")
+    say("No one backup action(s) requested. Allowed:")
     for name in visible:
         bad = deferred_for(cfg, name)
         if getattr(cfg, name).enabled:
@@ -251,10 +253,10 @@ def show_available_actions(cfg, debug=False):
         else:
             state = f"{dim}not configured{reset}"
         option = f"{yellow}{('--' + name):<10}{reset}"
-        print(f"... {name:<9} (use {option} option)  {state}")
-    print()
-    print("Nothing has been done.")
-    print(f"Validate the config with: kwbackup --config {cfg.path} --check")
+        say(f"... {name:<9} (use {option} option)  {state}")
+    say()
+    say("Nothing has been done.")
+    say(f"Validate the config with: kwbackup --config {cfg.path} --check")
 
 
 def _color(text, code):
@@ -298,7 +300,7 @@ def _s3_overrides(cfg, section):
 
 def _print_section(cfg, name, section):
     def row(label, value):
-        print(f"    {_label(label, 10)} {value}")
+        say(f"    {_label(label, 10)} {value}")
 
     if name == "vault":
         row("root", section.root)
@@ -341,7 +343,7 @@ def _print_section(cfg, name, section):
         row("targets", ", ".join(section.targets))
         row("sources", len(section.sources))
         for src, dest in section.sources:
-            print(f"      {src}  ->  {source_dest(src, dest) or '.'}")
+            say(f"      {src}  ->  {source_dest(src, dest) or '.'}")
     else:
         row("name", section.name)
         row("root", section.root)
@@ -368,10 +370,10 @@ def check_config(cfg, args):
     dim = chr(27) + "[2m"
 
     print_banner()
-    print()
-    print(f"  {_label('config', 10)} {cfg.path}")
-    print(f"  {_label('defaults', 10)} {cfg.defaults_path or 'none (built-in defaults only)'}")
-    print(f"  {_label('project', 10)} {cfg.project}")
+    say()
+    say(f"  {_label('config', 10)} {cfg.path}")
+    say(f"  {_label('defaults', 10)} {cfg.defaults_path or 'none (built-in defaults only)'}")
+    say(f"  {_label('project', 10)} {cfg.project}")
     console = ("debug" if (args.debug or cfg.debug)
                else "verbose" if (args.verbose or cfg.verbose)
                else "quiet (warnings and errors)")
@@ -380,32 +382,32 @@ def check_config(cfg, args):
         syslog = f"syslog {cfg.log_facility} ({where})"
     else:
         syslog = "syslog off"
-    print(f"  {_label('log', 10)} level {cfg.log_level}, "
+    say(f"  {_label('log', 10)} level {cfg.log_level}, "
           f"file {cfg.log_file or 'none'}, {syslog}")
-    print(f"  {_label('console', 10)} {console}")
-    print()
+    say(f"  {_label('console', 10)} {console}")
+    say()
 
-    print(f"  {_label('rclone')}")
-    print(f"    {_label('binary', 10)} {cfg.rclone.binary}")
+    say(f"  {_label('rclone')}")
+    say(f"    {_label('binary', 10)} {cfg.rclone.binary}")
     if cfg.rclone.args:
-        print(f"    {_label('args', 10)} {len(cfg.rclone.args)} flag(s) passed as-is")
+        say(f"    {_label('args', 10)} {len(cfg.rclone.args)} flag(s) passed as-is")
     if cfg.rclone.s3_options:
         keys = sorted(cfg.rclone.s3_options)
-        print(f"    {_label('s3', 10)} {len(keys)} flag(s)")
+        say(f"    {_label('s3', 10)} {len(keys)} flag(s)")
         for chunk in _chunks(keys):
             colored = ", ".join(_color(key, chr(27) + "[33m") for key in chunk.split(", "))
-            print(f"    {'':<10} {colored}")
-    print(f"  {_label('upstreams')}")
+            say(f"    {'':<10} {colored}")
+    say(f"  {_label('upstreams')}")
     for name, up in cfg.upstreams.items():
         flags = f", {len(up.s3_options)} s3 flag(s)" if up.s3_options else ""
-        print(f"    {_label(name, 10)} {up.config or 'default rclone config'}{flags}")
-    print()
+        say(f"    {_label(name, 10)} {up.config or 'default rclone config'}{flags}")
+    say()
 
     for name in ACTIONS:
         section = getattr(cfg, name)
         if not section.enabled:
             state = "disabled" if name in cfg.present_sections else "not configured"
-            print(f"  {_label(name, 9)} {_color(state, dim)}")
+            say(f"  {_label(name, 9)} {_color(state, dim)}")
         else:
             detail = {"database": lambda: section.type,
                       "storage": lambda: section.mode,
@@ -413,41 +415,41 @@ def check_config(cfg, args):
                       "incremental": lambda: f"day {section.initial_day}",
                       "vault": lambda: (section.journal.type
                                         if section.journal else "scan")}[name]()
-            print(f"  {_label(name, 9)} {_color('enabled', green)} "
+            say(f"  {_label(name, 9)} {_color('enabled', green)} "
                   f"{_color('(' + detail + ')', dim)}")
             _print_section(cfg, name, section)
-        print()
+        say()
 
     notify = cfg.notify
     if notify and notify.channels():
         channels = notify.channels()
-        print(f"  {_label('notify')}")
-        print(f"    {_label('on', 10)} {', '.join(notify.on) or 'off'}")
-        print(f"    {_label('retries', 10)} {notify.retries}, "
+        say(f"  {_label('notify')}")
+        say(f"    {_label('on', 10)} {', '.join(notify.on) or 'off'}")
+        say(f"    {_label('retries', 10)} {notify.retries}, "
               f"delay {notify.retry_delay}s, timeout {notify.timeout}s")
         if notify.mail:
             tls = ", tls" if notify.mail.tls else ""
-            print(f"    {_label('mail', 10)} {', '.join(notify.mail.to)} "
+            say(f"    {_label('mail', 10)} {', '.join(notify.mail.to)} "
                   f"via {notify.mail.smtp_host}:{notify.mail.port}{tls}")
         if notify.webhook:
             parts = urllib.parse.urlsplit(notify.webhook.url)
             headers = f", {len(notify.webhook.headers)} header(s)" if notify.webhook.headers else ""
-            print(f"    {_label('webhook', 10)} {parts.scheme}://{parts.netloc}{headers}")
+            say(f"    {_label('webhook', 10)} {parts.scheme}://{parts.netloc}{headers}")
         if notify.telegram:
-            print(f"    {_label('telegram', 10)} chat {notify.telegram.chat_id}, "
+            say(f"    {_label('telegram', 10)} chat {notify.telegram.chat_id}, "
                   f"token from {notify.telegram.token_env}")
-        print()
+        say()
 
     if cfg.warnings:
-        print(f"  {_label('warnings', 9)} {_color(str(len(cfg.warnings)), chr(27) + '[33m')}")
+        say(f"  {_label('warnings', 9)} {_color(str(len(cfg.warnings)), chr(27) + '[33m')}")
         for warning in cfg.warnings:
-            print(f"    {_color('!', chr(27) + '[33m')} {warning}")
-        print()
+            say(f"    {_color('!', chr(27) + '[33m')} {warning}")
+        say()
     problems = preflight_problems(cfg, enabled_actions(cfg))
     if problems:
-        print(f"  {_label('preflight', 9)} {_color('problems', red)}")
+        say(f"  {_label('preflight', 9)} {_color('problems', red)}")
         for problem in problems:
-            print(f"    {_color('!', red)} {problem}")
+            say(f"    {_color('!', red)} {problem}")
     else:
-        print(f"  {_label('preflight', 9)} {_color('ok', green)}")
+        say(f"  {_label('preflight', 9)} {_color('ok', green)}")
     return (EXIT_ERROR if problems else EXIT_OK), problems
