@@ -1,3 +1,24 @@
+kwbackup (0.99.83) unstable; urgency=medium
+
+  * docs(readme): make the quick start actually work
+
+    The quick start mixed three incompatible assumptions: `rclone config` put a
+    remote into the default location while the copied example task pointed at
+    /etc/kwbackup/rclone_beget.conf; the example carried literal placeholder
+    keys while /etc/default/kwbackup was supposed to supply the real ones; and
+    the block used repo-relative paths even for .deb installs.
+
+    It now walks one coherent path: create the rclone remote under the name used
+    as the upstream key, copy its config to /etc/kwbackup, install and edit the
+    host defaults (database type/user, log file) and the secrets file, write a
+    task file whose bucket keys are ${ENV} references, then check, dry-run, run
+    and list. It also says that .deb users already have both conffiles, where
+    the shipped examples live, and sets umask 077 so the task file starts 0600.
+
+    docs only, no code changes.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 21:56:09 +0300
+
 kwbackup (0.99.82) unstable; urgency=medium
 
   * feat(config): per-section restore switch, drop --into-db

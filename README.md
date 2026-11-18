@@ -83,33 +83,70 @@ sudo install -m 755 dist/kwbackup /usr/bin/kwbackup
 
 ## Быстрый старт
 
+Пример — бэкап одной MySQL/MariaDB-базы в бакет BEGET. Команды выполняются
+от root: `sudo -s`. Пути `debian/…` и `examples/…` — из клона репозитория;
+после установки из `.deb` файлы `/etc/kwbackup/defaults.yaml` и
+`/etc/default/kwbackup` уже на месте (их только правят), а примеры лежат
+в `/usr/share/doc/kwbackup/examples/`.
+
 ```bash
-# 1. remote для rclone (один раз)
-rclone config
-
-# 2. общие настройки хоста: логи, rclone.args, глубина хранения
-sudo install -d -m 700 /etc/kwbackup /var/log/kwbackup
-sudo install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
-
-# 3. задача: project, upstreams, targets, базы и ключи бакета
-#    (BEGET выдаёт access/secret на бакет — они уходят флагами rclone)
-sudo install -m 600 examples/database-only.yaml /etc/kwbackup/shop.yaml
-sudoedit /etc/kwbackup/shop.yaml
-
-# 4. пароль БД и прочие секреты — в окружение
-sudo install -m 600 debian/kwbackup.default /etc/default/kwbackup
-sudoedit /etc/default/kwbackup
-
-# 5. проверка конфига и пробный прогон (от root, с загруженными секретами)
 sudo -s
+umask 077
+
+# 0. каталоги: конфиги (0700) и логи
+install -d -m 700 /etc/kwbackup /var/log/kwbackup
+
+# 1. rclone-конфиг для бакета. Имя remote = ключ upstream в конфиге задачи.
+#    У BEGET access/secret выдаются на бакет, поэтому в rclone.conf их можно
+#    не писать: ключи уйдут флагами из s3-custom-options.
+rclone config          # name: beget; type: s3; provider: Other;
+                       # endpoint и region — из панели провайдера
+install -m 600 /root/.config/rclone/rclone.conf /etc/kwbackup/rclone_beget.conf
+
+# 2. общие настройки хоста: log, rclone.args, тип БД, глубина хранения.
+#    После .deb файл уже установлен — тогда сразу редактируйте.
+install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
+vi /etc/kwbackup/defaults.yaml   # database.type (по умолчанию mariadb),
+                                 # database.user, log.file
+
+# 3. секреты — в окружение, не в YAML
+install -m 600 debian/kwbackup.default /etc/default/kwbackup
+vi /etc/default/kwbackup         # MYSQL_PWD, BEGET_SHOP_KEY, BEGET_SHOP_SECRET
+
+# 4. задача: что бэкапить и куда; ключи подставляются из окружения
+cat > /etc/kwbackup/shop.yaml <<'EOF'
+project: shop
+
+upstreams:
+  beget:
+    config: /etc/kwbackup/rclone_beget.conf
+    s3-custom-options:
+      s3-access-key-id: ${BEGET_SHOP_KEY}
+      s3-secret-access-key: ${BEGET_SHOP_SECRET}
+      s3-no-check-bucket: true
+
+database:
+  enabled: true
+  targets: ["beget:/shop/DB"]
+  databases: [shop]
+EOF
+
+# 5. проверка и план. Переменные должны быть в окружении процесса.
 set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check
+kwbackup --config /etc/kwbackup/shop.yaml --check     # код 0 = можно запускать
 kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
 # 6. боевой запуск и проверка результата
 kwbackup --config /etc/kwbackup/shop.yaml --database
 kwbackup --config /etc/kwbackup/shop.yaml --list
 ```
+
+`umask 077` нужен, чтобы `shop.yaml` создался сразу с правами `0600`:
+в нём нет ключей, но там имена бакетов и баз.
+
+Если remote уже настроен и ключи у него на аккаунт — шаг 1 сокращается:
+в `upstreams` укажите `config: /путь/к/rclone.conf` или не указывайте
+`config` вовсе (тогда rclone возьмёт свой файл по умолчанию).
 
 Дальше — расписание: [`examples/cron/kwbackup`](examples/cron/kwbackup).
 

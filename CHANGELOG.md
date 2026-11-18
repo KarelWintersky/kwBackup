@@ -3,6 +3,16 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.83] — 2026-11-18
+
+### Fixed
+
+- README, «Быстрый старт»: шаги больше не противоречат друг другу. Remote
+  rclone создаётся с именем, равным ключу upstream, и его конфиг кладётся
+  в `/etc/kwbackup/`; ключи бакета подставляются в задачу через `${ENV}`,
+  а не остаются заглушками. Указано, что после `.deb` оба conffile уже
+  установлены, а примеры лежат в `/usr/share/doc/kwbackup/examples/`.
+
 ## [0.99.82] — 2026-11-18
 
 ### Added
