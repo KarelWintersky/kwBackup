@@ -1,3 +1,17 @@
+kwbackup (0.99.79) unstable; urgency=medium
+
+  * feat(log): yellow numbers, green success
+
+    Numbers and sizes in restore output are yellow instead of cyan, matching the
+    palette: yellow for figures, green for successful results (done, restore),
+    red for errors (already handled by the level colours). File and syslog output
+    still strips ANSI.
+
+    tests: unchanged (70 checks, 88/88 e2e); the plain formatter check still
+    guards the logs.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 16:19:56 +0300
+
 kwbackup (0.99.78) unstable; urgency=medium
 
   * feat(log): highlight numbers in restore output

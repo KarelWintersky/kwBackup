@@ -5,12 +5,20 @@
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
-def hl(value):
-    """Highlight a number/size in terminal log lines; plain in files."""
-    text = str(value)
+def _colorize(text, code):
     if os.environ.get("NO_COLOR") is not None or not sys.stderr.isatty():
         return text
-    return f"\033[36m{text}\033[0m"
+    return f"\033[{code}m{text}\033[0m"
+
+
+def hl(value):
+    """Yellow numbers/sizes in terminal log lines; plain in files."""
+    return _colorize(str(value), "33")
+
+
+def good(value):
+    """Green success markers (green is reserved for success, red for errors)."""
+    return _colorize(str(value), "32")
 
 
 class _PlainFmt(logging.Formatter):

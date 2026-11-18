@@ -880,6 +880,6 @@ def vault_restore(cfg, args):
                 stats["files"] += 1
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-    LOG.info("vault restore: done: %s file(s), %s", hl(stats["files"]),
-             hl(fmt_bytes(stats["bytes"])))
+    LOG.info("vault restore: %s: %s file(s), %s", good("done"),
+             hl(stats["files"]), hl(fmt_bytes(stats["bytes"])))
     return stats

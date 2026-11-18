@@ -136,7 +136,7 @@ def main(argv=None):
             LOG.error("%s", exc)
             return finish(cfg, "restore", EXIT_ERROR, [], started,
                           failure_entries(exc, "restore"))
-        LOG.info("restore: %s file(s), %s", hl(stats["files"]),
+        LOG.info("%s: %s file(s), %s", good("restore"), hl(stats["files"]),
                  hl(fmt_bytes(stats["bytes"])))
         summary = f"restore: {stats['files']} file(s), {fmt_bytes(stats['bytes'])}"
         return finish(cfg, "restore", EXIT_OK, [summary], started)

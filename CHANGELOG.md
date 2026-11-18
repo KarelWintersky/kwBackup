@@ -3,6 +3,14 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.79] — 2026-11-18
+
+### Changed
+
+- Числа и размеры в выводе восстановления теперь жёлтые (не циан):
+  жёлтый — цифры, зелёный — успешные итоги (`done`, `restore`), красный —
+  ошибки. `log.file` и syslog по-прежнему очищаются от ANSI.
+
 ## [0.99.78] — 2026-11-18
 
 ### Added
