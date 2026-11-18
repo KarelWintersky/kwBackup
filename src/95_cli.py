@@ -142,7 +142,7 @@ def main(argv=None):
 
     actions = requested_actions(args)
     if not actions:
-        show_available_actions(cfg)
+        show_available_actions(cfg, debug=debug)
         return EXIT_OK
 
     started = dt.datetime.now()
@@ -222,17 +222,24 @@ def deferred_for(cfg, name):
             if m.startswith(prefix + ".") or m.startswith(prefix + ":")]
 
 
-def show_available_actions(cfg):
-    """Same shape as the legacy shell script: one line per action, the
-    option name highlighted, plus whether the action is usable in this file."""
+def show_available_actions(cfg, debug=False):
+    """One line per action and its state; unconfigured sections only in debug."""
+    visible = [name for name in ACTIONS
+               if debug or name in cfg.present_sections
+               or getattr(cfg, name).enabled]
     print_banner()
     print()
     yellow = _ansi("\033[33m")
     green = _ansi("\033[32m")
     dim = _ansi("\033[2m")
     reset = _ansi("\033[0m")
+    if not visible:
+        print("No backup action(s) configured.")
+        print("Add a section to the config or run with --debug to see all options.")
+        print(f"Validate the config with: kwbackup --config {cfg.path} --check")
+        return
     print("No one backup action(s) requested. Allowed:")
-    for name in ACTIONS:
+    for name in visible:
         bad = deferred_for(cfg, name)
         if getattr(cfg, name).enabled:
             state = f"{green}enabled{reset}"

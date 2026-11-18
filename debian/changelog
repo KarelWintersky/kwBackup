@@ -1,3 +1,17 @@
+kwbackup (0.99.73) unstable; urgency=medium
+
+  * feat(cli): hide unconfigured sections from the action list
+
+    Without an action flag the banner now lists only sections present in the
+    config (enabled or disabled). Sections that are absent entirely are shown only
+    with --debug or runtime.debug: true. A config with no tasks at all prints a
+    short hint instead of an empty list.
+
+    tests: the list hides unconfigured sections, --debug reveals them, and an empty
+    config gets the hint (82/82 e2e, 68 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 14:15:29 +0300
+
 kwbackup (0.99.72) unstable; urgency=medium
 
   * feat(vault): per-volume manifests, leaner layers, file progress

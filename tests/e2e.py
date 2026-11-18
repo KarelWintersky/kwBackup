@@ -1036,9 +1036,13 @@ storage:
         assert "Version: " in out.stdout, out.stdout
         assert "No one backup action(s) requested. Allowed:" in out.stdout, out.stdout
         assert "(use --storage  option)  enabled" in out.stdout, out.stdout
+        assert "not configured" not in out.stdout, out.stdout
+        assert "--check" in out.stdout, out.stdout
+
+        # --debug reveals the sections that are not configured at all
+        out = env.run("-c", env.config, "--debug")
         assert "(use --database option)  not configured" in out.stdout, out.stdout
         assert "(use --archive  option)  not configured" in out.stdout, out.stdout
-        assert "--check" in out.stdout, out.stdout
         assert env.cloud_tree() == [], "nothing must be uploaded"
 
         # a section that exists but is switched off is "disabled", not "not configured"
@@ -1051,6 +1055,19 @@ database:
 """, encoding="utf-8")
         out = env.run("-c", env.config)
         assert "(use --database option)  disabled" in out.stdout, out.stdout
+    finally:
+        env.cleanup()
+
+
+def test_no_actions_configured():
+    env = Env()
+    try:
+        env.base_config()
+        out = env.run("-c", env.config)
+        assert "No backup action(s) configured." in out.stdout, out.stdout
+        assert "not configured" not in out.stdout, out.stdout
+        out = env.run("-c", env.config, "--debug")
+        assert "not configured" in out.stdout, out.stdout
     finally:
         env.cleanup()
 
@@ -2414,6 +2431,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_mode_copy_in_config, test_mode_sync_rejected_in_config,
          test_archive_sync_mirrors, test_database_sync_mirrors,
          test_defaults_file_covers_builtins, test_no_action_does_nothing,
+         test_no_actions_configured,
          test_verbose_reaches_rclone, test_quiet_by_default,
          test_no_args_shows_banner, test_archive_name_defaults_to_project,
          test_incremental_full_then_increment,
