@@ -1810,10 +1810,11 @@ database:
         env.cleanup()
 
 
-def _vault_setup(env, journal="scan"):
+def _vault_setup(env, journal="scan", exclude=None):
     root = env.dir / "vroot"
     root.mkdir(exist_ok=True)
-    (root / "a.txt").write_text("a", encoding="utf-8")
+    if not (root / "a.txt").exists():
+        (root / "a.txt").write_text("a", encoding="utf-8")
     jdir = env.dir / "journal"
     jdir.mkdir(exist_ok=True)
     extra = f"""
@@ -1824,6 +1825,8 @@ vault:
   volume_size: 1M
   targets: ["fake:/V"]
 """
+    if exclude:
+        extra += f"  exclude: {json.dumps(list(exclude))}\n"
     if journal == "txt":
         extra += f"  journal: {{type: txt, period: daily, path: {jdir}}}\n"
     else:
@@ -1854,6 +1857,91 @@ def _vault_layers(env):
     base = env.cloud / "V"
     return [json.loads(path.read_text(encoding="utf-8"))
             for path in _vault_layer_paths(base)]
+
+
+def test_vault_exclude_file_and_dir():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env, exclude=[".state", "*.tmp"])
+        (root / ".state").mkdir()
+        (root / ".state" / "index.sqlite").write_text("x", encoding="utf-8")
+        (root / "skip.tmp").write_text("tmp", encoding="utf-8")
+        (root / "sub").mkdir()
+        (root / "sub" / "keep.txt").write_text("k", encoding="utf-8")
+        env.run("-c", env.config, "--vault", "--full")
+        base = env.cloud / "V"
+        entries, _deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        paths = sorted(entry["path"] for _volume, entry in entries)
+        assert paths == ["a.txt", "sub/keep.txt"], paths
+    finally:
+        env.cleanup()
+
+
+def test_vault_exclude_journal_event():
+    env = Env()
+    try:
+        root, jdir = _vault_setup(env, "txt", exclude=["secret.txt"])
+        env.run("-c", env.config, "--vault", "--full")
+        yesterday = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+        (root / "secret.txt").write_text("s", encoding="utf-8")
+        (jdir / f"{yesterday}.journal.txt").write_text(
+            f"{yesterday}T01:00:00Z\tADDED\tsecret.txt\n", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        base = env.cloud / "V"
+        entries, deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        assert entries == [] and deleted == [], (entries, deleted)
+    finally:
+        env.cleanup()
+
+
+def test_vault_exclude_after_backup():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        _vault_setup(env, exclude=["b.txt"])
+        env.run("-c", env.config, "--vault")
+        base = env.cloud / "V"
+        _entries, deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        assert [item["path"] for item in deleted] == ["b.txt"], deleted
+        out = env.dir / "restore"
+        env.run("-c", env.config, "--restore", "--vault", "--to", out)
+        assert (out / "a.txt").exists() and not (out / "b.txt").exists()
+    finally:
+        env.cleanup()
+
+
+def test_vault_check_refuses_state_inside_root():
+    env = Env()
+    try:
+        root = env.dir / "vroot"
+        root.mkdir()
+        (root / "a.txt").write_text("a", encoding="utf-8")
+        state = root / ".state"
+        config = env.write_config(f"""
+project: vinside
+runtime: {{temp_dir: {env.tmp}}}
+rclone: {{binary: {env.bin / "rclone"}}}
+upstreams: {{fake: {{}}}}
+vault:
+  enabled: true
+  root: {root}
+  state_dir: {state}
+  targets: ["fake:/V"]
+  journal: {{type: scan}}
+""")
+        res = env.run("-c", config, "--check", expect=1)
+        assert "STATE_DIR" in res.stdout and "IS INSIDE VAULT.ROOT" in res.stdout, res.stdout
+        env.run("-c", config, "--vault", expect=1)
+        config.write_text(config.read_text(encoding="utf-8").replace(
+            '  targets: ["fake:/V"]',
+            '  exclude: [".state"]\n  targets: ["fake:/V"]'), encoding="utf-8")
+        res = env.run("-c", config, "--check")
+        assert "STATE_DIR" not in res.stdout, res.stdout
+    finally:
+        env.cleanup()
 
 
 def test_vault_debug_writes_pretty_manifests():
@@ -2467,6 +2555,10 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_vault_exclude_file_and_dir,
+         test_vault_exclude_journal_event,
+         test_vault_exclude_after_backup,
+         test_vault_check_refuses_state_inside_root,
          test_vault_debug_writes_pretty_manifests,
          test_vault_rsync_transport,
          test_rsync_upstream_is_vault_only,

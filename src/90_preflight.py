@@ -64,6 +64,7 @@ def preflight_problems(cfg, actions):
                 wanted.append(cfg.rclone.binary)
             elif upstream.type == "rsync":
                 wanted += ["rsync", "ssh"]
+        problems.extend(vault_path_problems(cfg))
     if any(action != "vault" for action in actions) and cfg.rclone.binary:
         wanted.append(cfg.rclone.binary)
 

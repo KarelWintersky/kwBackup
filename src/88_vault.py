@@ -97,7 +97,25 @@ class VaultIndex:
                   st.st_uid, st.st_gid, layer) for path, st in entries.items()])
 
 
-def vault_scan(root, warnings):
+def vault_excluded(path, patterns):
+    """fnmatch against the relative path, the basename and every parent."""
+    path = str(path).replace(os.sep, "/").strip("/")
+    if not path or path == ".":
+        return False
+    parts = [part for part in path.split("/") if part]
+    candidates = {path, parts[-1]}
+    for index in range(1, len(parts)):
+        candidates.add("/".join(parts[:index]))
+        candidates.add(parts[index - 1])
+    for pattern in patterns or ():
+        pattern = str(pattern).replace(os.sep, "/").strip("/")
+        if pattern and any(fnmatch.fnmatch(candidate, pattern)
+                           for candidate in candidates):
+            return True
+    return False
+
+
+def vault_scan(root, warnings, exclude=()):
     """relative path -> os.stat_result for regular files (symlinks skipped)."""
     root = Path(root)
     entries, links = {}, 0
@@ -107,13 +125,15 @@ def vault_scan(root, warnings):
         try:
             with os.scandir(current) as items:
                 for item in items:
+                    rel = str(Path(item.path).relative_to(root))
                     try:
                         if item.is_dir(follow_symlinks=False):
-                            stack.append(Path(item.path))
+                            if not vault_excluded(rel, exclude):
+                                stack.append(Path(item.path))
                         elif item.is_file(follow_symlinks=False):
-                            entries[str(Path(item.path).relative_to(root))] = \
-                                item.stat(follow_symlinks=False)
-                        elif item.is_symlink():
+                            if not vault_excluded(rel, exclude):
+                                entries[rel] = item.stat(follow_symlinks=False)
+                        elif item.is_symlink() and not vault_excluded(rel, exclude):
                             links += 1
                     except OSError as exc:
                         warnings.append(f"{item.path}: {exc.strerror or exc}")
@@ -130,8 +150,8 @@ def _vault_changed(index, path, st):
         st.st_size, st.st_mtime_ns, st.st_mode, st.st_uid, st.st_gid)
 
 
-def vault_diff_scan(root, index, warnings):
-    entries = vault_scan(root, warnings)
+def vault_diff_scan(root, index, warnings, exclude=()):
+    entries = vault_scan(root, warnings, exclude)
     changes, modified, same = {}, set(), 0
     for path, st in entries.items():
         if _vault_changed(index, path, st):
@@ -154,6 +174,8 @@ def vault_changes_from_events(cfg, events, index, warnings):
     changes, deleted, modified, missing = {}, [], set(), 0
     root = Path(cfg.vault.root)
     for path in dict.fromkeys(event.path for event in events):
+        if vault_excluded(path, cfg.vault.exclude):
+            continue
         full = root / path
         try:
             st = full.lstat()
@@ -584,6 +606,42 @@ def _vault_finish_journals(cfg):
     cleanup_done(journal.path, journal.keep_done, today)
 
 
+def vault_path_problems(cfg):
+    """Paths that would be backed up together with the index/journal itself."""
+    vault = cfg.vault
+    if not vault.root:
+        return []
+    try:
+        root = Path(vault.root).resolve()
+    except OSError:
+        return []
+    checks = [("STATE_DIR", vault.state_dir), ("TEMP_DIR", str(cfg.temp_dir))]
+    if vault.journal and vault.journal.type == "txt":
+        checks.append(("JOURNAL_PATH", vault.journal.path))
+    problems, seen = [], set()
+    for label, value in checks:
+        if not value:
+            continue
+        try:
+            path = Path(value).resolve()
+        except OSError:
+            continue
+        if path == root or root not in path.parents:
+            continue
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            rel = str(path.relative_to(root))
+        except ValueError:
+            continue
+        if vault_excluded(rel, vault.exclude):
+            continue
+        problems.append(f"{label} {value} IS INSIDE VAULT.ROOT AND IS NOT "
+                        f"EXCLUDED; ADD IT TO vault.exclude")
+    return problems
+
+
 def action_vault(cfg, args):
     vault = cfg.vault
     if not vault.enabled and not args.force:
@@ -613,7 +671,7 @@ def action_vault(cfg, args):
 
         if args.full or (index.empty() and not has_layers):
             source = vault_snapshot_date()
-            changes = vault_scan(root, warnings)
+            changes = vault_scan(root, warnings, vault.exclude)
             stats = _vault_commit(cfg, stores, index, changes, [], set(),
                                   source, base=True, stamp=_vault_stamp(names),
                                   show_files=show_files, pretty=debug)
@@ -621,7 +679,8 @@ def action_vault(cfg, args):
             LOG.info("vault: base layer %s (%d file(s))", source, len(changes))
         elif args.reconcile:
             source = vault_snapshot_date()
-            changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
+            changes, deleted, modified, same = vault_diff_scan(
+                root, index, warnings, vault.exclude)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
                                   modified, source, stamp=_vault_stamp(names),
                                   show_files=show_files, pretty=debug)
@@ -659,7 +718,8 @@ def action_vault(cfg, args):
             cleanup_done(journal.path, journal.keep_done, today)
         else:
             source = vault_snapshot_date()
-            changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
+            changes, deleted, modified, same = vault_diff_scan(
+                root, index, warnings, vault.exclude)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
                                   modified, source, stamp=_vault_stamp(names),
                                   show_files=show_files, pretty=debug)

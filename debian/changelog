@@ -1,3 +1,24 @@
+kwbackup (0.99.75) unstable; urgency=medium
+
+  * feat(vault): exclude patterns and a guard for state inside root
+
+    vault.exclude takes fnmatch patterns matched against the relative path, the
+    basename and every parent directory; a matched directory is not walked and
+    journal events for excluded paths are ignored. A path that was backed up and
+    then excluded becomes DELETED on the next full scan or --reconcile (old layers
+    keep their history).
+
+    If state_dir, runtime.temp_dir or journal.path is inside vault.root and is not
+    covered by exclude, --check and the run fail with exit 1 and an uppercase
+    preflight error. There is no hidden auto-exclusion: the user must list those
+    paths explicitly.
+
+    tests: file/dir exclusion, journal event ignored, previously backed path
+    becomes DELETED, state_dir inside root is fatal without exclude (87/87 e2e,
+    69 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 14:50:39 +0300
+
 kwbackup (0.99.74) unstable; urgency=medium
 
   * feat(vault): pretty manifests in debug mode

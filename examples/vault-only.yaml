@@ -16,6 +16,7 @@ vault:
   state_dir: /var/lib/kwbackup/storage
   volume_size: 2G                   # ориентир тома; файлы не режутся
   checksum: none                    # none | sha256
+  exclude: [".state", "47news_state.sqlite"]  # служебные файлы в root
   journal:
     type: txt
     period: daily

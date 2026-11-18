@@ -312,6 +312,13 @@ notify:
         check("vault upload rollback",
               good.deleted == ["a.manifest.json"], (good.deleted, bad.deleted))
 
+    check("vault exclude",
+          vault_excluded(".state/db", [".state"])
+          and vault_excluded("a/b/47news_state.sqlite", ["47news_state.sqlite"])
+          and vault_excluded("a.tmp", ["*.tmp"])
+          and not vault_excluded("keep/a.txt", [".state"]),
+          "exclude matcher is wrong")
+
     check("current tar file",
           _current_file([("a", 10), ("b", 20)], 5) == "a"
           and _current_file([("a", 10), ("b", 20)], 15) == "b"

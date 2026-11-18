@@ -287,7 +287,7 @@ def _s3_overrides(cfg, section):
     printed: they may be credentials."""
     base = cfg.rclone.s3_options
     changed = []
-    for key, value in section.s3_options.items():
+    for key, value in (getattr(section, "s3_options", {}) or {}).items():
         if value is None:
             changed.append(f"-{key}")
         elif key not in base or base[key] != value:
@@ -304,6 +304,7 @@ def _print_section(cfg, name, section):
         row("state_dir", section.state_dir)
         row("volume_size", fmt_bytes(section.volume_size))
         row("checksum", section.checksum)
+        row("exclude", ", ".join(section.exclude) or "(none)")
         if section.journal and section.journal.type == "txt":
             row("journal", f"txt, {section.journal.path}")
             keep = section.journal.keep_done

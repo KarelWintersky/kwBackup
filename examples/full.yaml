@@ -37,6 +37,7 @@ vault:
   state_dir: /var/lib/kwbackup/storage
   volume_size: 2G
   checksum: none
+  exclude: [".state", "47news_state.sqlite"]   # не бэкапить
   journal:
     type: txt
     period: daily

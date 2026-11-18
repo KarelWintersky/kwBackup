@@ -37,7 +37,7 @@ SECTIONS = {
                     "initial_day", "snapshot", "retention", "before", "after",
                     "s3-custom-options"},
     "vault": {"enabled", "root", "state_dir", "volume_size", "checksum",
-              "journal", "restore", "targets", "before", "after"},
+              "exclude", "journal", "restore", "targets", "before", "after"},
     "journal": {"type", "period", "path", "keep_done"},
     "restore": {"order", "priority", "chown"},
     "notify": {"on", "retries", "retry_delay", "timeout",
@@ -221,6 +221,7 @@ class VaultCfg:
     state_dir: str = ""
     volume_size: int = 2 * 1024 ** 3
     checksum: str = "none"        # none | sha256
+    exclude: list = field(default_factory=list)
     journal: JournalCfg | None = None
     restore: RestoreCfg = field(default_factory=RestoreCfg)
     targets: list = field(default_factory=list)
@@ -1028,6 +1029,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         state_dir=state_dir,
         volume_size=volume_size if volume_size is not None else default_volume,
         checksum=checksum,
+        exclude=_as_list(vlt.get("exclude"), "config.vault.exclude", errors),
         journal=journal,
         restore=RestoreCfg(order=order, priority=priority, chown=chown),
         targets=_as_targets(vlt.get("targets"), "config.vault.targets", errors,

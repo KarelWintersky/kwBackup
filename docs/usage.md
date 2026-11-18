@@ -199,6 +199,17 @@ kwbackup -c /etc/kwbackup/storage.yaml --vault
 kwbackup -c /etc/kwbackup/storage.yaml --vault --reconcile
 ```
 
+Что не бэкапить — `vault.exclude` (glob по пути, basename или родителю):
+
+```yaml
+vault:
+  exclude: [".state", "47news_state.sqlite", "*.tmp"]
+```
+
+Каталог из `exclude` не обходится; журнальные события для таких путей
+игнорируются. Если `state_dir`/`temp_dir`/журнал лежат внутри `root`, их
+нужно исключить явно, иначе `--check` и запуск завершатся кодом 1.
+
 Журнал пишет приложение: `YYYY-MM-DD.journal.txt` в каталоге
 `vault.journal.path`, строки `ts<TAB>ADDED|MODIFIED|DELETED<TAB>path`.
 После успешной заливки файл переименовывается в `.done`; сбой оставляет его
