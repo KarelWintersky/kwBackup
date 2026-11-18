@@ -161,6 +161,7 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | `journal.period` | enum | `daily` | пока только `daily` |
 | `journal.path` | str | обяз. для `txt` | каталог `YYYY-MM-DD.journal.txt` |
 | `journal.keep_done` | duration | `7d` | чистить `.done` старше; `false` — вечно |
+| `restore.enabled` | bool | `true` | `false` — `--restore --vault` требует `--force` |
 | `restore.order` | enum | `desc` | `asc` \| `desc` — порядок слоёв |
 | `restore.priority` | list | `[]` | порядок каталогов внутри слоя |
 | `restore.chown` | bool | `false` | выставлять uid/gid из манифеста |
@@ -402,6 +403,7 @@ upstreams:
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для БД |
 | `retention_mode` | enum | нет | `keep` \| `max_age`: запрет смешивать |
 | `retention` | map | обяз. при `enabled` | см. «Ротация» |
+| `restore` | map | `{enabled: true}` | право на восстановление этой секции, см. «Восстановление» |
 | `before` | list | `[]` | команды до задачи, см. «Хуки» |
 | `after` | list | `[]` | команды после задачи, см. «Хуки» |
 
@@ -532,6 +534,7 @@ weekly при следующем запуске. По умолчанию вык�
 | `allow_empty` | bool | `false` | разрешить `sync` из пустого каталога |
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `sources` | list | обяз. при `enabled` | любое количество источников, см. ниже |
+| `restore` | map | `{enabled: true}` | право на восстановление этой секции, см. «Восстановление» |
 | `before` | list | `[]` | команды до задачи, см. «Хуки» |
 | `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для storage |
@@ -593,6 +596,7 @@ storage:
 | `targets` | list | обяз. при `enabled` | список `upstream:path` |
 | `retention` | map | нет | `{keep: N}` или `{max_age: 7d}` |
 | `retention_mode` | enum | нет | `keep` \| `max_age` |
+| `restore` | map | `{enabled: true}` | право на восстановление этой секции, см. «Восстановление» |
 | `before` | list | `[]` | команды до задачи, см. «Хуки» |
 | `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает `rclone.s3-custom-options` для архива |
@@ -634,6 +638,7 @@ storage:
 | `initial_day` | int | `1` | день месяца (1..28), с которого начинается цепочка |
 | `snapshot` | str | обяз. при `enabled` | файл состояния GNU tar |
 | `retention` | map | обяз. при `enabled` | `{keep: 3}` (цепочки) или `{max_age: 180d}` |
+| `restore` | map | `{enabled: true}` | право на восстановление этой секции, см. «Восстановление» |
 | `before` | list | `[]` | команды до задачи, см. «Хуки» |
 | `after` | list | `[]` | команды после задачи, см. «Хуки» |
 | `s3-custom-options` | map | `{}` | перекрывает апстрим для этой задачи |
@@ -647,6 +652,32 @@ storage:
 а восстановление возьмёт самый новый `full_*` и инкременты после него.
 
 Ротация удаляет цепочку целиком (все её файлы), никогда отдельный инкремент.
+
+## `restore`
+
+Восстановление — отдельная операция со своей политикой; блок `restore` есть
+у каждой секции.
+
+| Ключ | Тип | По умолчанию | Смысл |
+|---|---|---|---|
+| `enabled` | bool | `true` | `false` — `--restore` для этой секции отказывается (код 1); обход — `--force` |
+| `order` | enum | `desc` | vault: порядок слоёв, `asc` \| `desc` |
+| `priority` | list | `[]` | vault: порядок каталогов внутри слоя |
+| `chown` | bool | `false` | vault: выставлять uid/gid из манифеста |
+
+`order`/`priority`/`chown` понимает только `vault`; в остальных секциях они
+игнорируются с предупреждением.
+
+Восстановление всегда идёт в каталог `--to`:
+
+* дамп БД скачивается как есть (`.sql.zst`, `.sql.gz`, `.sql.rar`, `.sql`),
+  импорт `zstd -dc ... | mysql` — ручной шаг;
+* архив распаковывается, инкременты применяются цепочкой;
+* storage копируется через `rclone copy` (никогда `sync`);
+* vault раскладывает файлы на выбранную дату.
+
+В живую базу инструмент не пишет. `--list` и `--verify` на `restore.enabled`
+не смотрят: они только читают.
 
 ## Хуки
 

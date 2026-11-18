@@ -27,19 +27,21 @@ SECTIONS = {
     "database": {"enabled", "type", "host", "port", "user", "password_env",
                  "args", "compressor", "compressor_args", "targets", "mode",
                  "databases", "retention", "retention_mode", "catch_up",
-                 "ignore_table", "before", "after", "s3-custom-options"},
+                 "ignore_table", "before", "after", "restore",
+                 "s3-custom-options"},
     "storage": {"enabled", "mode", "targets", "sources", "allow_empty",
-                "before", "after", "s3-custom-options"},
+                "before", "after", "restore", "s3-custom-options"},
     "archive": {"enabled", "compressor", "compressor_args", "name", "root",
                 "include", "exclude", "targets", "mode", "retention",
-                "retention_mode", "before", "after", "s3-custom-options"},
+                "retention_mode", "before", "after", "restore",
+                "s3-custom-options"},
     "incremental": {"enabled", "name", "root", "include", "exclude", "targets",
                     "initial_day", "snapshot", "retention", "before", "after",
-                    "s3-custom-options"},
+                    "restore", "s3-custom-options"},
     "vault": {"enabled", "root", "state_dir", "volume_size", "checksum",
               "exclude", "journal", "restore", "targets", "before", "after"},
     "journal": {"type", "period", "path", "keep_done"},
-    "restore": {"order", "priority", "chown"},
+    "restore": {"enabled", "order", "priority", "chown"},
     "notify": {"on", "retries", "retry_delay", "timeout",
                "mail", "webhook", "telegram"},
     "mail": {"to", "from", "smtp_host", "port", "tls", "user_env", "password_env"},
@@ -133,6 +135,14 @@ class UpstreamCfg:
 
 
 @dataclass
+class RestoreCfg:
+    enabled: bool = True          # false: restore of this section needs --force
+    order: str = "desc"           # asc | desc (vault)
+    priority: list = field(default_factory=list)   # vault
+    chown: bool = False           # vault
+
+
+@dataclass
 class DatabaseCfg:
     enabled: bool = False
     mode: str = _default("database", "mode")
@@ -151,6 +161,7 @@ class DatabaseCfg:
     ignore_table: list = field(default_factory=lambda: _default("database", "ignore_table"))
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
+    restore: RestoreCfg = field(default_factory=RestoreCfg)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -163,6 +174,7 @@ class StorageCfg:
     sources: list = field(default_factory=list)   # [(path, dest|None), ...]
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
+    restore: RestoreCfg = field(default_factory=RestoreCfg)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -180,6 +192,7 @@ class ArchiveCfg:
     retention: Retention | None = None
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
+    restore: RestoreCfg = field(default_factory=RestoreCfg)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -196,6 +209,7 @@ class IncrementalCfg:
     retention: Retention | None = None
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
+    restore: RestoreCfg = field(default_factory=RestoreCfg)
     s3_options: dict = field(default_factory=dict)
 
 
@@ -205,13 +219,6 @@ class JournalCfg:
     period: str = "daily"
     path: str = ""
     keep_done: dt.timedelta | None = None
-
-
-@dataclass
-class RestoreCfg:
-    order: str = "desc"           # asc | desc
-    priority: list = field(default_factory=list)
-    chown: bool = False
 
 
 @dataclass
@@ -535,6 +542,35 @@ class _Errors(list):
             super().append(message)
 
 
+def _parse_restore(value, path, errors, warnings, vault=False):
+    """The `restore` block of a section: enabled, plus vault-only ordering.
+
+    Restore is a separate operation with its own policy: `enabled: false` means
+    "this section may not be restored on this host" and is overridden by
+    --force. order/priority/chown only make sense for vault layers; elsewhere
+    they are ignored with a warning.
+    """
+    raw = value if value is not None else {}
+    if not isinstance(raw, dict):
+        errors.append(f"{path}: expected a mapping")
+        raw = {}
+    _check_keys(raw, "restore", path, warnings)
+    enabled = _as_bool(raw.get("enabled"), f"{path}.enabled", errors,
+                       default=True)
+    order = (_as_str(raw.get("order"), f"{path}.order", errors) or "desc").lower()
+    if order not in ("asc", "desc"):
+        errors.append(f"{path}.order: expected asc or desc")
+        order = "desc"
+    priority = _as_list(raw.get("priority"), f"{path}.priority", errors)
+    chown = _as_bool(raw.get("chown"), f"{path}.chown", errors)
+    if not vault:
+        for key in ("order", "priority", "chown"):
+            if key in raw:
+                warnings.append(f"{path}.{key}: only used by vault, ignored")
+    return RestoreCfg(enabled=enabled, order=order,
+                      priority=priority, chown=chown)
+
+
 def _parse_notify(data, errors, warnings):
     """The notify section; None means notifications are entirely off."""
     raw = data.get("notify")
@@ -823,6 +859,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                               "config.database.ignore_table", errors),
         before=_as_list(db.get("before"), "config.database.before", errors),
         after=_as_list(db.get("after"), "config.database.after", errors),
+        restore=_parse_restore(db.get("restore"), "config.database.restore",
+                               errors, warnings),
         s3_options=_as_s3_options(db.get("s3-custom-options"),
                                   "config.database.s3-custom-options", errors),
     )
@@ -857,6 +895,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                              "config.storage.allow_empty", errors),
         before=_as_list(st.get("before"), "config.storage.before", errors),
         after=_as_list(st.get("after"), "config.storage.after", errors),
+        restore=_parse_restore(st.get("restore"), "config.storage.restore",
+                               errors, warnings),
         s3_options=_as_s3_options(st.get("s3-custom-options"),
                                   "config.storage.s3-custom-options", errors),
     )
@@ -898,6 +938,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                                    errors, warnings, ar_mode),
         before=_as_list(ar.get("before"), "config.archive.before", errors),
         after=_as_list(ar.get("after"), "config.archive.after", errors),
+        restore=_parse_restore(ar.get("restore"), "config.archive.restore",
+                               errors, warnings),
         s3_options=_as_s3_options(ar.get("s3-custom-options"),
                                   "config.archive.s3-custom-options", errors),
     )
@@ -931,6 +973,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                                    errors, warnings),
         before=_as_list(inc.get("before"), "config.incremental.before", errors),
         after=_as_list(inc.get("after"), "config.incremental.after", errors),
+        restore=_parse_restore(inc.get("restore"), "config.incremental.restore",
+                               errors, warnings),
         s3_options=_as_s3_options(inc.get("s3-custom-options"),
                                   "config.incremental.s3-custom-options", errors),
     )
@@ -1006,19 +1050,8 @@ def load_config(path, env=None, defaults=None, strict=False):
                 journal = JournalCfg(type="scan")
 
     restore_raw = vlt.get("restore") or {}
-    if not isinstance(restore_raw, dict):
-        errors.append("config.vault.restore: expected a mapping")
-        restore_raw = {}
-    _check_keys(restore_raw, "restore", "config.vault.restore", warnings)
-    order = (_as_str(restore_raw.get("order"),
-                     "config.vault.restore.order", errors) or "desc").lower()
-    if order not in ("asc", "desc"):
-        errors.append("config.vault.restore.order: expected asc or desc")
-        order = "desc"
-    priority = _as_list(restore_raw.get("priority"),
-                        "config.vault.restore.priority", errors)
-    chown = _as_bool(restore_raw.get("chown"), "config.vault.restore.chown",
-                     errors)
+    restore = _parse_restore(restore_raw, "config.vault.restore",
+                             errors, warnings, vault=True)
 
     state_dir = _as_str(vlt.get("state_dir"), "config.vault.state_dir", errors)
     if not state_dir:
@@ -1031,7 +1064,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         checksum=checksum,
         exclude=_as_list(vlt.get("exclude"), "config.vault.exclude", errors),
         journal=journal,
-        restore=RestoreCfg(order=order, priority=priority, chown=chown),
+        restore=restore,
         targets=_as_targets(vlt.get("targets"), "config.vault.targets", errors,
                             cfg.upstreams, types=("rclone", "rsync")),
         before=_as_list(vlt.get("before"), "config.vault.before", errors),

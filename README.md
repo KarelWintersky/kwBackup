@@ -19,8 +19,9 @@
 * **Проверка, а не надежда**: `--list` показывает, что реально лежит в облаке
   и где дыры; `--verify` скачивает копию и проверяет, что она разжимается
   и похожа на дамп. Ненулевой код возврата годится для watchdog.
-* **Восстановление**: `--restore --to DIR` для БД, архива, storage и vault;
-  заливка в живую БД — только явным `--into-db ... --yes`.
+* **Восстановление**: `--restore --to DIR` для БД, архива, storage и vault —
+  только в каталог, который ты указал сам. В живую базу инструмент не пишет:
+  дамп скачивается как есть, импорт — ручной шаг (`zstd -dc ... | mysql`).
 * **Безопасно к параллельным запускам**: `flock` на `(проект, задача)`,
   блокировка снимается ядром даже при `kill -9`.
 * **Миграция**: `kwbackup migrate old.conf` конвертирует старый bash-конфиг
@@ -128,11 +129,10 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 2 при ошибках конфига, 1 при проблемах preflight |
 | `kwbackup --config FILE --list` | что лежит в облаке, где пропуски (для vault — цепочки и пропущенные дни) |
 | `kwbackup --config FILE --verify [--all]` | скачать и проверить копию (для vault — манифесты и тома) |
-| `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |
+| `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | скачать дамп (как лежит в облаке) |
 | `kwbackup --config FILE --restore --archive --to DIR` | распаковать архив |
 | `kwbackup --config FILE --restore --storage --to DIR` | скачать storage |
 | `kwbackup --config FILE --restore --vault --to DIR [--at 2026-11-09] [--from NAME]` | восстановить файлы на дату |
-| `kwbackup --config FILE --restore --database --into-db db --yes` | залить в живую БД |
 | `kwbackup migrate old.conf -o new.yaml` | конвертировать bash-конфиг |
 | `kwbackup --selftest` | встроенные тесты |
 
@@ -140,6 +140,18 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 действий помечает её `disabled, invalid config (see --check)`, а `--check`
 проверяет и её. Строгая проверка включается и тогда, когда секция реально
 выполняется — через `--force` или `--restore`.
+
+У каждой секции есть свой рубильник восстановления:
+
+```yaml
+database:
+  restore:
+    enabled: false    # на этом хосте дампы этой задачи не скачиваются
+```
+
+`restore.enabled: false` запрещает `--restore` для этой секции; обход —
+`--force`. По умолчанию `true`. У `vault` в том же блоке живут
+`order`/`priority`/`chown` — они описывают порядок слоёв при восстановлении.
 
 Полная справка: [`docs/usage.md`](docs/usage.md).
 Справочник по всем ключам конфига: [`docs/configuration.md`](docs/configuration.md).
@@ -292,9 +304,9 @@ database:
 ```
 
 `host` — путь к базе; `databases` не выбирает базу, а задаёт префикс имени
-файла в облаке; `port` и `args` не используются. Восстановление в живую базу
-(`--into-db`) для sqlite пишет в `host`, а не в переданное имя — надёжнее
-восстановить в каталог (`--restore --to DIR`) и подменить файл вручную.
+файла в облаке; `port` и `args` не используются. Восстановление — только
+в каталог: `--restore --to DIR` кладёт рядом дамп, после чего файл можно
+подменить вручную (или импортировать `sqlite3 < file.sql`).
 
 ### Инкрементальный бэкап (`incremental`)
 

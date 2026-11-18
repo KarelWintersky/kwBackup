@@ -1,3 +1,24 @@
+kwbackup (0.99.82) unstable; urgency=medium
+
+  * feat(config): per-section restore switch, drop --into-db
+
+    Every section (database, storage, archive, incremental, vault) now has a
+    restore block with `enabled` (default true). Setting it to false makes
+    --restore refuse that section with exit 1 unless --force is given - the same
+    escape hatch disabled backup sections already use. For vault the block keeps
+    its order/priority/chown keys; elsewhere they are ignored with a warning,
+    and --check prints "restore off (needs --force)".
+
+    --into-db and --yes are gone: the tool never writes into a live database.
+    --restore --database now copies the dump exactly as stored in the cloud
+    (.sql.zst/.gz/.rar/.sql) instead of decompressing it; importing it stays a
+    deliberate manual step for the operator (zstd -dc ... | mysql).
+
+    tests: the dump is copied raw, a disabled restore is refused and then allowed
+    with --force, and the removed flags are rejected (88/88 e2e, 70 checks).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 21:48:16 +0300
+
 kwbackup (0.99.81) unstable; urgency=medium
 
   * docs(readme): describe vault, colours and the current CLI

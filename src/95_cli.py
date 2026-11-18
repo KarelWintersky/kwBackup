@@ -28,21 +28,21 @@ def build_parser():
                    help="override the upload algorithm (storage, database, "
                         "archive); sync mirrors the target directory")
     p.add_argument("-f", "--force", action="store_true",
-                   help="run actions even if disabled in config")
+                   help="run actions even if disabled in config (also overrides "
+                        "<section>.restore.enabled: false for --restore)")
     p.add_argument("--dry-run", action="store_true", help="show what would be done")
     p.add_argument("--check", action="store_true",
                    help="validate the config and show what will run")
     p.add_argument("--list", action="store_true", help="show what is stored in the cloud")
     p.add_argument("--verify", action="store_true", help="download and check the newest copy")
     p.add_argument("--all", action="store_true", help="with --verify: check every stored copy")
-    p.add_argument("--restore", action="store_true", help="download a copy from the cloud")
+    p.add_argument("--restore", action="store_true",
+                   help="download a copy from the cloud into --to (never writes "
+                        "into a live database)")
     p.add_argument("--to", metavar="DIR", help="restore target directory")
     p.add_argument("--at", metavar="TS", help="pick a copy by date prefix, e.g. 2026-11-09")
     p.add_argument("--from", dest="from_upstream", metavar="NAME",
                    help="with --list/--verify/--restore: use only this upstream")
-    p.add_argument("--into-db", metavar="NAME", help="with --restore: load the dump into "
-                                                    "a live database (needs --yes)")
-    p.add_argument("--yes", action="store_true", help="confirm destructive operations")
     p.add_argument("--verbose", action="store_true",
                    help="info messages on the terminal and rclone --progress "
                         "(same as runtime.verbose: true)")
@@ -316,7 +316,8 @@ def _print_section(cfg, name, section):
             row("journal", "scan (full every run)")
         row("targets", ", ".join(section.targets))
         restore = section.restore
-        row("restore", f"{restore.order}, priority: "
+        row("restore", f"{'on' if restore.enabled else 'off'}, "
+                       f"{restore.order}, priority: "
                        f"{', '.join(restore.priority) or 'none'}, "
                        f"chown: {'on' if restore.chown else 'off'}")
     elif name == "database":
@@ -358,6 +359,8 @@ def _print_section(cfg, name, section):
         commands = getattr(section, phase, None) or []
         if commands:
             row(phase, f"{len(commands)} hook(s)")
+    if name != "vault" and not section.restore.enabled:
+        row("restore", "off (needs --force)")
     overrides = _s3_overrides(cfg, section)
     if overrides:
         colored = " ".join(_color(part, chr(27) + "[33m") for part in overrides)

@@ -44,6 +44,7 @@ vault:
     path: /var/lib/storage/journal
     keep_done: 7d
   restore:
+    enabled: true         # false = --restore --vault требует --force
     order: desc
     chown: false
     priority: [photos, videos, titles]
@@ -149,6 +150,10 @@ database:
       keep: 12            # эквивалент DB_MIN_AGE_MONTHLY=360d
     # daily: false        # класс отключён
 
+  # Разрешено ли восстановление этой секции (--restore --database).
+  # false = только с --force; в живую БД инструмент не пишет никогда.
+  restore: {enabled: true}
+
   # Хуки вокруг задачи: массив команд для /bin/sh -c, окружение KWBACKUP_*.
   # before: ["redis-cli BGSAVE"]
   # after: ["redis-cli CONFIG REWRITE"]
@@ -160,6 +165,7 @@ storage:
                           # copy — только добавляет/обновляет
   allow_empty: false      # true = разрешить sync из пустого каталога
                           # (защита от «диск не смонтировался»)
+  restore: {enabled: true}  # false = --restore --storage требует --force
   # s3-custom-options: {s3-access-key-id: ...}   # перекрыть для storage
   targets:
     - s3a:/STORAGE
@@ -192,6 +198,7 @@ archive:
     - s3a:/ARCHIVE
     - s3b:/ARCHIVE
   retention: {keep: 5}    # или {max_age: 71d}; БЕЗ ключа архив не чистится
+  restore: {enabled: true}  # false = --restore --archive требует --force
   # retention_mode: keep
   # before: ["touch /srv/app/maintenance.on"]
   # after: ["rm -f /srv/app/maintenance.on"]
@@ -209,3 +216,4 @@ incremental:
     - s3a:/INCR
     - s3b:/INCR
   retention: {keep: 3}    # цепочки (месяцы), не файлы
+  restore: {enabled: true}  # false = --restore --incremental требует --force

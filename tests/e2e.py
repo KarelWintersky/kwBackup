@@ -502,36 +502,36 @@ database:
         env.run("-c", env.config, "-d")
         out = env.dir / "restore"
         env.run("-c", env.config, "--restore", "-d", "--to", out)
-        files = list(out.glob("*.sql"))
+        files = list(out.glob("*.sql.zst"))
         assert len(files) == 1, files
-        assert b"MySQL dump" in files[0].read_bytes()
+        assert files[0].read_bytes().startswith(b"\x28\xb5\x2f\xfd"), \
+            "the dump must be copied as stored in the cloud (raw zstd)"
         assert not list(env.tmp.iterdir()), "temp dir must be empty"
     finally:
         env.cleanup()
 
 
-def test_restore_into_db():
+def test_restore_into_db_removed():
     env = Env()
     try:
         env.base_config(extra="""
 database:
   enabled: true
   type: mysql
-  compressor: zstd
   targets: ["fake:/DB"]
   databases: [db1]
   retention:
     daily: {keep: 3}
 """)
         env.run("-c", env.config, "-d")
-        env.run("-c", env.config, "--restore", "-d", "--into-db", "db1", "--yes")
-        captured = (env.dir / "mysql.out").read_bytes()
-        assert b"MySQL dump" in captured, captured
+        res = env.run("-c", env.config, "--restore", "-d",
+                      "--into-db", "db1", "--yes", expect=2)
+        assert "unrecognized arguments" in res.stderr, res.stderr
     finally:
         env.cleanup()
 
 
-def test_restore_requires_confirmation():
+def test_restore_disabled():
     env = Env()
     try:
         env.base_config(extra="""
@@ -542,9 +542,16 @@ database:
   databases: [db1]
   retention:
     daily: {keep: 3}
+  restore: {enabled: false}
 """)
         env.run("-c", env.config, "-d")
-        env.run("-c", env.config, "--restore", "-d", "--into-db", "db1", expect=1)
+        out = env.dir / "restore"
+        res = env.run("-c", env.config, "--restore", "-d", "--to", out, expect=1)
+        assert "restore is disabled" in res.stderr, res.stderr
+        assert "--force" in res.stderr, res.stderr
+        assert not out.exists(), "a disabled restore must not create anything"
+        env.run("-c", env.config, "--restore", "-d", "--force", "--to", out)
+        assert len(list(out.glob("*.sql.zst"))) == 1, list(out.iterdir())
     finally:
         env.cleanup()
 
@@ -1404,7 +1411,7 @@ database:
         env.run("-c", env.config, "-d")
         out = env.dir / "restore"
         env.run("-c", env.config, "--restore", "-d", "--from", "b", "--to", out)
-        assert list(out.glob("*.sql")), list(out.glob("*"))
+        assert list(out.glob("*.sql.zst")), list(out.glob("*"))
         log = (env.dir / "rclone.log").read_text().splitlines()
         assert any("b:/B/DAILY/" in line and "copyto" in line for line in log), log[-3:]
     finally:
@@ -2550,7 +2557,7 @@ upstreams: {{fake: {{}}}}
 TESTS = [test_database_retention, test_database_disabled, test_storage_sync, test_storage_dest,
          test_archive_contents_and_retention, test_archive_include_list,
          test_list_and_verify, test_verify_detects_corruption,
-         test_restore_database, test_restore_into_db, test_restore_requires_confirmation,
+         test_restore_database, test_restore_into_db_removed, test_restore_disabled,
          test_restore_archive_and_storage, test_restore_at_filter,
          test_migrate_old_config, test_migrate_uses_keep_by_default,
          test_documented_examples_validate, test_defaults_file_layer,
