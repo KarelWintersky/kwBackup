@@ -1,3 +1,16 @@
+kwbackup (0.99.74) unstable; urgency=medium
+
+  * feat(vault): pretty manifests in debug mode
+
+    --debug (or runtime.debug: true) now writes the top, per-volume and deleted
+    manifests with indentation and newlines, so they can be inspected by eye. The
+    default stays compact (no whitespace), which keeps large base manifests small.
+    Both forms are valid JSON and restore/list/verify accept them.
+
+    tests: debug writes indented manifests, normal mode stays compact (83/83 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 14:32:00 +0300
+
 kwbackup (0.99.73) unstable; urgency=medium
 
   * feat(cli): hide unconfigured sections from the action list

@@ -3,6 +3,14 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.74] — 2026-11-18
+
+### Added
+
+- При `--debug` (или `runtime.debug: true`) манифесты vault пишутся
+  с отступами и переводами строк — удобно читать; в обычном режиме
+  остаются компактными.
+
 ## [0.99.73] — 2026-11-18
 
 ### Changed

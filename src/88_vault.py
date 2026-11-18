@@ -232,12 +232,19 @@ def _vault_sha256(path, block=1024 * 1024):
     return digest.hexdigest()
 
 
+def _vault_json(data, pretty=False):
+    if pretty:
+        return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
 def _vault_deleted_name(layer_name):
     return layer_name[:-len(".manifest.json")] + VAULT_DELETED_SUFFIX
 
 
 def vault_build_layer(cfg, changes, deleted, source_date, base=False,
-                      modified=None, stamp=None, show_files=False):
+                      modified=None, stamp=None, show_files=False,
+                      pretty=False):
     """Create TAR volumes and manifests in cfg.temp_dir; return files."""
     vault = cfg.vault
     workdir = Path(tempfile.mkdtemp(prefix="vault-", dir=str(cfg.temp_dir)))
@@ -273,9 +280,8 @@ def vault_build_layer(cfg, changes, deleted, source_date, base=False,
                     entry["sha256"] = _vault_sha256(Path(vault.root) / path)
                 files.append(entry)
             manifest_path = workdir / manifest_name
-            manifest_path.write_text(
-                json.dumps({"files": files}, ensure_ascii=False,
-                           separators=(",", ":")), encoding="utf-8")
+            manifest_path.write_text(_vault_json({"files": files}, pretty),
+                                     encoding="utf-8")
             volumes.append({"name": tar_name, "manifest": manifest_name,
                             "size": volume.stat().st_size, "files": len(files)})
             upload += [volume, manifest_path]
@@ -284,15 +290,12 @@ def vault_build_layer(cfg, changes, deleted, source_date, base=False,
                             "size": item.get("size", 0)} for item in deleted]
         deleted_path = workdir / f"{stamp}{VAULT_DELETED_SUFFIX}"
         deleted_path.write_text(
-            json.dumps({"files": deleted_entries}, ensure_ascii=False,
-                       separators=(",", ":")), encoding="utf-8")
+            _vault_json({"files": deleted_entries}, pretty), encoding="utf-8")
 
         manifest = {"base": bool(base), "created_utc": stamp,
                     "date": str(source_date), "volumes": volumes}
         manifest_path = workdir / f"{stamp}.manifest.json"
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        manifest_path.write_text(_vault_json(manifest, pretty), encoding="utf-8")
         # The top manifest goes last: it is the completion marker.
         upload += [deleted_path, manifest_path]
         return workdir, upload, manifest
@@ -551,10 +554,11 @@ def _vault_upload(stores, files):
 
 
 def _vault_commit(cfg, stores, index, changes, deleted, modified,
-                  source_date, base=False, stamp=None, show_files=False):
+                  source_date, base=False, stamp=None, show_files=False,
+                  pretty=False):
     workdir, files, _manifest = vault_build_layer(
         cfg, changes, deleted, source_date, base=base,
-        modified=modified, stamp=stamp, show_files=show_files)
+        modified=modified, stamp=stamp, show_files=show_files, pretty=pretty)
     try:
         _vault_upload(stores, files)
         if base:
@@ -598,7 +602,8 @@ def action_vault(cfg, args):
     state_dir.mkdir(parents=True, exist_ok=True)
     stores = [vault_store(cfg, target) for target in vault.targets]
     warnings = []
-    show_files = bool(cfg.debug or getattr(args, "debug", False))
+    debug = bool(cfg.debug or getattr(args, "debug", False))
+    show_files = debug
     index = VaultIndex(state_dir)
     try:
         names = _vault_active_names(stores)
@@ -611,7 +616,7 @@ def action_vault(cfg, args):
             changes = vault_scan(root, warnings)
             stats = _vault_commit(cfg, stores, index, changes, [], set(),
                                   source, base=True, stamp=_vault_stamp(names),
-                                  show_files=show_files)
+                                  show_files=show_files, pretty=debug)
             _vault_finish_journals(cfg)
             LOG.info("vault: base layer %s (%d file(s))", source, len(changes))
         elif args.reconcile:
@@ -619,7 +624,7 @@ def action_vault(cfg, args):
             changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
                                   modified, source, stamp=_vault_stamp(names),
-                                  show_files=show_files)
+                                  show_files=show_files, pretty=debug)
             _vault_finish_journals(cfg)
             LOG.info("vault: reconcile %s: %d changed, %d deleted, %d same",
                      source, len(changes), len(deleted), same)
@@ -643,7 +648,7 @@ def action_vault(cfg, args):
                 layer = _vault_commit(
                     cfg, stores, index, changes, deleted, modified, day,
                     stamp=_vault_stamp(names, offset=offset),
-                    show_files=show_files)
+                    show_files=show_files, pretty=debug)
                 for key in totals:
                     totals[key] += layer.get(key, 0)
                 if path is not None:
@@ -657,7 +662,7 @@ def action_vault(cfg, args):
             changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
                                   modified, source, stamp=_vault_stamp(names),
-                                  show_files=show_files)
+                                  show_files=show_files, pretty=debug)
             _vault_finish_journals(cfg)
             LOG.info("vault: scan %s: %d changed, %d deleted, %d same",
                      source, len(changes), len(deleted), same)

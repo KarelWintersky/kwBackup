@@ -1856,6 +1856,25 @@ def _vault_layers(env):
             for path in _vault_layer_paths(base)]
 
 
+def test_vault_debug_writes_pretty_manifests():
+    env = Env()
+    try:
+        _vault_setup(env)
+        base = env.cloud / "V"
+        env.run("-c", env.config, "--vault", "--full", "--debug")
+        top_path = _vault_layer_paths(base)[-1]
+        raw = top_path.read_text(encoding="utf-8")
+        assert "\n  " in raw, raw
+        data = json.loads(raw)
+        volume_raw = (base / data["volumes"][0]["manifest"]).read_text(encoding="utf-8")
+        assert "\n  " in volume_raw, volume_raw
+        env.run("-c", env.config, "--vault", "--full")
+        raw = _vault_layer_paths(base)[-1].read_text(encoding="utf-8")
+        assert "\n" not in raw, raw
+    finally:
+        env.cleanup()
+
+
 def test_vault_full_and_empty_layer():
     env = Env()
     try:
@@ -2448,6 +2467,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_disabled_section_is_not_enforced,
          test_disabled_section_enabled_key_is_still_fatal,
          test_disabled_section_forced_run_is_strict,
+         test_vault_debug_writes_pretty_manifests,
          test_vault_rsync_transport,
          test_rsync_upstream_is_vault_only,
          test_vault_full_and_empty_layer,
