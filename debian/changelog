@@ -1,3 +1,25 @@
+kwbackup (0.99.84) unstable; urgency=medium
+
+  * docs(readme): rewrite as a guide instead of a reference dump
+
+    The README had grown to 760 lines of accumulated patches: five overlapping
+    explanations of environment variables, several restatements of the cloud
+    layout, deep dives on incremental and vault that belong to the usage docs,
+    and quick-start steps that contradicted each other.
+
+    It is now a continuous ~210-line guide: the five tasks and the cloud layout,
+    install, one coherent first-backup walkthrough, restore with manual import,
+    a cron line, the config essentials, reliability notes, a docs map and the
+    development commands.
+
+    The incremental walkthrough, the "copy daily, sync monthly" storage recipe
+    and the exit-code table moved to docs/usage.md, where the rest of the
+    operational detail already lives.
+
+    docs only, no code changes.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 22:31:17 +0300
+
 kwbackup (0.99.83) unstable; urgency=medium
 
   * docs(readme): make the quick start actually work
