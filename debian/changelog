@@ -1,3 +1,24 @@
+kwbackup (0.99.84) unstable; urgency=medium
+
+  * docs(readme): rewrite the README as a proper manual
+
+    The README was a pile of accumulated patches: five overlapping sections on
+    environment variables, repeated descriptions of the cloud layout, quick-start
+    commands that contradicted each other, and deep dives that belong to the
+    usage docs.
+
+    It is now a structured guide: why the tool exists, how a run works (config
+    layers, lock, tasks, rotation, failure model), install, host setup (rclone,
+    defaults.yaml, secrets), a clean first-scenario walkthrough built on the
+    shipped example instead of heredocs, a chapter per task (database, storage,
+    archive, incremental, vault), restore with manual import, scheduling and
+    monitoring, security, migration and development.
+
+    The incremental walkthrough, the "copy daily, sync monthly" storage recipe
+    and the exit-code table moved to docs/usage.md.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 22:40:29 +0300
+
 kwbackup (0.99.83) unstable; urgency=medium
 
   * docs(readme): make the quick start actually work

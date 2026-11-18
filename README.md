@@ -1,120 +1,214 @@
 # kwBackup
 
-Бэкап баз данных, файлового storage, файловых архивов и версионного
-хранилища файлов в S3-совместимое облако (или любой remote `rclone`).
-Один исполняемый файл, Python 3.10+, **без внешних зависимостей**.
+Резервное копирование сервера в S3-совместимое облако: базы данных,
+файловые каталоги, архивы и версионная история изменений. Одна команда
+в cron, декларативный YAML на каждый проект, один исполняемый файл
+на Python 3.10+ без внешних зависимостей.
 
-Замена bash-версии `kwbackup.sh` 0.9.0: те же сценарии и та же схема
-ротации, но с валидируемым YAML-конфигом, честными кодами возврата,
-блокировками через `flock`, проверкой копий и восстановлением.
+## Содержание
 
-## Возможности
+- [Зачем это](#зачем-это)
+- [Как это работает](#как-это-работает)
+- [Установка](#установка)
+- [Настройка хоста](#настройка-хоста)
+- [Первый сценарий](#первый-сценарий)
+- [Задачи](#задачи)
+  - [database](#database)
+  - [storage](#storage)
+  - [archive](#archive)
+  - [incremental](#incremental)
+  - [vault](#vault)
+- [Восстановление](#восстановление)
+- [Расписание и мониторинг](#расписание-и-мониторинг)
+- [Безопасность](#безопасность)
+- [Миграция с bash-версии](#миграция-с-bash-версии)
+- [Разработка](#разработка)
 
-* **Пять задач сценария**: дамп БД → сжатие → заливка; `rclone sync/copy`
-  каталогов; `tar` + компрессор → заливка; инкрементальные цепочки `tar`;
-  версионные слои `vault`.
-* **GFS-ротация**: DAILY каждый запуск, WEEKLY дополнительно по понедельникам,
-  MONTHLY дополнительно 1-го числа. Глубина — `keep: N` или `max_age: 7d`,
-  на каждый класс своё правило.
-* **Проверка, а не надежда**: `--list` показывает, что реально лежит в облаке
-  и где дыры; `--verify` скачивает копию и проверяет, что она разжимается
-  и похожа на дамп. Ненулевой код возврата годится для watchdog.
-* **Восстановление**: `--restore --to DIR` для БД, архива, storage и vault —
-  только в каталог, который ты указал сам. В живую базу инструмент не пишет:
-  дамп скачивается как есть, импорт — ручной шаг (`zstd -dc ... | mysql`).
-* **Безопасно к параллельным запускам**: `flock` на `(проект, задача)`,
-  блокировка снимается ядром даже при `kill -9`.
-* **Миграция**: `kwbackup migrate old.conf` конвертирует старый bash-конфиг
-  в YAML, сохраняя глубину хранения.
-* **Слои конфигурации**: общий `/etc/kwbackup/defaults.yaml` (логи, rclone, глубина
-  хранения, компрессоры) + короткий файл задачи на каждый проект.
-* **Логи куда угодно**: файл и/или syslog (`journalctl -t kwbackup`), консоль
-  управляется отдельно (`runtime.verbose` / `runtime.debug`).
-* `--dry-run`, `--check`, `--selftest`, живой прогресс упаковки в терминале.
-* **Уведомления**: webhook, Telegram, SMTP-почта; в сообщении только имена
-  и безопасные причины — без команд и ключей.
-* **История, а не снимки** (`vault`): неизменяемые TAR-слои с манифестами,
-  ежедневный журнал изменений, восстановление на любую дату, без месячных
-  full — подробнее в разделе [Vault](#vault-версионный-бэкап-файлов).
-* **Вывод, который читается**: числа и размеры — жёлтым, успешные итоги —
-  зелёным, ошибки — красным. Цвета только в терминале (`NO_COLOR` уважается),
-  в `log.file` и syslog ANSI-последовательностей нет.
-* **Хуки** `before`/`after` у каждой задачи: `redis-cli BGSAVE`, maintenance
-  mode, `docker exec`, ротация внешних файлов.
+## Зачем это
 
-## Требования
+Сервер обрастает скриптами: `mysqldump | gzip` в cron, `rclone sync`
+загрузок, `tar` раз в месяц. Через год выясняется, что ротация удаляет не те
+файлы, один из трёх скриптов молча упал прошлой весной, а проверить, что
+копия действительно читается, нечем.
 
-| | |
-|---|---|
-| ОС | Linux (нужны `flock`, `tar`) |
-| Python | 3.10+ (только стандартная библиотека) |
-| Обязательно | `rclone` |
-| По типу БД | `mysqldump` / `mariadb-dump` / `pg_dump` / `sqlite3` |
-| По компрессору | `zstd` / `gzip` / `pigz` / `rar` |
-| Для архивов | `tar` (+ компрессор) |
+kwBackup собирает это в одну программу с предсказуемым поведением:
+
+* сценарий — YAML-файл, а не набор `export` и функций;
+* каждая копия проверяема: `--list` показывает историю, `--verify`
+  скачивает и читает её;
+* восстановление — такая же команда, а не «помню, там был tar»;
+* параллельные запуски исключены блокировками;
+* ошибки видны в кодах возврата, логах и уведомлениях.
+
+Проект вырос из bash-скрипта `kwbackup.sh` 0.9.0. Идеи остались прежними —
+GFS-ротация, заливка через rclone, один конфиг на проект, — но вместо
+исходника на 600 строк с глобальными переменными теперь данные и валидатор.
+
+## Как это работает
+
+Один запуск выглядит так:
+
+1. читается `/etc/kwbackup/defaults.yaml` (настройки хоста), поверх него —
+   файл задачи;
+2. проверяется окружение: бинарники, пути, rclone-конфиги, переменные;
+3. берётся блокировка `flock` на пару «проект, задача»;
+4. выполняются включённые задачи: дамп или архив → сжатие → заливка
+   на каждый target → ротация;
+5. итог уходит в лог, а если настроено — в почту, webhook или Telegram.
+
+Задачи независимы: упавшая заливка на один апстрим не отменяет остальные.
+В конце будет ненулевой код и список того, что сломалось.
+
+| Задача | Что делает | Что появляется в облаке |
+|---|---|---|
+| `database` | дамп (`mysqldump`, `mariadb-dump`, `pg_dump`, `sqlite3`) → сжатие → заливка | `<target>/DAILY/<db>_<ts>.sql.zst` |
+| `storage` | `rclone copy` или `sync` каталогов | `<target>/<dest>/…` |
+| `archive` | `tar` + компрессор → заливка | `<target>/<name>_<ts>.tar.zst` |
+| `incremental` | цепочки GNU tar: полный раз в месяц + инкременты | `<target>/<name>_<YYYY-MM>_full|inc_<ts>.tar` |
+| `vault` | версионные TAR-слои с JSON-манифестами | `<target>/<UTC>.manifest.json` + `-part-NNN.tar` |
+
+Если баз в задаче несколько, к пути добавляется имя базы:
+`<target>/<db>/DAILY/…`. Ротация удаляет только «свои» файлы — `<db>_…`
+для дампов, `<name>_…` для архивов, — поэтому один target можно делить
+между проектами, и они не вычищают друг друга.
+
+### Ротация
+
+Классы три: `daily`, `weekly`, `monthly`. DAILY создаётся каждый запуск,
+WEEKLY — дополнительно по понедельникам, MONTHLY — 1-го числа. Один дамп
+может попасть сразу в несколько классов.
+
+Глубина задаётся на класс: `keep: N` — оставить N новейших копий,
+`max_age: 7d` — удалять всё старше. Это разные стратегии: `keep` переживает
+пропуски и дубли, `max_age` держит фиксированное окно. Смешивать их в одном
+классе нельзя, `retention_mode` запрещает и по всем классам сразу.
 
 ## Установка
-
-Готовый пакет:
 
 ```bash
 sudo dpkg -i kwbackup_<version>_all.deb
 kwbackup --version
+kwbackup --selftest
 ```
 
-Пакет ставит `/usr/bin/kwbackup` (один файл с шебангом), conffile
-`/etc/kwbackup/defaults.yaml` и документацию в `/usr/share/doc/kwbackup/`.
+Пакет ставит `/usr/bin/kwbackup`, conffile `/etc/kwbackup/defaults.yaml`,
+примеры в `/usr/share/doc/kwbackup/examples/` и стартовый файл секретов
+`/etc/default/kwbackup`.
 
-Из исходников (нужен `python3` 3.10+; для пакета — debhelper на Debian):
+Из исходников:
 
 ```bash
-git clone https://github.com/KarelWintersky/kwBackup.git
-cd kwBackup
-make build                    # dist/kwbackup + ../kwbackup_<version>_all.deb
-make test                     # встроенные и сквозные тесты
+make build      # dist/kwbackup + ../kwbackup_<version>_all.deb
+make test       # встроенные проверки и сквозные тесты
+make dist       # только dist/kwbackup
 ```
 
-Без пакета достаточно артефакта:
+Для работы нужны Linux с `flock` и `tar`, сам `rclone`, клиент вашей СУБД
+и компрессор (`zstd`, `gzip`, `pigz` или `rar`) — в зависимости от того,
+что включено в сценарии.
 
-```bash
-make dist
-sudo install -m 755 dist/kwbackup /usr/bin/kwbackup
+## Настройка хоста
+
+Три вещи настраиваются один раз и переиспользуются всеми задачами:
+доступ к облаку, общие параметры и секреты.
+
+### rclone
+
+Заливка идёт через rclone, поэтому ему нужен remote, описывающий
+S3-провайдера. Удобно держать отдельный файл на бакет:
+
+```ini
+# /etc/kwbackup/rclone_beget.conf
+[beget]
+type = s3
+provider = Other
+endpoint = <endpoint из панели провайдера>
+region = <region>
+acl = private
 ```
 
-## Быстрый старт
+Имя секции (`[beget]`) — это ключ upstream: он же используется в `targets`
+как `beget:/путь`. Файл подключается через `upstreams.<имя>.config`.
 
-Пример — бэкап одной MySQL/MariaDB-базы в бакет BEGET. Команды выполняются
-от root: `sudo -s`. Пути `debian/…` и `examples/…` — из клона репозитория;
-после установки из `.deb` файлы `/etc/kwbackup/defaults.yaml` и
-`/etc/default/kwbackup` уже на месте (их только правят), а примеры лежат
-в `/usr/share/doc/kwbackup/examples/`.
+Ключи доступа к бакету в `rclone.conf` не работают: у BEGET и подобных
+провайдеров `env_auth = false`, ключи выдаются на бакет и передаются флагами
+`--s3-access-key-id` / `--s3-secret-access-key`. В конфиге задачи для этого
+есть `s3-custom-options`. Если ключи у вас на аккаунт, их можно оставить
+в `rclone.conf`, а `s3-custom-options` не задавать.
+
+### defaults.yaml
+
+`/etc/kwbackup/defaults.yaml` — единственный файл, который читает программа,
+кроме задачи. Здесь живёт всё общее для хоста:
+
+```yaml
+log:
+  level: info
+  file: /var/log/kwbackup/kwbackup.log
+  syslog: false
+
+runtime:
+  temp_dir: /tmp/kwbackup
+
+database:
+  type: mariadb            # mysql | mariadb | postgres | sqlite
+  host: localhost
+  user: backup
+  password_env: MYSQL_PWD
+  retention:
+    daily: {keep: 8}
+    weekly: {keep: 6}
+    monthly: {keep: 12}
+
+storage:
+  mode: copy               # sync удаляет в облаке лишнее
+
+archive:
+  compressor: zstd
+  compressor_args: ["-9"]
+```
+
+В файле задачи остаётся только то, что относится к проекту: `project`,
+`upstreams`, `targets`, `databases`, `sources`, `root`. Списки опций
+(`rclone.args`, `database.args`, `*_compressor_args`, `archive.exclude`)
+дополняются значениями из задачи, остальные ключи задача перекрывает.
+
+Опечатка в ключе — предупреждение, а не отказ: `unknown key, ignored`
+попадёт в лог, а бэкап продолжится. Неверное значение, отсутствие
+обязательного поля и конфликт правил ротации — ошибка конфига.
+
+### Секреты
+
+Пароли и ключи не стоит хранить в YAML: файл задачи попадает в резервные
+копии и репозитории. Штатное место — `/etc/default/kwbackup` с правами
+`0600`:
+
+```ini
+MYSQL_PWD=...
+BEGET_SHOP_KEY=...
+BEGET_SHOP_SECRET=...
+```
+
+В конфиге на них ссылаются как `${ИМЯ}` — подстановка работает в любом
+строковом значении. Переменные должны быть в окружении процесса: systemd
+делает это через `EnvironmentFile=`, cron и ручной запуск — через
+`set -a; . /etc/default/kwbackup; set +a`. `sudo` окружение не передаёт,
+поэтому `sudo -E` работает только с заранее экспортированными переменными.
+
+## Первый сценарий
+
+Минимальный бэкап — одна база в бакет. Начните с примера из пакета
+и поправьте в нём три вещи: `project`, `targets` и `databases`.
 
 ```bash
-sudo -s
-umask 077
+sudo install -m 600 /usr/share/doc/kwbackup/examples/database-only.yaml \
+    /etc/kwbackup/shop.yaml
+sudoedit /etc/kwbackup/shop.yaml
+```
 
-# 0. каталоги: конфиги (0700) и логи
-install -d -m 700 /etc/kwbackup /var/log/kwbackup
+Файл задачи выглядит так:
 
-# 1. rclone-конфиг для бакета. Имя remote = ключ upstream в конфиге задачи.
-#    У BEGET access/secret выдаются на бакет, поэтому в rclone.conf их можно
-#    не писать: ключи уйдут флагами из s3-custom-options.
-rclone config          # name: beget; type: s3; provider: Other;
-                       # endpoint и region — из панели провайдера
-install -m 600 /root/.config/rclone/rclone.conf /etc/kwbackup/rclone_beget.conf
-
-# 2. общие настройки хоста: log, rclone.args, тип БД, глубина хранения.
-#    После .deb файл уже установлен — тогда сразу редактируйте.
-install -m 644 debian/kwbackup.defaults.yaml /etc/kwbackup/defaults.yaml
-vi /etc/kwbackup/defaults.yaml   # database.type (по умолчанию mariadb),
-                                 # database.user, log.file
-
-# 3. секреты — в окружение, не в YAML
-install -m 600 debian/kwbackup.default /etc/default/kwbackup
-vi /etc/default/kwbackup         # MYSQL_PWD, BEGET_SHOP_KEY, BEGET_SHOP_SECRET
-
-# 4. задача: что бэкапить и куда; ключи подставляются из окружения
-cat > /etc/kwbackup/shop.yaml <<'EOF'
+```yaml
 project: shop
 
 upstreams:
@@ -129,638 +223,317 @@ database:
   enabled: true
   targets: ["beget:/shop/DB"]
   databases: [shop]
-EOF
+  # retention, compressor, тип БД и хост — из defaults.yaml
+```
 
-# 5. проверка и план. Переменные должны быть в окружении процесса.
+Дальше — проверка, примерка и боевой запуск:
+
+```bash
 set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check     # код 0 = можно запускать
-kwbackup --config /etc/kwbackup/shop.yaml --dry-run
 
-# 6. боевой запуск и проверка результата
-kwbackup --config /etc/kwbackup/shop.yaml --database
-kwbackup --config /etc/kwbackup/shop.yaml --list
+kwbackup -c /etc/kwbackup/shop.yaml --check     # 0 — можно запускать
+kwbackup -c /etc/kwbackup/shop.yaml --dry-run   # точные команды, без заливки
+kwbackup -c /etc/kwbackup/shop.yaml --database
+kwbackup -c /etc/kwbackup/shop.yaml --list
 ```
 
-`umask 077` нужен, чтобы `shop.yaml` создался сразу с правами `0600`:
-в нём нет ключей, но там имена бакетов и баз.
+`--check` — единственный режим, который проверяет и выключенные секции,
+и окружение: найден ли `rclone`, клиент БД, компрессор, rclone-конфиг,
+существуют ли пути и заданы ли переменные. Код 0 — всё на месте, 2 — ошибка
+конфига, 1 — проблемы окружения. `--list` после первого прогона покажет,
+что реально лежит в облаке.
 
-Если remote уже настроен и ключи у него на аккаунт — шаг 1 сокращается:
-в `upstreams` укажите `config: /путь/к/rclone.conf` или не указывайте
-`config` вовсе (тогда rclone возьмёт свой файл по умолчанию).
+## Задачи
 
-Дальше — расписание: [`examples/cron/kwbackup`](examples/cron/kwbackup).
+### database
 
-## Команды
-
-| Команда | Что делает |
-|---|---|
-| `kwbackup --config FILE --database` | бэкап баз данных из конфига |
-| `kwbackup --config FILE --storage` | синхронизация storage |
-| `kwbackup --config FILE --archive` | упаковка и заливка архива |
-| `kwbackup --config FILE --vault` | слой vault по журналу изменений |
-| `kwbackup --config FILE --vault --full` | новый base: полный скан и новая цепочка |
-| `kwbackup --config FILE --vault --reconcile` | сверка диска с индексом без нового base |
-| `kwbackup --config FILE --storage -m sync` | зеркало вместо copy (удаляет старое); `-m` глобальный для всех задач запуска |
-| `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
-| `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 2 при ошибках конфига, 1 при проблемах preflight |
-| `kwbackup --config FILE --list` | что лежит в облаке, где пропуски (для vault — цепочки и пропущенные дни) |
-| `kwbackup --config FILE --verify [--all]` | скачать и проверить копию (для vault — манифесты и тома) |
-| `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | скачать дамп (как лежит в облаке) |
-| `kwbackup --config FILE --restore --archive --to DIR` | распаковать архив |
-| `kwbackup --config FILE --restore --storage --to DIR` | скачать storage |
-| `kwbackup --config FILE --restore --vault --to DIR [--at 2026-11-09] [--from NAME]` | восстановить файлы на дату |
-| `kwbackup migrate old.conf -o new.yaml` | конвертировать bash-конфиг |
-| `kwbackup --selftest` | встроенные тесты |
-
-Секция с `enabled: false` не мешает запуску: её ошибки не фатальны, список
-действий помечает её `disabled, invalid config (see --check)`, а `--check`
-проверяет и её. Строгая проверка включается и тогда, когда секция реально
-выполняется — через `--force` или `--restore`.
-
-У каждой секции есть свой рубильник восстановления:
+Дамп снимается один раз за запуск и заливается во все `targets` задачи.
+Тип определяет команду: `mysql` → `mysqldump`, `mariadb` → `mariadb-dump`,
+`postgres`/`pgsql` → `pg_dump`, `sqlite` → `sqlite3 <path> .dump`.
 
 ```yaml
-database:
-  restore:
-    enabled: false    # на этом хосте дампы этой задачи не скачиваются
-```
-
-`restore.enabled: false` запрещает `--restore` для этой секции; обход —
-`--force`. По умолчанию `true`. У `vault` в том же блоке живут
-`order`/`priority`/`chown` — они описывают порядок слоёв при восстановлении.
-
-Полная справка: [`docs/usage.md`](docs/usage.md).
-Справочник по всем ключам конфига: [`docs/configuration.md`](docs/configuration.md).
-Миграция со старого скрипта: [`docs/migration.md`](docs/migration.md).
-
-## Конфиг
-
-Общие настройки — один раз на хост, [`debian/kwbackup.defaults.yaml`](debian/kwbackup.defaults.yaml):
-логи, `rclone.args`, тип БД, компрессор, глубина хранения.
-
-Файл задачи после этого короткий (полный самодостаточный пример —
-[`examples/full.yaml`](examples/full.yaml)):
-
-```yaml
-project: shop
-
-upstreams:
-  beget:
-    config: /etc/kwbackup/rclone_beget.conf
-    s3-custom-options:
-      s3-access-key-id: ${BEGET_SHOP_KEY}
-      s3-secret-access-key: ${BEGET_SHOP_SECRET}
-      s3-no-check-bucket: true
-
 database:
   enabled: true
-  targets: ["beget:/shop/DB"]
-  databases: [shop]
-  # log, compressor, retention — из defaults
+  type: mariadb
+  targets: ["beget:/shop/DB", "nas:/backup/shop"]
+  databases: [shop, shop_stats]
+  retention:
+    daily: {keep: 8}
+    weekly: {keep: 6}
+    monthly: {keep: 12}
 ```
 
-Файл `/etc/kwbackup/defaults.yaml` — единственное место, которое читает
-программа; ниже него лежат встроенные дефолты (`src/05_builtin_defaults.py`).
-Списки `rclone.args`,
-`database.args`, `*_compressor_args` и `archive.exclude` дополняются,
-остальные значения задача перекрывает.
+Раскладка зависит от числа баз: одна база пишется в `<target>/DAILY`,
+несколько — в `<target>/<db>/DAILY`, чтобы не смешивать файлы.
 
-### Storage: `copy` по умолчанию и месячный `sync`
+* `password_env` — имя переменной с паролем (значение уходит в `MYSQL_PWD`
+  или `PGPASSWORD`). Без него клиент берёт `~/.my.cnf` или `~/.pgpass`.
+* `args` **дополняют** дефолтные опции, а не заменяют их.
+* `ignore_table: [shop.sessions]` исключает таблицы из дампа.
+* `catch_up: true` создаёт пропущенную weekly/monthly копию при следующем
+  запуске, если хост лежал в понедельник или 1-го числа.
+* `before`/`after` — команды вокруг задачи, например `redis-cli BGSAVE`.
 
-Встроенный дефолт `storage.mode` — `sync` (зеркало). Чтобы ежедневный прогон
-ничего не удалял, поставьте `copy` один раз на хосте:
+### storage
+
+Копирование каталогов через rclone. Источников может быть сколько угодно,
+у каждого свой подкаталог в целевом контейнере:
 
 ```yaml
-# /etc/kwbackup/defaults.yaml
 storage:
   mode: copy
+  targets: ["beget:/shop/STORAGE"]
+  sources:
+    - /srv/shop/uploads            # dest = "uploads"
+    - path: /srv/shop/static
+      dest: static
+    - path: /srv/shop/data
+      dest: ""                     # содержимое в корень target
 ```
 
-Это системный слой: он перекрывает встроенный `sync` для всех сценариев, у
-которых нет своего `storage.mode` в файле задачи. Приоритет:
-`-m/--mode` (CLI) → файл сценария → `/etc/kwbackup/defaults.yaml` →
-`BUILTIN_DEFAULTS`. Эффективное значение видно в `--check`:
-
-```
-storage   enabled (copy)
-  mode       copy
-```
-
-Раз в месяц имеет смысл прогнать зеркало, чтобы убрать из облака файлы,
-удалённые локально:
+`copy` только добавляет и обновляет файлы, `sync` приводит каталог
+к состоянию источника и **удаляет** в облаке всё лишнее. Для ежедневного
+прогона безопаснее `copy`, а зеркало запускать раз в месяц отдельным
+заданием:
 
 ```bash
 kwbackup -c /etc/kwbackup/shop.yaml --storage -m sync
 ```
 
-В cron — 1-го числа, после ночного бэкапа:
+`-m/--mode` действует на весь запуск, поэтому месячный `sync` запускайте
+только с `--storage`. Пустой каталог-источник `sync` отвергает, пока не
+задан `storage.allow_empty: true`: это защита от «диск не смонтировался».
 
-```cron
-30 4 1 * * root set -a; . /etc/default/kwbackup; set +a; \
-    /usr/local/bin/kwbackup -c /etc/kwbackup/shop.yaml --storage -m sync
-```
+### archive
 
-**`-m/--mode` — глобальный для запуска:** он применяется ко **всем** задачам,
-которые выполняются в этом прогоне. `-m sync` вместе с `--database
---archive` сделает зеркалом и их (для БД — по одной копии на класс, для
-архива — только новый файл). Поэтому месячный `sync` запускайте только с
-`--storage`.
-
-`sync` удаляет в `target/<dest>` всё, чего нет в источнике. Пустой
-каталог-источник (не смонтировался диск) задача отвергает, пока не задан
-`storage.allow_empty: true`.
-
-Готовые варианты: [`examples/database-only.yaml`](examples/database-only.yaml),
-[`examples/storage-only.yaml`](examples/storage-only.yaml),
-[`examples/archive-only.yaml`](examples/archive-only.yaml).
-
-### Подключение к БД
-
-Настройки подключения живут в секции `database:`; `upstreams` — это только
-хранилища. Пароль в конфиг не пишется: передаётся имя переменной окружения
-(`password_env`) либо используются штатные файлы клиентов.
-
-#### MySQL / MariaDB
+Каталог упаковывается в tar-поток, сжимается и заливается одним файлом.
 
 ```yaml
-database:
-  enabled: true
-  type: mariadb            # mysql -> mysqldump, mariadb -> mariadb-dump
-  host: localhost
-  port: 3306
-  user: backup
-  password_env: MYSQL_PWD  # имя переменной, не значение
-  args:                    # ДОБАВЛЯЮТСЯ к дефолтным (--single-transaction ...)
-    - --single-transaction
-    - --quick
-    - --no-tablespaces
-  targets: [s3a:/DB]
-  databases: [shop]
-  retention: {daily: {keep: 8}}
+archive:
+  compressor: zstd
+  compressor_args: ["-9"]
+  name: shop
+  root: /srv/shop
+  include: ["*"]
+  exclude: ["*.mp4", "*/cache/*", "logs"]
+  targets: ["beget:/shop/ARCHIVE"]
+  retention: {keep: 5}
 ```
 
-```bash
-export MYSQL_PWD='...'     # или set -a; . /etc/default/kwbackup; set +a
-```
+* `include: ["*"]` — весь каталог, включая dotfiles верхнего уровня
+  (`.env`, `.htaccess`). Иначе — маски относительно `root`, с поддержкой
+  `**`.
+* `exclude` — маски tar; `logs` исключает каталог на любой глубине.
+* `name` — не подпись, а признак владения: ротация удаляет только файлы
+  `<name>_…`. Переименовали — старые файлы перестанут попадать под ротацию.
+* Нет `retention` — архив не чистится никогда. Это безопасно и бесконечно
+  дорого; задавайте правило осознанно.
 
-Без `password_env` клиент возьмёт `~/.my.cnf`. Для сокета вместо TCP:
-`args: ["--socket=/run/mysqld/mysqld.sock", ...]`. Таблицы-исключения —
-`ignore_table: [shop.sessions]` (разворачивается в `--ignore-table=shop.sessions`;
-запись без точки получает имя текущей базы).
+### incremental
 
-#### PostgreSQL
-
-```yaml
-database:
-  enabled: true
-  type: postgres           # pgsql — тот же путь
-  host: 127.0.0.1
-  port: 5432
-  user: backup
-  password_env: PGPASSWORD # значение переменной уходит в PGPASSWORD
-  args: [--no-owner, --no-privileges]
-  targets: [s3a:/DB]
-  databases: [shop]
-  retention: {daily: {keep: 8}}
-```
-
-Без `password_env` используется `~/.pgpass`. Для peer-аутентификации через
-сокет: `host: /var/run/postgresql`, `password_env` не задаётся.
-
-#### SQLite
-
-```yaml
-database:
-  enabled: true
-  type: sqlite
-  host: /var/lib/app/app.db   # путь к файлу, а не хост
-  targets: [s3a:/DB]
-  databases: [app]            # нужно только для имени дампа
-  retention: {daily: {keep: 8}}
-```
-
-`host` — путь к базе; `databases` не выбирает базу, а задаёт префикс имени
-файла в облаке; `port` и `args` не используются. Восстановление — только
-в каталог: `--restore --to DIR` кладёт рядом дамп, после чего файл можно
-подменить вручную (или импортировать `sqlite3 < file.sql`).
-
-### Инкрементальный бэкап (`incremental`)
-
-Четвёртая задача: цепочки GNU tar. Раз в месяц — полный дамп, каждый
-следующий день — инкремент к нему. Без сжатия, обычные `.tar`.
+Цепочки GNU tar: раз в месяц полный дамп, каждый следующий день —
+инкремент к нему. Сжатия нет, файлы обычные `.tar`.
 
 ```yaml
 incremental:
   enabled: true
-  name: data                        # по умолчанию = project
+  name: data
   root: /srv/data
   include: ["*"]
-  exclude: ["*.tmp"]
-  initial_day: 1                    # день месяца, с которого начинается цепочка (1..28)
-  snapshot: /var/lib/kwbackup/data.snar   # обязателен при enabled: true
-  targets: [s3a:/INCR, s3b:/INCR]
-  retention: {keep: 3}              # число цепочек (месяцев)
+  initial_day: 1
+  snapshot: /var/lib/kwbackup/data.snar
+  targets: ["beget:/INCR"]
+  retention: {keep: 3}
 ```
 
-**Цепочка и имена файлов.** Цепочка — это месяц, он вшит в имя:
+Цепочка — это месяц, он вшит в имя файла
+(`data_2026-11_full_2026-11-01-03-30-00.tar`). Запуск относится к текущему
+месяцу, если `today.day >= initial_day`, иначе к предыдущему. Первый запуск
+в цепочке делает полный дамп, остальные — инкременты.
 
-```
-<target>/data_2026-11_full_2026-11-01-03-30-00.tar
-<target>/data_2026-11_inc_2026-11-02-03-30-00.tar
-<target>/data_2026-11_inc_2026-11-03-03-30-00.tar
-```
+`snapshot` — файл состояния GNU tar, обязателен и локален. Если он потерян,
+следующий запуск сделает новый полный дамп, а восстановление возьмёт самый
+новый `full_*` и инкременты после него. Ротация удаляет цепочку целиком:
+`keep: 3` — три последних месяца.
 
-Правило: запуск относится к текущему месяцу, если `today.day >= initial_day`,
-иначе к предыдущему. Первый запуск в цепочке делает полный дамп
-(`tar --level=0`), остальные — инкременты (`tar -g`). Поэтому `initial_day: 25`
-означает: с 25 ноября по 24 декабря — инкременты в цепочку `2026-11`,
-25 декабря начинается `2026-12`. Первый запуск при пустом хранилище всегда
-полный, даже если `initial_day` ещё не наступил.
-
-**Snapshot.** `snapshot` — файл состояния GNU tar; без него цепочка не
-строится, поэтому ключ обязателен при `enabled: true`. Каталог создаётся
-самим инструментом с правами `0700`. Снапшот локальный, в облако не
-заливается. Если он потерян, следующий запуск сделает новый полный дамп;
-восстановление берёт **самый новый** `full_*` в цепочке и инкременты после
-него.
-
-**Ротация.** `retention` считает цепочки, а не файлы: `{keep: 3}` — три
-последних месяца, `{max_age: 180d}` — всё, что старше. Удаляется цепочка
-целиком; отдельный инкремент без полного не остаётся никогда.
-
-**Восстановление.**
+Восстановление умеет состояние на дату:
 
 ```bash
-kwbackup --config shop.yaml --restore -i --to /srv/restore
-kwbackup --config shop.yaml --restore -i --from s3b --to /srv/restore
-kwbackup --config shop.yaml --restore -i --to /srv/restore --at 2026-11-10
+kwbackup -c data.yaml --restore --incremental --to /srv/restore --at 2026-11-10
 ```
 
-Инструмент скачивает `full_*` и все `inc_*` цепочки по возрастанию времени
-и распаковывает их по очереди (`tar -x -g /dev/null`). Удалённые между
-слоями файлы исчезают из результата — GNU tar записывает удаления в цепочку.
+### vault
 
-#### Зачем `--at`
-
-Без `--at` восстанавливается **последнее** состояние: полный дамп плюс все
-инкременты. `--at` задаёт точку во времени и берёт только слои до неё:
-
-```
-full  2026-11-01   inc 11-02   inc 11-05   inc 11-09   inc 11-12
---at 2026-11-09  →  full + 11-02 + 11-05 + 11-09   (состояние на 9 ноября)
---at 2026-11-05  →  full + 11-02 + 11-05
-без --at         →  full + все четыре инкремента
-```
-
-Смысл: увидеть данные **на конкретную дату**, а не «как сейчас». Типичные
-случаи — файл испортили 9-го, а заметили 12-го: `--at 2026-11-08` вернёт
-состояние до порчи. Или нужно воспроизвести поведение системы на прошлой
-неделе. Принимается `YYYY-MM` (вся цепочка) или `YYYY-MM-DD` (слои до этого
-дня включительно).
-
-`--list` показывает цепочки, `--verify` проверяет полный дамп и последний
-инкремент.
-
-### Vault: версионный бэкап файлов
-
-Пятая задача — для того, что меняется каждый день и должно храниться годами:
-фото, видео, документы, каталоги приложений. Вместо ежедневного полного
-архива `vault` пишет **слои**: первый запуск делает base (полный скан),
-дальше в облако уходят только изменённые файлы, целыми файлами, в обычный
-TAR без сжатия.
-
-Сжатия нет намеренно: фото и видео уже сжаты, а манифесту нужны смещения
-внутри тома — с `.tar.zst` они не работают.
+Версионный бэкап файлов: история хранится слоями, без ежемесячных полных
+копий. Первый запуск делает base — полный скан, дальше в облако уходят
+только изменённые файлы, целиком, в обычный TAR. Сжатия нет: фото и видео
+уже сжаты, а манифесту нужны смещения внутри тома.
 
 ```yaml
 vault:
   enabled: true
   root: /srv/storage
-  state_dir: /var/lib/kwbackup/storage   # sqlite-индекс, локально, не в облако
-  volume_size: 2G                        # ориентир тома; файлы не режутся
+  state_dir: /var/lib/kwbackup/storage
+  volume_size: 2G
   exclude: [".state", "*.tmp"]
   journal:
     type: txt
     period: daily
     path: /var/lib/storage/journal
   restore:
-    order: desc                          # свежие слои первыми
-    priority: [photos, videos, titles]   # порядок каталогов внутри слоя
-    chown: false                         # uid/gid из манифеста
-  targets: [s3a:/VAULT]
+    enabled: true
+    order: desc
+    priority: [photos, videos, titles]
+    chown: false
+  targets: ["beget:/VAULT"]
 ```
 
-В облаке на каждый запуск появляется набор файлов (минимум четыре):
+На каждый запуск появляется слой:
 
 ```
-2026-11-18T020000Z.manifest.json              верхний: base, дата, тома
+2026-11-18T020000Z.manifest.json              base, дата, список томов
 2026-11-18T020000Z-part-001.tar               изменённые файлы
 2026-11-18T020000Z-part-001.manifest.json     файлы тома и их смещения
-2026-11-18T020000Z-deleted.manifest.json      удаления (пишется всегда)
+2026-11-18T020000Z-deleted.manifest.json      удаления
 ```
 
-Цепочка начинается с base (`base: true`) и живёт до следующего `--full`.
-Пустой слой создаётся каждый запуск, даже если менять было нечего — так по
-истории видно, что бэкап работал.
+Слой создаётся даже пустым — по истории видно, что бэкап работал. Новый base
+делает только `--full` (и самый первый запуск); `--reconcile` пересобирает
+корректирующий слой без нового base.
 
 Ежедневный запуск не сканирует диск целиком: приложение само ведёт журнал
-`YYYY-MM-DD.journal.txt` в `journal.path`, бэкап в 02:00 берёт **вчерашний**
-файл и после успешной заливки переименовывает его в `.done`. Журнал —
-подсказка: каждый путь всё равно сверяется `stat` с индексом, поэтому
-повторные и запоздавшие записи безвредны.
+`YYYY-MM-DD.journal.txt` в `journal.path`, берёт вчерашний файл и после
+успешной заливки переименовывает его в `.done`. Журнал — подсказка: каждый
+путь всё равно сверяется `stat` с индексом, поэтому запоздавшие записи
+безвредны.
+
+Тома качаются только при восстановлении, по одному, и сразу удаляются.
+`--dry-run` читает манифесты и печатает план: сколько томов и гигабайт
+придётся скачать и в каком порядке.
+
+`state_dir`, `temp_dir` и журнал не должны лежать внутри `root` — иначе они
+попадут в бэкап, и `--check` откажется запускаться. Автоисключений нет:
+каталоги нужно перечислить в `exclude`.
+
+## Восстановление
+
+Восстановление всегда идёт в каталог, указанный в `--to`. В живую базу
+инструмент не пишет: дамп скачивается как есть, импорт — осознанный ручной
+шаг. Это сделано намеренно — перезапись живой базы единственная
+необратимая операция, и решение о ней не должно приниматься скриптом.
 
 ```bash
-kwbackup -c storage.yaml --vault --full      # один раз: base
-kwbackup -c storage.yaml --vault             # ежедневно, по журналу
-kwbackup -c storage.yaml --vault --reconcile # сверка без нового base
-kwbackup -c storage.yaml --list              # цепочки, тома, пропущенные дни
-kwbackup -c storage.yaml --verify            # манифесты, наличие и размеры томов
+# база: последняя копия или состояние на дату
+kwbackup -c shop.yaml --restore --database --to /srv/restore --at 2026-11-09
+
+# архив, storage, vault
+kwbackup -c site.yaml  --restore --archive  --to /srv/restore
+kwbackup -c files.yaml --restore --storage  --to /srv/restore
+kwbackup -c files.yaml --restore --vault    --to /srv/restore --at 2026-11-17
 ```
 
-Восстановление берёт последний base не позже даты и применяет слои поверх:
+Дамп ложится в каталог в том виде, в каком он в облаке: `.sql.zst`,
+`.sql.gz`, `.sql.rar` или `.sql`. Импорт — привычной командой:
 
 ```bash
-kwbackup -c storage.yaml --restore --vault --to /srv/restore
-kwbackup -c storage.yaml --restore --vault --to /srv/restore --at 2026-11-17
+zstd -dc /srv/restore/shop_2026-11-09-03-30-00.sql.zst | mysql shop
 ```
 
-`--dry-run` читает только манифесты и печатает план — что и в каком порядке
-будет скачано:
+Каталог `--to` не очищается, поэтому восстанавливайте в пустой. У каждой
+секции есть блок `restore`: `enabled` (по умолчанию `true`) запрещает
+восстановление на этом хосте, если поставить `false`; обход — `--force`.
+У `vault` там же порядок слоёв (`order`, `priority`) и `chown`.
 
-```
-vault restore: target s3a:/VAULT, at latest
-vault restore: 2 manifest(s) in the index
-vault restore: state latest: 23912 file(s), 6.3 GiB
-vault restore: sorting 5 volume(s)
-dry-run: vault restore 23912 file(s) ...; would download 5 volume(s), 6.3 GiB
-```
+## Расписание и мониторинг
 
-Сами тома (по 2 ГБ) качаются только при реальном восстановлении — по одному,
-сразу распаковываются и удаляются, поэтому временного места нужно на один том.
+Ежедневный запуск — одна строка в cron:
 
-Что стоит знать:
-
-* `--at` — дата **состояния**: запуск в 02:00 представляет вчерашний день.
-  Старые цепочки не удаляются, так что `--at` работает и через год;
-* `state_dir`, `runtime.temp_dir` и `journal.path` не должны лежать внутри
-  `root` — иначе `--check` и запуск падают с кодом 1 (индекс попал бы в
-  бэкап). Автоисключений нет: добавьте каталоги в `exclude`;
-* `vault.exclude` — шаблоны по относительному пути, basename или родителю;
-  совпавший каталог не обходится;
-* `--verify` проверяет манифесты, наличие и размеры томов, но не читает
-  содержимое файлов;
-* каталог `--to` не очищается — восстанавливайте в пустой;
-* `--from NAME` сужает работу до одного апстрима (когда их несколько).
-
-Подробности и краевые случаи: [`docs/usage.md`](docs/usage.md).
-
-### Переменные окружения: `${ENV}`
-
-В любом **строковом значении** конфига можно писать `${ИМЯ}` — при загрузке
-оно будет заменено значением переменной окружения. Работает в обоих слоях
-(`/etc/kwbackup/defaults.yaml` и файл задачи), на любой глубине: в `targets`,
-путях, `args`, `s3-custom-options`, `env`.
-
-```yaml
-database:
-  host: ${DB_HOST}
-archive:
-  root: ${DATA_DIR}/site
-rclone:
-  s3-custom-options:
-    s3-access-key-id: ${BEGET_KEY_ID}
-    s3-secret-access-key: ${BEGET_SECRET}
+```cron
+30 3 * * * root set -a; . /etc/default/kwbackup; set +a; \
+    /usr/bin/kwbackup -c /etc/kwbackup/shop.yaml --database --storage
 ```
 
-Правила:
+Готовые варианты — [`examples/cron/kwbackup`](examples/cron/kwbackup)
+и [`examples/systemd/`](examples/systemd).
 
-* подставляется только форма `${NAME}`; `$NAME` без скобок остаётся текстом;
-* имя — латиница, цифры и `_`, первый символ — буква или `_`;
-* подстановка выполняется **после** слияния слоёв и **до** валидации,
-  поэтому отсутствие переменной — ошибка конфига с точным местом:
+Коды возврата рассчитаны на watchdog: 0 — успех, 1 — ошибка выполнения,
+2 — конфиг, 3 — аргументы, 4 — задача уже идёт, 5 — `--list` или `--verify`
+нашли проблему. Последние две команды можно ставить отдельным ночным
+заданием: они только читают.
 
-  ```
-  kwBackup: invalid config:
-    - config.rclone.env.AWS_ACCESS_KEY_ID: environment variable RCLONE_KEY_ID is not set
-  ```
+`--verify` скачивает последнюю копию и проверяет, что она читается и похожа
+на дамп; для `vault` — что манифесты и тома на месте и имеют ожидаемые
+размеры. `--list` показывает историю и дыры в ней.
 
-* пустая переменная (`FOO=`) считается заданной: подставится пустая строка;
-* в **ключах** не работает — только в значениях;
-* для числовых и булевых полей подстановка не подходит: `port: ${PGPORT}`
-  даст строку, а валидатор ждёт число. Пишите литерал;
-* литеральный `${...}` передать нельзя — экранирования нет. Если нужен
-  именно такой текст (например, шаблон в пути), задайте его через
-  переменную окружения с этим значением.
+Уведомления настраиваются в секции `notify`: почта, webhook, Telegram.
+Сообщение одно на прогон, в нём только имена, статус и причина — ни команд,
+ни ключей.
 
-#### Откуда программа берёт окружение
+Логи идут в файл и/или syslog (`journalctl -t kwbackup`). Цвета есть только
+в терминале: числа жёлтым, успех зелёным, ошибки красным; в файл и syslog
+ANSI не попадает.
 
-`kwBackup` читает **окружение своего процесса** (`os.environ`) в момент
-загрузки конфига. Своего ключа `env_file:` у конфига нет: переменные
-приходят от того, кто запустил процесс — оболочки, systemd, cron, docker,
-CI.
+## Безопасность
 
-Следствия, на которых чаще всего спотыкаются:
+* Программа работает от root: ей нужен доступ к сокету БД и `/etc/kwbackup`.
+* Ключи бакета и пароль БД — в `/etc/default/kwbackup` (0600) или в
+  `rclone.conf`, а не в файле задачи. Если ключи всё же в YAML — `chmod 600`.
+* `--debug` (и `log.level: debug`) печатает полные команды rclone, включая
+  флаги с ключами. Это осознанно — так воспроизводят сломанную команду
+  руками, — поэтому лог с debug держите `0600`.
+* Клиентского шифрования нет: в облако уходит обычный `.sql.zst` или
+  `.tar.zst`. Если это требование, включите серверное шифрование
+  у провайдера или оберните шаг в `zstd | gpg`.
+* `--list` и `--verify` ничего не меняют; `--restore` не пишет в базы.
 
-* `export VAR=...` в интерактивной оболочке — работает;
-* `VAR=... kwbackup ...` (префикс к команде) — тоже работает;
-* **`sudo` по умолчанию окружение сбрасывает** — нужен `sudo -E` или
-  `sudo --preserve-env=VAR`;
-* **в cron логин-окружения нет** — только `PATH`, `HOME`, `SHELL` и то,
-  что задано в самом crontab;
-* **`. /etc/default/kwbackup` без `set -a` переменные не экспортирует**: они станут
-  переменными оболочки, а дочерний процесс их не увидит;
-* systemd даёт юниту своё окружение через `Environment=` и
-  `EnvironmentFile=` — там `set -a` не нужен.
-
-`rclone.env` из конфига — это **не** источник `${...}`: это карта переменных
-для дочернего процесса rclone. `password_env` — имя переменной, значение
-которой читается в момент запуска клиента БД.
-
-#### 1. Файл секретов (рекомендуется)
-
-`/etc/default/kwbackup`, права `0600`, владелец root:
-
-```ini
-# комментарии разрешены
-RCLONE_KEY_ID=XXXXXXXXXXXXXXXX
-RCLONE_SECRET=YYYYYYYYYYYYYYYY
-MYSQL_PWD=change-me
-DB_HOST=localhost
-```
-
-Формат — простые присваивания `КЛЮЧ=значение`:
-
-* без `export` в начале строки (systemd его не понимает, а для shell
-  экспорт включается через `set -a`);
-* без пробелов вокруг `=`: `MYSQL_PWD = x` даст переменную с именем
-  `MYSQL_PWD ` (с пробелом);
-* кавычки не нужны; если значение содержит `#`, пробелы или кавычки —
-  заключите его в кавычки, systemd и shell разберут их одинаково;
-* пустая строка после `=` — переменная задана и пуста (это не ошибка).
-
-#### 2. systemd
-
-```ini
-[Service]
-EnvironmentFile=/etc/default/kwbackup
-# или отдельные значения:
-# Environment=DB_HOST=localhost RCLONE_KEY_ID=...
-ExecStart=/usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
-```
-
-`EnvironmentFile=-/path` (с минусом) не считает отсутствие файла ошибкой.
-Проверить, что реально попало в юнит: `systemctl show kwbackup -p Environment`.
-
-#### 3. cron
+## Миграция с bash-версии
 
 ```bash
-30 3 * * * root set -a; . /etc/default/kwbackup; set +a; /usr/bin/kwbackup --config /etc/kwbackup/shop.yaml --database
+kwbackup migrate /etc/kwbackup/old.conf -o /etc/kwbackup/shop.yaml
+kwbackup -c /etc/kwbackup/shop.yaml --check
 ```
 
-`set -a` обязателен: без него присваивания из файла останутся переменными
-оболочки и не попадут в окружение `kwBackup`.
+Конвертер переносит пути, контейнеры и глубину хранения. Что меняется
+по смыслу: `DB_MIN_AGE_*` и `ARCHIVE_ROTATION_PERIOD` превращаются
+в `keep: N` — «оставить N копий» вместо «удалять старше N дней». Если нужен
+именно временной порог, поставьте `max_age` вручную. Подробности и таблица
+соответствий — в [`docs/migration.md`](docs/migration.md).
 
-#### 4. Вручную и в CI
-
-```bash
-set -a; . /etc/default/kwbackup; set +a
-kwbackup --config /etc/kwbackup/shop.yaml --check
-```
-
-В CI/CD — штатные механизмы секретов раннера (`env:` в GitLab CI,
-`env:`/`secrets` в GitHub Actions, `docker run --env-file`), они выставляют
-переменные в окружение процесса.
-
-`${ENV}` и `password_env` — разные вещи:
-
-| | Что делает |
-|---|---|
-| `${ENV}` | подставляет значение в конфиг при загрузке; дальше это обычное поле |
-| `password_env: MYSQL_PWD` | хранит в конфиге только **имя** переменной; значение читается в момент запуска клиента БД и в конфиг не попадает |
-
-О чём стоит помнить: значение, подставленное в `rclone.args` или
-`s3-custom-options`, попадает в командную строку rclone и видно другим
-пользователям хоста через `ps`. Кроме того, при `log.level: debug` в
-`log.file` и в syslog печатается полная командная строка (включая ключи) — на
-таких хостах держите лог с правами `0600` или не включайте debug в стоки.
-
-### Секреты
-
-Писать секреты прямо в YAML **можно** — программа этого не запрещает, —
-но не рекомендуется: файл задачи попадает в резервные копии и репозитории,
-а права у него обычно шире, чем нужно. Предпочтительный способ — `${ИМЯ}`
-и значения в `/etc/default/kwbackup` (0600). Если всё же пишете ключи
-в конфиг, поставьте на файл `chmod 600`.
-
-* **Ключи S3-бакета** (BEGET и подобные провайдеры) в `rclone.conf` не
-  работают: там `env_auth = false`, поэтому ключи передаются флагами
-  `--s3-access-key-id` / `--s3-secret-access-key` в `rclone.args`.
-  Файл с ключами держите с правами `0600`. Можно подставлять из окружения:
-  `--s3-access-key-id=${BEGET_SHOP_KEY}`.
-* **Флаги бэкенда** удобнее задавать картой `s3-custom-options`
-  (`s3-chunk-size: 5M`, `s3-no-check-bucket: true`), она перекрывается
-  в каждой секции; `rclone.args` остаётся простым путём.
-* **Ключи на аккаунт** можно держать в `rclone.conf` — это штатный вариант;
-  флаги в `rclone.args` перекрывают их для конкретного бакета.
-* **Пароли БД** — через `password_env` и `/etc/default/kwbackup` (0600).
-
-## Версионирование
-
-Версия проекта — это subject текущего коммита (`0.99.0`, `0.99.1`, …).
-Python-линия продолжает bash-версии (`0.8.0` … `0.9.0+fix1`) и идёт как
-`0.99.x` до первого стабильного выпуска.
-`build.py` подставляет её в `VERSION` при сборке артефакта, а
-`debian/changelog` содержит по записи на каждый коммит. Проверка согласия:
-
-```bash
-make check-version
-```
-
-`kwbackup --version` показывает версию, с которой собран бинарник.
-
-## Как это работает
-
-```
-dump  →  zstd/gzip/rar  →  файл в temp_dir  →  rclone copyto  →  облако
-```
-
-Один дамп на запуск; при необходимости тот же файл уходит в 1-3 каталога:
-
-```
-<target>/DAILY/<db>_2026-11-12-03-30-00.sql.zst      # каждый запуск
-<target>/WEEKLY/...                                   # + по понедельникам
-<target>/MONTHLY/...                                  # + 1-го числа
-```
-
-Если баз несколько, добавляется уровень с именем БД:
-`<target>/<db>/DAILY/...`. Архивы: `<target>/<name>_<timestamp>.tar.zst`, где `name` по умолчанию — имя
-проекта. Ротация удаляет только файлы своего префикса, поэтому общий `target`
-безопасен для нескольких проектов.
-Storage: `<target>/<dest>/...`, где `dest` — `basename` источника или явное
-значение из конфига. Vault: `<target>/<UTC>.manifest.json` плюс
-`<UTC>-part-NNN.tar` с изменёнными файлами, `-part-NNN.manifest.json` с их
-смещениями и `-deleted.manifest.json` с удалениями; тома скачиваются только
-при восстановлении.
-
-## Коды возврата
-
-| Код | Значение |
-|---|---|
-| 0 | успех |
-| 1 | ошибка выполнения (дамп, сжатие, rclone, preflight) |
-| 2 | ошибка конфига |
-| 3 | ошибка аргументов |
-| 4 | задача уже выполняется (lock) |
-| 5 | `--verify`/`--list` нашли проблему: копий нет, они стары или повреждены |
-
-`--list` и `--verify` можно ставить в cron/systemd: код 5 означает «пора
-смотреть руками».
-
-## Документация
-
-* [docs/usage.md](docs/usage.md) — сценарии, расписание, мониторинг,
-  восстановление, разбор ошибок.
-* [docs/configuration.md](docs/configuration.md) — все ключи, типы, значения
-  по умолчанию.
-* [docs/migration.md](docs/migration.md) — из `kwbackup.sh` в YAML.
-* [examples/](examples) — конфиги под каждый сценарий и cron-пример.
-* [CHANGELOG.md](CHANGELOG.md) — что изменилось между версиями.
+Обе версии нельзя запускать на один проект одновременно: у них разные
+механизмы блокировок.
 
 ## Разработка
 
-```
-src/00_header.py     импорты, константы          src/50_runner.py    пайплайны
-src/10_yaml.py       YAML-подмножество            src/60_rclone.py    rclone
-src/20_config.py     схема и валидация            src/70_retention.py keep/max_age
-src/30_logging.py    логи                        src/80_database.py  дампы
-src/40_lock.py       flock                       src/81_storage.py   sync/copy
-src/82_archive.py    tar + компрессор            src/83_restore.py   восстановление
-src/85_report.py     --list и --verify            src/86_notify.py    уведомления
-src/87_journal.py    журнал для vault             src/88_vault.py     слои vault
-src/90_preflight.py  проверки                     src/92_migrate.py   конвертер конфигов
-src/95_cli.py        CLI                          src/99_selftest.py  --selftest
-src/zz_main.py       вход
-```
+Продакшен — один файл `dist/kwbackup`, собранный конкатенацией `src/*.py`
+в порядке числовых префиксов. Все `import` живут в `src/00_header.py`,
+поэтому нет ни бандлера, ни рерайта импортов. Каталог `docs/` — справочник
+по ключам и сценариям, `examples/` — готовые конфиги.
 
 ```bash
 python3 build.py --test     # сборка + py_compile + selftest
 python3 tests/e2e.py        # сквозные тесты на фейковом rclone
+make dist                   # артефакт с версией из subject коммита
+make build                  # ещё и .deb
+make check-version          # subject коммита == верх debian/changelog
 ```
 
-Сборка — простая конкатенация `src/*.py` в порядке числовых префиксов.
-Единственное правило: **все `import` живут в `src/00_header.py`**, сборщик
-падает на импорте в другом файле. Благодаря этому нет бандлера, нет рерайта
-импортов, и `dist/kwbackup` ровно соответствует `src/`.
+Версия проекта — subject текущего коммита (`0.99.x`); линейка продолжает
+bash-версии `0.8.0 … 0.9.0+fix1` и идёт до первого стабильного выпуска.
+Релизов и тегов пока не было.
+
+## Документация
+
+| | |
+|---|---|
+| [docs/usage.md](docs/usage.md) | сценарии, расписание, мониторинг, разбор ошибок |
+| [docs/configuration.md](docs/configuration.md) | все ключи и значения по умолчанию |
+| [docs/migration.md](docs/migration.md) | переезд с `kwbackup.sh` |
+| [examples/](examples) | конфиги под каждый сценарий: БД, storage, архив, инкременты, vault |
+| [CHANGELOG.md](CHANGELOG.md) | что менялось между версиями |
+
+`kwbackup.sh` в корне и [`examples/legacy_bash_version/`](examples/legacy_bash_version) —
+старая bash-версия, оставлена для справки и миграции.
 
 ## Лицензия
 
-MIT, см. [`LICENSE`](LICENSE).
-
-## Legacy
-
-`kwbackup.sh` в корне и каталог [`examples/legacy_bash_version/`](examples/legacy_bash_version)
-(`_config.conf`, `kwbackup-config.md`, `README_DEV.md`) — старая bash-версия,
-оставлена для справки и для миграции. Новые установки используют
-`dist/kwbackup` и YAML. Обе версии нельзя запускать одновременно на один
-и тот же проект: у них разные механизмы блокировок.
+MIT, см. [LICENSE](LICENSE).
