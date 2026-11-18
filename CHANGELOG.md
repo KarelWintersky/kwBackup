@@ -3,6 +3,18 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.77] — 2026-11-18
+
+### Changed
+
+- Восстановление vault печатает план: target/дата, число манифестов, слои,
+  размер состояния, `order/priority/chown`, число нужных томов и объём;
+  `--dry-run` добавляет «would download N volume(s)».
+- Каждый том при реальном restore логируется (`volume 3/12 name (2.0 GiB)`),
+  извлечение файлов — на `debug`.
+- Чтение манифестов больше не шумит прогрессом rclone (`Transferred`):
+  манифесты качаются тихо, объёмы — как раньше, с прогрессом под verbose.
+
 ## [0.99.76] — 2026-11-18
 
 ### Fixed

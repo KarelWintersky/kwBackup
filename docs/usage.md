@@ -250,6 +250,19 @@ kwbackup -c /etc/kwbackup/storage.yaml --verify
 kwbackup -c /etc/kwbackup/storage.yaml --verify --all   # все цепочки
 ```
 
+Восстановление печатает план: target и дату, число манифестов в индексе,
+слои, размер состояния, порядок сортировки, число нужных томов и объём.
+`--dry-run` останавливается перед скачиванием томов:
+
+```
+vault restore: target s3a:/VAULT, at latest
+vault restore: reading manifest index
+vault restore: 2 manifest(s) in the index
+vault restore: state latest: 23912 file(s), 6.3 GiB
+vault restore: sorting 5 volume(s)
+dry-run: would download 5 volume(s), 6.3 GiB
+```
+
 `--list` показывает base (`FULL`), слои, даты источников, число файлов и
 томов, размеры и предупреждает о пропущенных днях. `--verify` проверяет
 манифесты, наличие и размеры томов и корректность смещений; код 5 — проблема.

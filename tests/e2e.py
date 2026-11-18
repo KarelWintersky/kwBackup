@@ -2040,10 +2040,12 @@ def test_vault_restore_dry_run():
         env.run("-c", env.config, "--vault")
         out = env.dir / "dry-restore"
         res = env.run("-c", env.config, "--restore", "--vault",
-                      "--dry-run", "--to", out)
-        assert "dry-run: vault restore" in res.stderr, res.stderr
+                      "--dry-run", "--debug", "--to", out)
+        assert "vault restore: reading manifest index" in res.stderr, res.stderr
         assert "dry-run: vault restore 2 file(s)" in res.stderr, res.stderr
+        assert "would download 2 volume(s)" in res.stderr, res.stderr
         assert "restore: 2 file(s)" in res.stderr, res.stderr
+        assert "Transferred" not in res.stderr, res.stderr
         assert not out.exists(), "dry-run must not create the destination"
     finally:
         env.cleanup()

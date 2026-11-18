@@ -1,3 +1,22 @@
+kwbackup (0.99.77) unstable; urgency=medium
+
+  * feat(vault): explain what restore is doing
+
+    Restore now prints a plan at INFO: target and date, the number of manifests
+    in the index, the applied layers, the state size, order/priority/chown, the
+    number of volumes to download and their total size. A dry run ends with
+    "would download N volume(s), X". Every downloaded volume is logged during a
+    real restore, extraction per volume is logged at debug.
+
+    Manifest reads are quiet (rclone progress is captured), so a dry run no longer
+    prints a "Transferred" block for every manifest; volume downloads keep their
+    progress under verbose/debug.
+
+    tests: the dry-run output shows the index, the plan and no rclone noise
+    (88/88 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 15:56:27 +0300
+
 kwbackup (0.99.76) unstable; urgency=medium
 
   * fix(vault): dry-run restore must read manifests

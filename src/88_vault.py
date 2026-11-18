@@ -339,7 +339,7 @@ class VaultStore:
     def list(self):
         raise NotImplementedError
 
-    def get(self, name, local):
+    def get(self, name, local, quiet=False):
         raise NotImplementedError
 
     def delete(self, name):
@@ -368,9 +368,10 @@ class RcloneStore(VaultStore):
         return {file.name: file.size
                 for file in self.rclone.lsf(self.remote, force=True)}
 
-    def get(self, name, local):
+    def get(self, name, local, quiet=False):
         self.rclone.run("copyto", f"{self.remote}/{name}", str(local),
-                        check=True, force=True)
+                        check=True, force=True,
+                        capture=True if quiet else None)
 
     def delete(self, name):
         self.rclone.run("deletefile", f"{self.remote}/{name}", check=False)
@@ -420,7 +421,7 @@ class RsyncStore(VaultStore):
                     continue
         return out
 
-    def get(self, name, local):
+    def get(self, name, local, quiet=False):
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         run(["rsync", "-a"] + self.options + [f"{self.remote}/{name}", str(local)],
             force=True)
@@ -447,7 +448,7 @@ class LocalStore(VaultStore):
         return {path.name: path.stat().st_size for path in self.base.iterdir()
                 if path.is_file()}
 
-    def get(self, name, local):
+    def get(self, name, local, quiet=False):
         Path(local).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(self.base / name, local)
 
@@ -467,9 +468,10 @@ def vault_store(cfg, target):
 
 # ---------------------------------------------------------------- manifests
 def _vault_read_manifest(store, name):
+    LOG.debug("vault: fetching manifest %s", name)
     with tempfile.TemporaryDirectory(prefix="vault-manifest-") as tmp:
         local = Path(tmp) / name
-        store.get(name, local)
+        store.get(name, local, quiet=True)
         try:
             return json.loads(local.read_text(encoding="utf-8"))
         except ValueError as exc:
@@ -759,10 +761,6 @@ def vault_restore(cfg, args):
     destination = Path(args.to)
     target = _vault_restore_target(cfg, args.from_upstream)
     store = vault_store(cfg, target)
-    names = vault_layer_names(store)
-    if not names:
-        raise ActionFailed(f"vault restore: no manifests found in {target}")
-
     at = (args.at or "").strip()
     if at:
         if not re.match(r"^\d{4}-\d{2}-\d{2}", at):
@@ -770,17 +768,30 @@ def vault_restore(cfg, args):
                                "YYYY-MM-DD")
         at = at[:10]
 
+    LOG.info("vault restore: target %s, at %s", target, at or "latest")
+    LOG.info("vault restore: reading manifest index")
+    names = vault_layer_names(store)
+    if not names:
+        raise ActionFailed(f"vault restore: no manifests found in {target}")
+    LOG.info("vault restore: %d manifest(s) in the index", len(names))
+
     state, layers, seen_base = {}, [], False
+    volume_sizes = {}
     for name in names:
         manifest = vault_read_layer(store, name)
         date = _vault_manifest_date(name, manifest)
         if at and date > at:
             continue
-        if manifest.get("base"):
+        is_base = bool(manifest.get("base"))
+        LOG.debug("vault restore: layer %s (date %s%s)", name, date,
+                  ", FULL" if is_base else "")
+        if is_base:
             state.clear()
             seen_base = True
         elif not seen_base:
             continue
+        for volume in manifest.get("volumes", []):
+            volume_sizes[volume["name"]] = volume.get("size", 0)
         entries, deleted = vault_read_files(store, name, manifest)
         for volume, entry in entries:
             state[entry["path"]] = (name, volume, entry)
@@ -791,19 +802,20 @@ def vault_restore(cfg, args):
         raise ActionFailed("vault restore: no base layer found"
                            + (f" before {at}" if at else ""))
 
-    stats = {"files": len(state),
-             "bytes": sum(item["size"] for _, _, item in state.values())}
-    if DRY:
-        LOG.info("dry-run: vault restore %d file(s) from %s", len(state), target)
-        return stats
-    stats["files"] = 0
+    total_bytes = sum(item["size"] for _, _, item in state.values())
+    stats = {"files": len(state), "bytes": total_bytes}
+    LOG.info("vault restore: applying %d layer(s)", len(layers))
+    LOG.info("vault restore: state %s: %d file(s), %s", at or "latest",
+             len(state), fmt_bytes(total_bytes))
 
-    destination.mkdir(parents=True, exist_ok=True)
-    cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     order = {name: index for index, (name, _manifest) in enumerate(layers)}
     priority = {name: index for index, name in
                 enumerate(cfg.vault.restore.priority)}
     descending = cfg.vault.restore.order == "desc"
+    LOG.info("vault restore: order %s, priority: %s, chown: %s",
+             cfg.vault.restore.order,
+             ", ".join(cfg.vault.restore.priority) or "none",
+             "on" if cfg.vault.restore.chown else "off")
 
     groups = {}
     for path, (name, volume, entry) in state.items():
@@ -818,9 +830,25 @@ def vault_restore(cfg, args):
         index = order.get(layer, len(order))
         return ((len(order) - index) if descending else index, rank)
 
+    sorted_groups = sorted(groups.items(), key=group_key)
+    needed_bytes = sum(volume_sizes.get(volume, 0)
+                       for (_layer, volume), _entries in sorted_groups)
+    LOG.info("vault restore: sorting %d volume(s)", len(sorted_groups))
+    if DRY:
+        LOG.info("dry-run: vault restore %d file(s) from %s; would download "
+                 "%d volume(s), %s", len(state), target, len(sorted_groups),
+                 fmt_bytes(needed_bytes))
+        return stats
+
+    stats["files"] = 0
+    destination.mkdir(parents=True, exist_ok=True)
+    cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     workdir = Path(tempfile.mkdtemp(prefix="vault-restore-", dir=str(cfg.temp_dir)))
     try:
-        for (layer, volume), entries in sorted(groups.items(), key=group_key):
+        for number, ((layer, volume), entries) in enumerate(sorted_groups, 1):
+            LOG.info("vault restore: volume %d/%d %s (%s)", number,
+                     len(sorted_groups), volume,
+                     fmt_bytes(volume_sizes.get(volume, 0)))
             local = workdir / volume
             store.get(volume, local)
             members = [entry["path"] for entry in entries]
@@ -834,6 +862,8 @@ def vault_restore(cfg, args):
             finally:
                 list_file.unlink(missing_ok=True)
                 local.unlink(missing_ok=True)
+            LOG.debug("vault restore: extracted %d file(s) from %s",
+                      len(entries), volume)
             for entry in entries:
                 path = destination / entry["path"]
                 if not path.exists():
@@ -850,4 +880,6 @@ def vault_restore(cfg, args):
                 stats["files"] += 1
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+    LOG.info("vault restore: done: %d file(s), %s", stats["files"],
+             fmt_bytes(stats["bytes"]))
     return stats
