@@ -3,6 +3,19 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.81] — 2026-11-18
+
+### Changed
+
+- README: появился раздел про `vault` — слои, журнал, `--full`/`--reconcile`,
+  восстановление по дате, что печатает dry-run. В таблице команд добавлены
+  `--vault` и `--restore --vault`, в «Возможностях» — пять задач и цветной
+  вывод.
+- Исправлены устаревшие места: `database.args` **дополняют** дефолтные опции
+  (а не заменяют), `--check` возвращает 2 при ошибках конфига и 1 при
+  проблемах preflight. Упомянуты `ignore_table` и файлы `86_notify`,
+  `87_journal`, `88_vault` в карте `src/`.
+
 ## [0.99.80] — 2026-11-18
 
 ### Changed

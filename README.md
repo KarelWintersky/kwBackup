@@ -1,8 +1,8 @@
 # kwBackup
 
-Бэкап баз данных, файлового storage и файловых архивов в S3-совместимое
-облако (или любой remote `rclone`). Один исполняемый файл, Python 3.10+,
-**без внешних зависимостей**.
+Бэкап баз данных, файлового storage, файловых архивов и версионного
+хранилища файлов в S3-совместимое облако (или любой remote `rclone`).
+Один исполняемый файл, Python 3.10+, **без внешних зависимостей**.
 
 Замена bash-версии `kwbackup.sh` 0.9.0: те же сценарии и та же схема
 ротации, но с валидируемым YAML-конфигом, честными кодами возврата,
@@ -10,15 +10,16 @@
 
 ## Возможности
 
-* **Четыре задачи сценария**: дамп БД → сжатие → заливка; `rclone sync/copy`
-  каталогов; `tar` + компрессор → заливка; инкрементальные цепочки `tar`.
+* **Пять задач сценария**: дамп БД → сжатие → заливка; `rclone sync/copy`
+  каталогов; `tar` + компрессор → заливка; инкрементальные цепочки `tar`;
+  версионные слои `vault`.
 * **GFS-ротация**: DAILY каждый запуск, WEEKLY дополнительно по понедельникам,
   MONTHLY дополнительно 1-го числа. Глубина — `keep: N` или `max_age: 7d`,
   на каждый класс своё правило.
 * **Проверка, а не надежда**: `--list` показывает, что реально лежит в облаке
   и где дыры; `--verify` скачивает копию и проверяет, что она разжимается
   и похожа на дамп. Ненулевой код возврата годится для watchdog.
-* **Восстановление**: `--restore --to DIR` для БД, архива и storage;
+* **Восстановление**: `--restore --to DIR` для БД, архива, storage и vault;
   заливка в живую БД — только явным `--into-db ... --yes`.
 * **Безопасно к параллельным запускам**: `flock` на `(проект, задача)`,
   блокировка снимается ядром даже при `kill -9`.
@@ -31,9 +32,12 @@
 * `--dry-run`, `--check`, `--selftest`, живой прогресс упаковки в терминале.
 * **Уведомления**: webhook, Telegram, SMTP-почта; в сообщении только имена
   и безопасные причины — без команд и ключей.
-* **Vault**: версионный бэкап файлов слоями TAR + манифесты, журнал
-  изменений, история без месячных full, восстановление по дате,
-  `--list`/`--verify` для цепочек.
+* **История, а не снимки** (`vault`): неизменяемые TAR-слои с манифестами,
+  ежедневный журнал изменений, восстановление на любую дату, без месячных
+  full — подробнее в разделе [Vault](#vault-версионный-бэкап-файлов).
+* **Вывод, который читается**: числа и размеры — жёлтым, успешные итоги —
+  зелёным, ошибки — красным. Цвета только в терминале (`NO_COLOR` уважается),
+  в `log.file` и syslog ANSI-последовательностей нет.
 * **Хуки** `before`/`after` у каждой задачи: `redis-cli BGSAVE`, maintenance
   mode, `docker exec`, ротация внешних файлов.
 
@@ -115,15 +119,19 @@ kwbackup --config /etc/kwbackup/shop.yaml --list
 | `kwbackup --config FILE --database` | бэкап баз данных из конфига |
 | `kwbackup --config FILE --storage` | синхронизация storage |
 | `kwbackup --config FILE --archive` | упаковка и заливка архива |
+| `kwbackup --config FILE --vault` | слой vault по журналу изменений |
+| `kwbackup --config FILE --vault --full` | новый base: полный скан и новая цепочка |
+| `kwbackup --config FILE --vault --reconcile` | сверка диска с индексом без нового base |
 | `kwbackup --config FILE --storage -m sync` | зеркало вместо copy (удаляет старое); `-m` глобальный для всех задач запуска |
 | `kwbackup --config FILE` | показать доступные действия (ничего не запускает) |
 | `kwbackup --config FILE --dry-run ...` | показать план, ничего не менять |
-| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 1 при проблемах |
-| `kwbackup --config FILE --list` | что лежит в облаке, где пропуски |
-| `kwbackup --config FILE --verify [--all]` | скачать и проверить копию |
+| `kwbackup --config FILE --check` | проверить конфиг (включая выключенные секции) и окружение; код 2 при ошибках конфига, 1 при проблемах preflight |
+| `kwbackup --config FILE --list` | что лежит в облаке, где пропуски (для vault — цепочки и пропущенные дни) |
+| `kwbackup --config FILE --verify [--all]` | скачать и проверить копию (для vault — манифесты и тома) |
 | `kwbackup --config FILE --restore --database --to DIR [--at 2026-11-09]` | достать дамп |
 | `kwbackup --config FILE --restore --archive --to DIR` | распаковать архив |
 | `kwbackup --config FILE --restore --storage --to DIR` | скачать storage |
+| `kwbackup --config FILE --restore --vault --to DIR [--at 2026-11-09] [--from NAME]` | восстановить файлы на дату |
 | `kwbackup --config FILE --restore --database --into-db db --yes` | залить в живую БД |
 | `kwbackup migrate old.conf -o new.yaml` | конвертировать bash-конфиг |
 | `kwbackup --selftest` | встроенные тесты |
@@ -234,7 +242,7 @@ database:
   port: 3306
   user: backup
   password_env: MYSQL_PWD  # имя переменной, не значение
-  args:                    # заменяют дефолты целиком
+  args:                    # ДОБАВЛЯЮТСЯ к дефолтным (--single-transaction ...)
     - --single-transaction
     - --quick
     - --no-tablespaces
@@ -248,7 +256,9 @@ export MYSQL_PWD='...'     # или set -a; . /etc/default/kwbackup; set +a
 ```
 
 Без `password_env` клиент возьмёт `~/.my.cnf`. Для сокета вместо TCP:
-`args: ["--socket=/run/mysqld/mysqld.sock", ...]`.
+`args: ["--socket=/run/mysqld/mysqld.sock", ...]`. Таблицы-исключения —
+`ignore_table: [shop.sessions]` (разворачивается в `--ignore-table=shop.sessions`;
+запись без точки получает имя текущей базы).
 
 #### PostgreSQL
 
@@ -362,6 +372,99 @@ full  2026-11-01   inc 11-02   inc 11-05   inc 11-09   inc 11-12
 
 `--list` показывает цепочки, `--verify` проверяет полный дамп и последний
 инкремент.
+
+### Vault: версионный бэкап файлов
+
+Пятая задача — для того, что меняется каждый день и должно храниться годами:
+фото, видео, документы, каталоги приложений. Вместо ежедневного полного
+архива `vault` пишет **слои**: первый запуск делает base (полный скан),
+дальше в облако уходят только изменённые файлы, целыми файлами, в обычный
+TAR без сжатия.
+
+Сжатия нет намеренно: фото и видео уже сжаты, а манифесту нужны смещения
+внутри тома — с `.tar.zst` они не работают.
+
+```yaml
+vault:
+  enabled: true
+  root: /srv/storage
+  state_dir: /var/lib/kwbackup/storage   # sqlite-индекс, локально, не в облако
+  volume_size: 2G                        # ориентир тома; файлы не режутся
+  exclude: [".state", "*.tmp"]
+  journal:
+    type: txt
+    period: daily
+    path: /var/lib/storage/journal
+  restore:
+    order: desc                          # свежие слои первыми
+    priority: [photos, videos, titles]   # порядок каталогов внутри слоя
+    chown: false                         # uid/gid из манифеста
+  targets: [s3a:/VAULT]
+```
+
+В облаке на каждый запуск появляется набор файлов (минимум четыре):
+
+```
+2026-11-18T020000Z.manifest.json              верхний: base, дата, тома
+2026-11-18T020000Z-part-001.tar               изменённые файлы
+2026-11-18T020000Z-part-001.manifest.json     файлы тома и их смещения
+2026-11-18T020000Z-deleted.manifest.json      удаления (пишется всегда)
+```
+
+Цепочка начинается с base (`base: true`) и живёт до следующего `--full`.
+Пустой слой создаётся каждый запуск, даже если менять было нечего — так по
+истории видно, что бэкап работал.
+
+Ежедневный запуск не сканирует диск целиком: приложение само ведёт журнал
+`YYYY-MM-DD.journal.txt` в `journal.path`, бэкап в 02:00 берёт **вчерашний**
+файл и после успешной заливки переименовывает его в `.done`. Журнал —
+подсказка: каждый путь всё равно сверяется `stat` с индексом, поэтому
+повторные и запоздавшие записи безвредны.
+
+```bash
+kwbackup -c storage.yaml --vault --full      # один раз: base
+kwbackup -c storage.yaml --vault             # ежедневно, по журналу
+kwbackup -c storage.yaml --vault --reconcile # сверка без нового base
+kwbackup -c storage.yaml --list              # цепочки, тома, пропущенные дни
+kwbackup -c storage.yaml --verify            # манифесты, наличие и размеры томов
+```
+
+Восстановление берёт последний base не позже даты и применяет слои поверх:
+
+```bash
+kwbackup -c storage.yaml --restore --vault --to /srv/restore
+kwbackup -c storage.yaml --restore --vault --to /srv/restore --at 2026-11-17
+```
+
+`--dry-run` читает только манифесты и печатает план — что и в каком порядке
+будет скачано:
+
+```
+vault restore: target s3a:/VAULT, at latest
+vault restore: 2 manifest(s) in the index
+vault restore: state latest: 23912 file(s), 6.3 GiB
+vault restore: sorting 5 volume(s)
+dry-run: vault restore 23912 file(s) ...; would download 5 volume(s), 6.3 GiB
+```
+
+Сами тома (по 2 ГБ) качаются только при реальном восстановлении — по одному,
+сразу распаковываются и удаляются, поэтому временного места нужно на один том.
+
+Что стоит знать:
+
+* `--at` — дата **состояния**: запуск в 02:00 представляет вчерашний день.
+  Старые цепочки не удаляются, так что `--at` работает и через год;
+* `state_dir`, `runtime.temp_dir` и `journal.path` не должны лежать внутри
+  `root` — иначе `--check` и запуск падают с кодом 1 (индекс попал бы в
+  бэкап). Автоисключений нет: добавьте каталоги в `exclude`;
+* `vault.exclude` — шаблоны по относительному пути, basename или родителю;
+  совпавший каталог не обходится;
+* `--verify` проверяет манифесты, наличие и размеры томов, но не читает
+  содержимое файлов;
+* каталог `--to` не очищается — восстанавливайте в пустой;
+* `--from NAME` сужает работу до одного апстрима (когда их несколько).
+
+Подробности и краевые случаи: [`docs/usage.md`](docs/usage.md).
 
 ### Переменные окружения: `${ENV}`
 
@@ -546,7 +649,10 @@ dump  →  zstd/gzip/rar  →  файл в temp_dir  →  rclone copyto  →  о
 проекта. Ротация удаляет только файлы своего префикса, поэтому общий `target`
 безопасен для нескольких проектов.
 Storage: `<target>/<dest>/...`, где `dest` — `basename` источника или явное
-значение из конфига.
+значение из конфига. Vault: `<target>/<UTC>.manifest.json` плюс
+`<UTC>-part-NNN.tar` с изменёнными файлами, `-part-NNN.manifest.json` с их
+смещениями и `-deleted.manifest.json` с удалениями; тома скачиваются только
+при восстановлении.
 
 ## Коды возврата
 
@@ -581,9 +687,11 @@ src/20_config.py     схема и валидация            src/70_retentio
 src/30_logging.py    логи                        src/80_database.py  дампы
 src/40_lock.py       flock                       src/81_storage.py   sync/copy
 src/82_archive.py    tar + компрессор            src/83_restore.py   восстановление
-src/85_report.py     --list и --verify            src/90_preflight.py проверки
-src/92_migrate.py    конвертер конфигов           src/95_cli.py       CLI
-src/99_selftest.py   --selftest                   src/zz_main.py      вход
+src/85_report.py     --list и --verify            src/86_notify.py    уведомления
+src/87_journal.py    журнал для vault             src/88_vault.py     слои vault
+src/90_preflight.py  проверки                     src/92_migrate.py   конвертер конфигов
+src/95_cli.py        CLI                          src/99_selftest.py  --selftest
+src/zz_main.py       вход
 ```
 
 ```bash

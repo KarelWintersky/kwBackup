@@ -1,3 +1,24 @@
+kwbackup (0.99.81) unstable; urgency=medium
+
+  * docs(readme): describe vault, colours and the current CLI
+
+    The README gains a vault section: TAR layers and manifests, the daily
+    journal, --full/--reconcile, restore by date and what a dry run prints, plus
+    the operator notes (state_dir inside root is fatal, --to is not cleaned,
+    --verify does not read file contents).
+
+    The command table now lists --vault, --full, --reconcile and
+    --restore --vault; the intro and the feature list say five tasks, and the
+    output palette (yellow numbers, green results, red errors) is documented.
+
+    Two stale statements are fixed: database.args are appended to the defaults,
+    not replacing them, and --check exits 2 on config errors and 1 on preflight.
+    ignore_table and the newer src/ files are mentioned as well.
+
+    docs only, no code changes.
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 17:21:47 +0300
+
 kwbackup (0.99.80) unstable; urgency=medium
 
   * feat(log): highlight numbers, successes and errors everywhere
