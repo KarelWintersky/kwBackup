@@ -21,7 +21,8 @@ vault:
     period: daily
     path: /var/lib/storage/journal  # YYYY-MM-DD.journal.txt
     keep_done: 7d
-  restore_order:
-    direction: desc                 # свежие слои первыми
+  restore:
+    order: desc                  # свежие слои первыми
     priority: [photos, videos, titles]
+    chown: false                 # выставлять uid/gid
   targets: ["beget:/VAULT"]

@@ -121,7 +121,18 @@ def _read_bytes(pid):
     return None
 
 
-def _wait_with_progress(procs, out_path, verb, total):
+def _current_file(files, size):
+    """The file a sequential tar is writing at the given output size."""
+    total = 0
+    for path, file_size in files:
+        total += file_size
+        if size <= total:
+            return path
+    return files[-1][0] if files else None
+
+
+def _wait_with_progress(procs, out_path, verb, total, progress_files=None,
+                        show_files=False):
     """Wait for the pipeline, redrawing a progress line once a second.
 
     The size comes from the output file itself, so no data passes through
@@ -137,7 +148,7 @@ def _wait_with_progress(procs, out_path, verb, total):
             width = columns - 1
     except (OSError, ValueError, AttributeError):
         pass
-    shown, size = 0, 0
+    shown_width, size = 0, 0
     previous = time.monotonic()
     while True:
         try:
@@ -148,24 +159,29 @@ def _wait_with_progress(procs, out_path, verb, total):
             current = _file_size(out_path) or 0
             read = _read_bytes(last.pid) if total else None
             percent = min(99.0, 100.0 * read / total) if (total and read) else None
+            shown_name = name
+            if show_files and progress_files:
+                shown_name = _current_file(progress_files, current) or name
+                percent = None
             rate = max(0.0, (current - size) / (now - previous)) if now > previous else 0
-            line = progress_line(verb, current, rate, percent, name, width)
+            line = progress_line(verb, current, rate, percent, shown_name, width)
             # A shorter line must overwrite the tail of the previous one.
-            if len(line) < shown:
-                line += " " * (shown - len(line))
+            if len(line) < shown_width:
+                line += " " * (shown_width - len(line))
             else:
-                shown = len(line)
+                shown_width = len(line)
             sys.stderr.write("\r" + line)
             sys.stderr.flush()
             size, previous = current, now
-    if shown:
-        sys.stderr.write("\r" + " " * shown + "\r")
+    if shown_width:
+        sys.stderr.write("\r" + " " * shown_width + "\r")
         sys.stderr.flush()
     return [p.wait() for p in procs]
 
 
 def run_pipeline(stages, out_path, env=None, last_writes_file=False,
-                 progress=None, total=None):
+                 progress=None, total=None, progress_files=None,
+                 show_files=False):
     """Run a chain of commands connected by pipes; the last one writes out_path.
 
     last_writes_file=True is for tools that create the archive themselves
@@ -203,7 +219,8 @@ def run_pipeline(stages, out_path, env=None, last_writes_file=False,
             prev = None if last else proc.stdout
             procs.append(proc)
         if progress and VERBOSE and sys.stderr.isatty():
-            codes = _wait_with_progress(procs, out_path, progress, total)
+            codes = _wait_with_progress(procs, out_path, progress, total,
+                                        progress_files, show_files)
         else:
             codes = [p.wait() for p in procs]
     finally:

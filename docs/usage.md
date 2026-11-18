@@ -222,7 +222,7 @@ kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --from nas \
     --to /srv/restore
 ```
 
-Порядок задаётся `restore_order`: `direction: desc` — свежие слои первыми
+Порядок задаётся `restore`: `order: desc` — свежие слои первыми
 (аварийный сценарий «сначала текущий месяц»), `priority` — порядок каталогов
 внутри слоя. Удалённые файлы не восстанавливаются; права, владелец и mtime
 берутся из манифеста.

@@ -1751,18 +1751,18 @@ vault:
         extra = {"FAKE_RSYNC_ROOT": str(rsync_root)}
         env.run("-c", config, "--vault", "--full", extra_env=extra)
         remote = rsync_root / "srv" / "backup" / "vault"
-        assert list(remote.glob("*.manifest.json")), list(remote.iterdir())
+        assert _vault_layer_paths(remote), list(remote.iterdir())
         (root / "b.txt").write_text("b", encoding="utf-8")
         env.run("-c", config, "--vault", extra_env=extra)
-        manifests = sorted(remote.glob("*.manifest.json"))
-        assert len(manifests) == 2, manifests
-        last = json.loads(manifests[-1].read_text(encoding="utf-8"))
-        assert last["added"] == ["b.txt"], last
+        paths = _vault_layer_paths(remote)
+        assert len(paths) == 2, paths
+        entries, _deleted = _vault_layer_files(remote, paths[-1])
+        assert [entry["path"] for _volume, entry in entries] == ["b.txt"], entries
         shutil.rmtree(env.dir / "vstate")
         (root / "c.txt").write_text("c", encoding="utf-8")
         env.run("-c", config, "--vault", extra_env=extra)
-        last = json.loads(sorted(remote.glob("*.manifest.json"))[-1].read_text())
-        assert last["added"] == ["c.txt"], last
+        entries, _deleted = _vault_layer_files(remote, _vault_layer_paths(remote)[-1])
+        assert [entry["path"] for _volume, entry in entries] == ["c.txt"], entries
         out = env.dir / "restore"
         env.run("-c", config, "--restore", "--vault", "--from", "nas",
                 "--to", out, extra_env=extra)
@@ -1815,9 +1815,28 @@ vault:
     return root, jdir
 
 
+def _vault_layer_paths(base):
+    return sorted(path for path in Path(base).glob("*.manifest.json")
+                  if "-part-" not in path.name and "-deleted." not in path.name)
+
+
+def _vault_layer_files(base, top_path):
+    data = json.loads(Path(top_path).read_text(encoding="utf-8"))
+    entries = []
+    for volume in data.get("volumes", []):
+        manifest = json.loads((Path(top_path).parent / volume["manifest"])
+                              .read_text(encoding="utf-8"))
+        entries += [(volume["name"], entry) for entry in manifest.get("files", [])]
+    stamp = Path(top_path).name[:-len(".manifest.json")]
+    deleted = json.loads((Path(top_path).parent / f"{stamp}-deleted.manifest.json")
+                         .read_text(encoding="utf-8")).get("files", [])
+    return entries, deleted
+
+
 def _vault_layers(env):
+    base = env.cloud / "V"
     return [json.loads(path.read_text(encoding="utf-8"))
-            for path in sorted((env.cloud / "V").glob("*.manifest.json"))]
+            for path in _vault_layer_paths(base)]
 
 
 def test_vault_full_and_empty_layer():
@@ -1825,16 +1844,20 @@ def test_vault_full_and_empty_layer():
     try:
         _vault_setup(env)
         env.run("-c", env.config, "--vault", "--full")
+        base = env.cloud / "V"
+        paths = _vault_layer_paths(base)
+        assert len(paths) == 1, paths
         layers = _vault_layers(env)
-        assert len(layers) == 1, layers
         assert layers[0]["base"] is True, layers[0]
-        assert [entry["path"] for entry in layers[0]["files"]] == ["a.txt"], layers[0]
+        entries, deleted = _vault_layer_files(base, paths[0])
+        assert [entry["path"] for _volume, entry in entries] == ["a.txt"], entries
+        assert deleted == [], deleted
         env.run("-c", env.config, "--vault")
-        layers = _vault_layers(env)
-        assert len(layers) == 2, layers
-        assert layers[-1]["base"] is False and layers[-1]["files"] == [], layers[-1]
-        names = {p.name for p in (env.cloud / "V").iterdir()}
-        assert len({name.split(".")[0] for name in names}) == 2, names
+        paths = _vault_layer_paths(base)
+        assert len(paths) == 2, paths
+        assert _vault_layers(env)[-1]["base"] is False
+        entries, deleted = _vault_layer_files(base, paths[-1])
+        assert entries == [] and deleted == [], (entries, deleted)
     finally:
         env.cleanup()
 
@@ -1852,13 +1875,15 @@ def test_vault_journal_add_and_delete():
             f"{yesterday}T01:00:00Z\tADDED\tb.txt\n"
             f"{yesterday}T01:00:01Z\tDELETED\ta.txt\n", encoding="utf-8")
         env.run("-c", env.config, "--vault")
-        layers = _vault_layers(env)
-        assert layers[-1]["added"] == ["b.txt"], layers[-1]
-        assert layers[-1]["deleted"] == ["a.txt"], layers[-1]
+        base = env.cloud / "V"
+        paths = _vault_layer_paths(base)
+        entries, deleted = _vault_layer_files(base, paths[-1])
+        assert [entry["path"] for _volume, entry in entries] == ["b.txt"], entries
+        assert [item["path"] for item in deleted] == ["a.txt"], deleted
         assert (jdir / f"{yesterday}.journal.txt.done").exists()
         env.run("-c", env.config, "--vault")      # no journal -> empty day
-        layers = _vault_layers(env)
-        assert layers[-1]["files"] == [] and layers[-1]["deleted"] == [], layers[-1]
+        entries, deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        assert entries == [] and deleted == [], (entries, deleted)
     finally:
         env.cleanup()
 
@@ -1874,7 +1899,7 @@ def test_vault_list_and_verify():
         assert "VAULT" in out.stdout and "FULL" in out.stdout, out.stdout
         res = env.run("-c", env.config, "--verify")
         assert "✓" in res.stdout, res.stdout
-        volume = sorted((env.cloud / "V").glob("*.tar.part-*"))[0]
+        volume = sorted((env.cloud / "V").glob("*.tar"))[0]
         volume.unlink()
         res = env.run("-c", env.config, "--verify", expect=5)
         assert "missing volume" in res.stdout, res.stdout
@@ -1904,9 +1929,9 @@ def test_vault_restore_at():
     try:
         root, _ = _vault_setup(env)
         env.run("-c", env.config, "--vault", "--full")
-        manifest = sorted((env.cloud / "V").glob("*.manifest.json"))[0]
+        manifest = _vault_layer_paths(env.cloud / "V")[0]
         data = json.loads(manifest.read_text(encoding="utf-8"))
-        data["source_date"] = "2020-01-01"
+        data["date"] = "2020-01-01"
         manifest.write_text(json.dumps(data, ensure_ascii=False,
                                       separators=(",", ":")), encoding="utf-8")
         (root / "b.txt").write_text("b", encoding="utf-8")
@@ -1929,8 +1954,9 @@ def test_vault_reconcile_without_journal():
         env.run("-c", env.config, "--vault", "--full")
         (root / "c.txt").write_text("c", encoding="utf-8")
         env.run("-c", env.config, "--vault", "--reconcile")
-        layers = _vault_layers(env)
-        assert layers[-1]["added"] == ["c.txt"], layers[-1]
+        base = env.cloud / "V"
+        entries, _deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        assert [entry["path"] for _volume, entry in entries] == ["c.txt"], entries
     finally:
         env.cleanup()
 
@@ -1945,8 +1971,9 @@ def test_vault_rebuilds_index_from_manifests():
         shutil.rmtree(env.dir / "vstate")
         (root / "d.txt").write_text("d", encoding="utf-8")
         env.run("-c", env.config, "--vault")
-        layers = _vault_layers(env)
-        assert layers[-1]["added"] == ["d.txt"], layers[-1]
+        base = env.cloud / "V"
+        entries, _deleted = _vault_layer_files(base, _vault_layer_paths(base)[-1])
+        assert [entry["path"] for _volume, entry in entries] == ["d.txt"], entries
     finally:
         env.cleanup()
 

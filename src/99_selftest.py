@@ -166,14 +166,15 @@ vault:
   volume_size: 3G
   targets: ["r:/V"]
   journal: {type: txt, period: daily, path: /tmp/journal, keep_done: 10d}
-  restore_order: {direction: asc, priority: [photos]}
+  restore: {order: asc, priority: [photos], chown: true}
 """
         cfg_v = load_config(write(with_vault))
         check("vault parsed", cfg_v.vault.enabled
               and cfg_v.vault.volume_size == 3 * 1024 ** 3
               and cfg_v.vault.journal.type == "txt"
               and cfg_v.vault.journal.keep_done == dt.timedelta(days=10)
-              and cfg_v.vault.restore_order.direction == "asc", cfg_v.vault)
+              and cfg_v.vault.restore.order == "asc"
+              and cfg_v.vault.restore.chown is True, cfg_v.vault)
         cfg_vs = load_config(write(good + """
 vault:
   enabled: false
@@ -303,13 +304,19 @@ notify:
             self.deleted.append(name)
 
     good, bad = FakeStore(), FakeStore(fail=True)
-    files = [Path("/tmp/x/a.tar.part-001"), Path("/tmp/x/a.manifest.json")]
+    files = [Path("/tmp/x/a-part-001.tar"), Path("/tmp/x/a.manifest.json")]
     try:
         _vault_upload([good, bad], files)
         check("vault upload rollback", False, "upload failure was ignored")
     except ActionFailed:
         check("vault upload rollback",
               good.deleted == ["a.manifest.json"], (good.deleted, bad.deleted))
+
+    check("current tar file",
+          _current_file([("a", 10), ("b", 20)], 5) == "a"
+          and _current_file([("a", 10), ("b", 20)], 15) == "b"
+          and _current_file([("a", 10), ("b", 20)], 30) == "b",
+          "file mapping is wrong")
 
     # notifications: safe reasons, message contents, channel plumbing
     check("yaml keys stay strings",

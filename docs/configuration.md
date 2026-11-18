@@ -160,25 +160,39 @@ BUILTIN_DEFAULTS              встроенные (src/05_builtin_defaults.py)
 | `journal.period` | enum | `daily` | пока только `daily` |
 | `journal.path` | str | обяз. для `txt` | каталог `YYYY-MM-DD.journal.txt` |
 | `journal.keep_done` | duration | `7d` | чистить `.done` старше; `false` — вечно |
-| `restore_order.direction` | enum | `desc` | `asc` \| `desc` — порядок слоёв |
-| `restore_order.priority` | list | `[]` | порядок каталогов внутри слоя |
+| `restore.order` | enum | `desc` | `asc` \| `desc` — порядок слоёв |
+| `restore.priority` | list | `[]` | порядок каталогов внутри слоя |
+| `restore.chown` | bool | `false` | выставлять uid/gid из манифеста |
 | `targets` | list | обяз. при `enabled` | `upstream:path` |
 | `before` / `after` | list | `[]` | хуки задачи |
 
 ### Слои
 
 ```
-2026-11-18T020000Z.tar.part-001   # изменённые файлы дня, целыми файлами
-2026-11-18T020000Z.manifest.json  # added/modified/deleted + volume/offset
+2026-11-18T020000Z.manifest.json              # верхний: base, date, volumes
+2026-11-18T020000Z-part-001.tar               # изменённые файлы, целыми файлами
+2026-11-18T020000Z-part-001.manifest.json     # files[] этого тома + offset
+2026-11-18T020000Z-deleted.manifest.json      # удаления (пишется всегда)
 ```
 
-* первый слой — `base: true` (полный скан); дальше дельты;
-* слой создаётся **каждый запуск**, даже если изменений нет: пустой TAR и
-  манифест с пустыми списками;
+Верхний манифест: `{"base": false, "created_utc": "…", "date": "2026-11-17",
+"volumes": [{"name": "…-part-001.tar", "manifest": "…-part-001.manifest.json",
+"size": N, "files": N}]}`. `date` — дата **состояния** (запуск в 02:00
+представляет вчера), по ней работает `--at`. `base: true` — полный скан.
+
+Манифест тома: `{"files": [{"status": "ADDED|MODIFIED", "path": …,
+"size": …, "mtime_ns": …, "mode": …, "uid": …, "gid": …, "offset": …,
+"sha256": …}]}`. Deleted-манифест: `{"files": [{"status": "DELETED",
+"path": …, "size": …}]}`.
+
+* слой создаётся **каждый запуск**, даже если изменений нет: пустой TAR,
+  пустой томовый манифест и deleted с пустым списком;
 * имя — UTC `YYYY-MM-DDTHHMMSSZ`, лексикографический порядок = хронологический;
+* тома всегда `-part-NNN`, даже если том один;
 * `--full` начинает новую цепочку; старые цепочки и их TAR остаются;
 * `--reconcile` — полный скан без нового base, корректирующий слой;
-* удаления — только записи в манифесте; данные старых слоёв не трогаются;
+* удаления — только записи в deleted-манифесте; данные старых слоёв не трогаются;
+* в `--debug` при упаковке тома показывается обрабатываемый файл;
 * восстановление: `--restore --vault --to DIR [--at YYYY-MM-DD] [--from NAME]`
   берёт последний base ≤ даты, применяет следующие слои и качает только
   нужные тома; старые цепочки остаются доступными;

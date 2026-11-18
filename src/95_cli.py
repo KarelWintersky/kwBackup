@@ -304,9 +304,10 @@ def _print_section(cfg, name, section):
         else:
             row("journal", "scan (full every run)")
         row("targets", ", ".join(section.targets))
-        order = section.restore_order
-        row("restore", f"{order.direction}, priority: "
-                       f"{', '.join(order.priority) or 'none'}")
+        restore = section.restore
+        row("restore", f"{restore.order}, priority: "
+                       f"{', '.join(restore.priority) or 'none'}, "
+                       f"chown: {'on' if restore.chown else 'off'}")
     elif name == "database":
         row("mode", section.mode)
         row("targets", ", ".join(section.targets))

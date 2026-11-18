@@ -1,22 +1,24 @@
 # ============================================================================
-# VAULT  (versioned file store: TAR layers + JSON manifests + journal)
+# VAULT  (versioned file store: TAR layers + per-volume manifests + journal)
 #
-# A layer is one immutable TAR (split into volumes) plus a manifest:
-#   <utc>.tar.part-001 ...   changed files of that day
-#   <utc>.manifest.json      added/modified/deleted + per-file volume/offset
-#   base: true               a full snapshot; restore starts from the newest
-#                            base <= the requested date
+# One layer:
+#   <utc>.manifest.json                 top: base, date, volumes
+#   <utc>-part-001.tar                  changed files, whole files only
+#   <utc>-part-001.manifest.json        files of that volume (+ offsets)
+#   <utc>-deleted.manifest.json         deleted paths (always present)
 #
-# The journal is only a hint to avoid a daily full scan: every path is still
-# stat-compared with the local index (state_dir/index.sqlite), so duplicate
-# or replayed events are harmless.
+# The top manifest is the completion marker: it is uploaded last. The journal
+# is only a hint to avoid a daily full scan; every path is still stat-compared
+# with the local index (state_dir/index.sqlite), so replayed events are safe.
 # ============================================================================
 
 VAULT_TS_FORMAT = "%Y-%m-%dT%H%M%SZ"
+VAULT_LAYER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}Z\.manifest\.json$")
+VAULT_DELETED_SUFFIX = "-deleted.manifest.json"
 
 
 def vault_snapshot_date(now=None):
-    """The state a 02:00 run represents is yesterday's; a daytime run - today."""
+    """A 02:00 run represents yesterday's state; a daytime run - today's."""
     now = now or dt.datetime.now()
     return (now - dt.timedelta(hours=12)).date()
 
@@ -63,16 +65,17 @@ class VaultIndex:
         with self.db:
             self.db.execute("DELETE FROM files")
 
-    def apply_manifest(self, manifest, layer):
+    def upsert(self, entries, layer):
         with self.db:
-            if manifest.get("base"):
-                self.db.execute("DELETE FROM files")
-            for entry in manifest.get("files", []):
+            for entry in entries:
                 self.db.execute(
                     "INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?)",
                     (entry["path"], entry["size"], entry["mtime_ns"],
                      entry["mode"], entry["uid"], entry["gid"], layer))
-            for path in manifest.get("deleted", []):
+
+    def delete_paths(self, paths):
+        with self.db:
+            for path in paths:
                 self.db.execute("DELETE FROM files WHERE path = ?", (path,))
 
     def apply(self, changes, deleted, layer):
@@ -137,7 +140,12 @@ def vault_diff_scan(root, index, warnings):
                 modified.add(path)
         else:
             same += 1
-    deleted = [path for path in index.all_paths() if path not in entries]
+    deleted = []
+    for path in index.all_paths():
+        if path in entries:
+            continue
+        row = index.get(path)
+        deleted.append({"path": path, "size": row[0] if row else 0})
     return changes, deleted, modified, same
 
 
@@ -150,8 +158,9 @@ def vault_changes_from_events(cfg, events, index, warnings):
         try:
             st = full.lstat()
         except FileNotFoundError:
-            if index.get(path) is not None:
-                deleted.append(path)
+            row = index.get(path)
+            if row is not None:
+                deleted.append({"path": path, "size": row[0]})
             continue
         except OSError as exc:
             warnings.append(f"{path}: {exc.strerror or exc}")
@@ -182,28 +191,33 @@ def _vault_volumes(changes, volume_size):
     return groups
 
 
-def _vault_tar(volume, root, paths):
-    """Build one TAR volume with whole files only."""
-    if not paths:
-        run(["tar", "-C", str(root), "-cf", str(volume), "-T", "/dev/null"])
-        return
-    list_file = volume.with_name(volume.name + ".list")
-    data = b"\0".join(path.encode("utf-8", "surrogateescape") for path in paths) + b"\0"
-    list_file.write_bytes(data)
+def _vault_tar(volume, root, paths, sizes, show_files):
+    """Build one TAR volume; tar writes to stdout, run_pipeline to the file."""
+    list_file = None
+    if paths:
+        list_file = Path(str(volume) + ".list")
+        list_file.write_bytes(
+            b"\0".join(path.encode("utf-8", "surrogateescape")
+                       for path in paths) + b"\0")
+        cmd = ["tar", "-C", str(root), "-cf", "-", "--null",
+               "--no-recursion", "--verbatim-files-from", "-T", str(list_file)]
+    else:
+        cmd = ["tar", "-C", str(root), "-cf", "-", "-T", "/dev/null"]
     try:
-        run(["tar", "-C", str(root), "-cf", str(volume), "--null",
-             "--no-recursion", "--verbatim-files-from", "-T", str(list_file)])
+        run_pipeline([cmd], str(volume), progress="packing",
+                     progress_files=sizes, show_files=show_files)
     finally:
-        list_file.unlink(missing_ok=True)
+        if list_file is not None:
+            list_file.unlink(missing_ok=True)
 
 
-def _vault_volume_index(volume, number):
-    """member name -> (volume number, offset, size) from the TAR headers."""
+def _vault_volume_index(volume):
+    """member name -> (offset, size) from the TAR headers."""
     out = {}
     with tarfile.open(volume, "r:") as archive:
         for member in archive:
             if member.isfile():
-                out[member.name] = (number, member.offset_data, member.size)
+                out[member.name] = (member.offset_data, member.size)
     return out
 
 
@@ -218,48 +232,70 @@ def _vault_sha256(path, block=1024 * 1024):
     return digest.hexdigest()
 
 
+def _vault_deleted_name(layer_name):
+    return layer_name[:-len(".manifest.json")] + VAULT_DELETED_SUFFIX
+
+
 def vault_build_layer(cfg, changes, deleted, source_date, base=False,
-                      modified=None, stamp=None):
-    """Create the TAR volumes and the manifest in cfg.temp_dir; return files."""
+                      modified=None, stamp=None, show_files=False):
+    """Create TAR volumes and manifests in cfg.temp_dir; return files."""
     vault = cfg.vault
     workdir = Path(tempfile.mkdtemp(prefix="vault-", dir=str(cfg.temp_dir)))
     stamp = stamp or vault_ts()
+    modified = modified or set()
     groups = _vault_volumes(changes, vault.volume_size)
-    locations, volumes = {}, []
+    volumes, upload = [], []
     try:
         for number, paths in enumerate(groups, 1):
-            name = f"{stamp}.tar.part-{number:03d}"
-            volume = workdir / name
-            _vault_tar(volume, vault.root, paths)
-            locations.update(_vault_volume_index(volume, number))
-            volumes.append({"name": name, "size": volume.stat().st_size,
-                            "files": len(paths)})
-        files = []
-        for path, st in sorted(changes.items()):
-            number, offset, size = locations[path]
-            entry = {"path": path, "size": size, "mtime_ns": st.st_mtime_ns,
-                     "mode": st.st_mode, "uid": st.st_uid, "gid": st.st_gid,
-                     "volume": number, "offset": offset}
-            if vault.checksum == "sha256":
-                entry["sha256"] = _vault_sha256(Path(vault.root) / path)
-            files.append(entry)
-        manifest = {
-            "format": 1,
-            "base": bool(base),
-            "created_utc": stamp,
-            "source_date": str(source_date),
-            "root": str(vault.root),
-            "added": sorted(set(changes) - set(modified or ())),
-            "modified": sorted(set(modified or ())),
-            "deleted": sorted(deleted),
-            "volumes": volumes,
-            "files": files,
-        }
+            tar_name = f"{stamp}-part-{number:03d}.tar"
+            manifest_name = f"{stamp}-part-{number:03d}.manifest.json"
+            volume = workdir / tar_name
+            sizes = [(path, changes[path].st_size) for path in paths]
+            LOG.info("vault: packing volume %d/%d (%s, %d file(s))",
+                     number, len(groups),
+                     fmt_bytes(sum(size for _, size in sizes)), len(paths))
+            _vault_tar(volume, vault.root, paths, sizes, show_files)
+            locations = _vault_volume_index(volume)
+            files = []
+            for path in paths:
+                offset, size = locations[path]
+                entry = {
+                    "status": "MODIFIED" if path in modified else "ADDED",
+                    "path": path,
+                    "size": size,
+                    "mtime_ns": changes[path].st_mtime_ns,
+                    "mode": changes[path].st_mode,
+                    "uid": changes[path].st_uid,
+                    "gid": changes[path].st_gid,
+                    "offset": offset,
+                }
+                if vault.checksum == "sha256":
+                    entry["sha256"] = _vault_sha256(Path(vault.root) / path)
+                files.append(entry)
+            manifest_path = workdir / manifest_name
+            manifest_path.write_text(
+                json.dumps({"files": files}, ensure_ascii=False,
+                           separators=(",", ":")), encoding="utf-8")
+            volumes.append({"name": tar_name, "manifest": manifest_name,
+                            "size": volume.stat().st_size, "files": len(files)})
+            upload += [volume, manifest_path]
+
+        deleted_entries = [{"status": "DELETED", "path": item["path"],
+                            "size": item.get("size", 0)} for item in deleted]
+        deleted_path = workdir / f"{stamp}{VAULT_DELETED_SUFFIX}"
+        deleted_path.write_text(
+            json.dumps({"files": deleted_entries}, ensure_ascii=False,
+                       separators=(",", ":")), encoding="utf-8")
+
+        manifest = {"base": bool(base), "created_utc": stamp,
+                    "date": str(source_date), "volumes": volumes}
         manifest_path = workdir / f"{stamp}.manifest.json"
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8")
-        return workdir, [workdir / v["name"] for v in volumes] + [manifest_path], manifest
+        # The top manifest goes last: it is the completion marker.
+        upload += [deleted_path, manifest_path]
+        return workdir, upload, manifest
     except Exception:
         shutil.rmtree(workdir, ignore_errors=True)
         raise
@@ -297,8 +333,8 @@ class RcloneStore(VaultStore):
     def put(self, files):
         if DRY:
             for path in files:
-                LOG.info("dry-run: rclone copyto %s -> %s/%s", path, self.path,
-                         Path(path).name)
+                LOG.info("dry-run: rclone copyto %s -> %s/%s", path,
+                         self.remote, Path(path).name)
             return
         for path in files:
             self.rclone.copyto(str(path), f"{self.remote}/{Path(path).name}")
@@ -345,8 +381,8 @@ class RsyncStore(VaultStore):
         res = run(["rsync", "--list-only"] + self.options + [self.remote + "/"],
                   check=False, capture=True)
         if res.returncode not in (0, 23, 24):
-            raise CommandError(f"rsync --list-only {self.remote}", res.returncode,
-                               res.stderr)
+            raise CommandError(f"rsync --list-only {self.remote}",
+                               res.returncode, res.stderr)
         out = {}
         for line in res.stdout.splitlines():
             parts = line.split(None, 4)
@@ -401,6 +437,47 @@ def vault_store(cfg, target):
     raise ActionFailed(f"vault: unsupported upstream type {upstream.type!r}")
 
 
+# ---------------------------------------------------------------- manifests
+def _vault_read_manifest(store, name):
+    with tempfile.TemporaryDirectory(prefix="vault-manifest-") as tmp:
+        local = Path(tmp) / name
+        store.get(name, local)
+        try:
+            return json.loads(local.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise ActionFailed(f"vault: bad manifest {name}: {exc}") from None
+
+
+def vault_layer_names(store):
+    return sorted(name for name in store.list() if VAULT_LAYER_RE.match(name))
+
+
+def vault_read_layer(store, name):
+    return _vault_read_manifest(store, name)
+
+
+def vault_read_files(store, name, manifest):
+    """[(volume name, entry)] plus deleted entries of one layer."""
+    entries = []
+    for volume in manifest.get("volumes", []):
+        volume_name = volume.get("manifest")
+        if not volume_name:
+            volume_name = volume["name"][:-len(".tar")] + ".manifest.json"
+        volume_manifest = _vault_read_manifest(store, volume_name)
+        for entry in volume_manifest.get("files", []):
+            entries.append((volume["name"], entry))
+    deleted = _vault_read_manifest(store, _vault_deleted_name(name)).get("files", [])
+    return entries, deleted
+
+
+def vault_latest_chain(manifests):
+    last_base = None
+    for index, (_name, manifest) in enumerate(manifests):
+        if manifest.get("base"):
+            last_base = index
+    return manifests[last_base:] if last_base is not None else []
+
+
 # ---------------------------------------------------------------- action
 def _vault_stats(changes, deleted):
     return {"layers": 1, "files": len(changes), "deleted": len(deleted),
@@ -415,7 +492,6 @@ def _vault_active_names(stores):
 
 
 def _vault_stamp(names, offset=0):
-    """A layer stamp that is unique among the existing remote names."""
     base = dt.datetime.now(dt.timezone.utc)
     for step in range(3600):
         stamp = (base + dt.timedelta(seconds=offset + step)).strftime(
@@ -426,37 +502,25 @@ def _vault_stamp(names, offset=0):
     raise ActionFailed("vault: cannot allocate a unique layer timestamp")
 
 
-def _vault_manifests(store):
-    return sorted(name for name in store.list()
-                  if name.endswith(".manifest.json"))
-
-
-def _vault_read_manifest(store, name):
-    with tempfile.TemporaryDirectory(prefix="vault-manifest-") as tmp:
-        local = Path(tmp) / name
-        store.get(name, local)
-        try:
-            return json.loads(local.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            raise ActionFailed(f"vault: bad manifest {name}: {exc}") from None
-
-
 def _vault_rebuild_index(stores, index, warnings):
-    """Rebuild the local cache from manifests after state_dir loss."""
     for store in stores:
         try:
-            names = _vault_manifests(store)
+            names = vault_layer_names(store)
         except (CommandError, OSError) as exc:
-            warnings.append(f"vault: cannot list {store.name} {store.path}: "
-                            f"{exc}")
+            warnings.append(f"vault: cannot list {store.name} {store.path}: {exc}")
             continue
         if not names:
             continue
         LOG.info("vault: rebuilding index from %d manifest(s) on %s %s",
                  len(names), store.name, store.path)
         for name in names:
-            manifest = _vault_read_manifest(store, name)
-            index.apply_manifest(manifest, manifest.get("source_date") or name)
+            manifest = vault_read_layer(store, name)
+            if manifest.get("base"):
+                index.clear()
+            entries, deleted = vault_read_files(store, name, manifest)
+            index.upsert([entry for _volume, entry in entries],
+                         manifest.get("date") or name)
+            index.delete_paths([item["path"] for item in deleted])
         return True
     return False
 
@@ -472,31 +536,32 @@ def _vault_upload(stores, files):
             details.append({"action": "vault", "entity": store.name,
                             "reason": reason})
     if failures:
-        # The manifest is written last: remove it everywhere so no target
-        # ends up with a half-published layer. Volumes become orphans.
-        manifest = next((Path(name).name for name in files
-                         if Path(name).name.endswith(".manifest.json")), None)
-        if manifest:
-            for store in stores:
+        # The top manifest is written last: remove every manifest from all
+        # targets so no chain is left half-published. Volumes become orphans.
+        manifests = [Path(name).name for name in files
+                     if Path(name).name.endswith(".manifest.json")]
+        for store in stores:
+            for name in manifests:
                 try:
-                    store.delete(manifest)
+                    store.delete(name)
                 except (CommandError, OSError) as exc:
                     LOG.warning("vault: cannot roll back %s on %s: %s",
-                                manifest, store.name, exc)
+                                name, store.name, exc)
         raise ActionFailed("vault upload failed: " + "; ".join(failures), details)
 
 
 def _vault_commit(cfg, stores, index, changes, deleted, modified,
-                  source_date, base=False, stamp=None):
+                  source_date, base=False, stamp=None, show_files=False):
     workdir, files, _manifest = vault_build_layer(
         cfg, changes, deleted, source_date, base=base,
-        modified=modified, stamp=stamp)
+        modified=modified, stamp=stamp, show_files=show_files)
     try:
         _vault_upload(stores, files)
         if base:
             index.replace_all(changes, str(source_date))
         else:
-            index.apply(changes, deleted, str(source_date))
+            index.apply(changes, [item["path"] for item in deleted],
+                        str(source_date))
     finally:
         if cfg.keep_temp:
             LOG.info("vault: keeping %s", workdir)
@@ -506,7 +571,6 @@ def _vault_commit(cfg, stores, index, changes, deleted, modified,
 
 
 def _vault_finish_journals(cfg):
-    """After a full/scan/reconcile every pending journal is covered."""
     journal = cfg.vault.journal
     if not journal or journal.type != "txt":
         return
@@ -534,11 +598,11 @@ def action_vault(cfg, args):
     state_dir.mkdir(parents=True, exist_ok=True)
     stores = [vault_store(cfg, target) for target in vault.targets]
     warnings = []
+    show_files = bool(cfg.debug or getattr(args, "debug", False))
     index = VaultIndex(state_dir)
     try:
-
         names = _vault_active_names(stores)
-        has_layers = any(name.endswith(".manifest.json") for name in names)
+        has_layers = any(VAULT_LAYER_RE.match(name) for name in names)
         if index.empty() and has_layers and not args.full:
             _vault_rebuild_index(stores, index, warnings)
 
@@ -546,16 +610,16 @@ def action_vault(cfg, args):
             source = vault_snapshot_date()
             changes = vault_scan(root, warnings)
             stats = _vault_commit(cfg, stores, index, changes, [], set(),
-                                  source, base=True, stamp=_vault_stamp(names))
+                                  source, base=True, stamp=_vault_stamp(names),
+                                  show_files=show_files)
             _vault_finish_journals(cfg)
             LOG.info("vault: base layer %s (%d file(s))", source, len(changes))
         elif args.reconcile:
             source = vault_snapshot_date()
-            changes, deleted, modified, same = vault_diff_scan(
-                root, index, warnings)
+            changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
-                                  modified, source,
-                                  stamp=_vault_stamp(names))
+                                  modified, source, stamp=_vault_stamp(names),
+                                  show_files=show_files)
             _vault_finish_journals(cfg)
             LOG.info("vault: reconcile %s: %d changed, %d deleted, %d same",
                      source, len(changes), len(deleted), same)
@@ -578,7 +642,8 @@ def action_vault(cfg, args):
                     cfg, events, index, warnings)
                 layer = _vault_commit(
                     cfg, stores, index, changes, deleted, modified, day,
-                    stamp=_vault_stamp(names, offset=offset))
+                    stamp=_vault_stamp(names, offset=offset),
+                    show_files=show_files)
                 for key in totals:
                     totals[key] += layer.get(key, 0)
                 if path is not None:
@@ -589,11 +654,10 @@ def action_vault(cfg, args):
             cleanup_done(journal.path, journal.keep_done, today)
         else:
             source = vault_snapshot_date()
-            changes, deleted, modified, same = vault_diff_scan(
-                root, index, warnings)
+            changes, deleted, modified, same = vault_diff_scan(root, index, warnings)
             stats = _vault_commit(cfg, stores, index, changes, deleted,
-                                  modified, source,
-                                  stamp=_vault_stamp(names))
+                                  modified, source, stamp=_vault_stamp(names),
+                                  show_files=show_files)
             _vault_finish_journals(cfg)
             LOG.info("vault: scan %s: %d changed, %d deleted, %d same",
                      source, len(changes), len(deleted), same)
@@ -619,20 +683,17 @@ def _vault_restore_safe(path):
     return bool(path) and not path.startswith("/") and ".." not in path.split("/")
 
 
-def _vault_manifest_order(name, manifest):
-    return manifest.get("source_date") or name[:10]
+def _vault_manifest_date(name, manifest):
+    return manifest.get("date") or name[:10]
 
 
 def vault_restore(cfg, args):
-    """Restore the state of a date (or the latest) from the manifest chain."""
     destination = Path(args.to)
     target = _vault_restore_target(cfg, args.from_upstream)
     store = vault_store(cfg, target)
-    names = sorted(name for name in store.list()
-                   if name.endswith(".manifest.json"))
+    names = vault_layer_names(store)
     if not names:
-        raise ActionFailed("vault restore: no manifests found in "
-                           f"{target}")
+        raise ActionFailed(f"vault restore: no manifests found in {target}")
 
     at = (args.at or "").strip()
     if at:
@@ -643,25 +704,26 @@ def vault_restore(cfg, args):
 
     state, layers, seen_base = {}, [], False
     for name in names:
-        manifest = _vault_read_manifest(store, name)
-        source = _vault_manifest_order(name, manifest)
-        if at and source > at:
+        manifest = vault_read_layer(store, name)
+        date = _vault_manifest_date(name, manifest)
+        if at and date > at:
             continue
         if manifest.get("base"):
             state.clear()
             seen_base = True
         elif not seen_base:
             continue
-        for entry in manifest.get("files", []):
-            state[entry["path"]] = (name, manifest, entry)
-        for path in manifest.get("deleted", []):
-            state.pop(path, None)
+        entries, deleted = vault_read_files(store, name, manifest)
+        for volume, entry in entries:
+            state[entry["path"]] = (name, volume, entry)
+        for item in deleted:
+            state.pop(item["path"], None)
         layers.append((name, manifest))
     if not seen_base:
         raise ActionFailed("vault restore: no base layer found"
                            + (f" before {at}" if at else ""))
 
-    stats = {"files": 0, "bytes": sum(entry["size"] for _, _, entry in state.values())}
+    stats = {"files": 0, "bytes": sum(item["size"] for _, _, item in state.values())}
     if DRY:
         LOG.info("dry-run: vault restore %d file(s) from %s", len(state), target)
         return stats
@@ -670,14 +732,13 @@ def vault_restore(cfg, args):
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)
     order = {name: index for index, (name, _manifest) in enumerate(layers)}
     priority = {name: index for index, name in
-                enumerate(cfg.vault.restore_order.priority)}
-    descending = cfg.vault.restore_order.direction == "desc"
+                enumerate(cfg.vault.restore.priority)}
+    descending = cfg.vault.restore.order == "desc"
 
     groups = {}
-    for path, (name, manifest, entry) in state.items():
+    for path, (name, volume, entry) in state.items():
         if not _vault_restore_safe(path):
             raise ActionFailed(f"vault restore: unsafe path in manifest: {path!r}")
-        volume = manifest["volumes"][entry["volume"] - 1]["name"]
         groups.setdefault((name, volume), []).append(entry)
 
     def group_key(item):
@@ -710,7 +771,7 @@ def vault_restore(cfg, args):
                     continue
                 try:
                     os.chmod(path, stat.S_IMODE(entry["mode"]))
-                    if os.geteuid() == 0:
+                    if cfg.vault.restore.chown and os.geteuid() == 0:
                         os.chown(path, entry["uid"], entry["gid"])
                     os.utime(path, ns=(entry["mtime_ns"], entry["mtime_ns"]))
                 except OSError as exc:
@@ -720,22 +781,3 @@ def vault_restore(cfg, args):
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     return stats
-
-
-# ---------------------------------------------------------------- reports
-def vault_layer_names(store):
-    return sorted(name for name in store.list()
-                  if name.endswith(".manifest.json"))
-
-
-def vault_read_layer(store, name):
-    return _vault_read_manifest(store, name)
-
-
-def vault_latest_chain(manifests):
-    """[(name, manifest)] from the last base to the end."""
-    last_base = None
-    for index, (_name, manifest) in enumerate(manifests):
-        if manifest.get("base"):
-            last_base = index
-    return manifests[last_base:] if last_base is not None else []

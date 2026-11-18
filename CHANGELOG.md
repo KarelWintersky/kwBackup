@@ -3,6 +3,23 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.72] — 2026-11-18
+
+### Changed
+
+- **Манифесты vault переработаны** (задача ещё не в проде):
+  - `<utc>.manifest.json` — маленький верхний: `base`, `date`, `volumes`;
+  - у каждого тома свой `<utc>-part-NNN.manifest.json`, имя выводится из
+    `.tar`; в нём `files[]` со `status` ADDED/MODIFIED и `offset`;
+  - удаления — в `<utc>-deleted.manifest.json`, файл пишется всегда;
+  - из верхнего убраны `added/modified/deleted`, `root`, `format`;
+    `source_date` заменён на `date` (дата состояния для `--at`);
+  - тома всегда `-part-NNN`, даже если том один.
+- `restore_order` → `restore {order, priority, chown}`; `chown` по умолчанию
+  `false`, `mode`/`mtime` восстанавливаются всегда.
+- `--debug` при упаковке тома показывает обрабатываемый файл (через `\r`
+  раз в секунду) вместо процента.
+
 ## [0.99.71] — 2026-11-18
 
 ### Added

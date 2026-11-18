@@ -146,11 +146,18 @@ def action_list(cfg, args):
                 stamp = name[:-len(".manifest.json")]
                 volumes = manifest.get("volumes", [])
                 size = sum(volume.get("size", 0) for volume in volumes)
+                count = sum(volume.get("files", 0) for volume in volumes)
+                try:
+                    deleted = len(vault_read_layer(
+                        store, _vault_deleted_name(name)).get("files", []))
+                except (ActionFailed, CommandError, OSError):
+                    deleted = 0
+                    rc = EXIT_VERIFY
                 label = "FULL" if manifest.get("base") else "    "
-                print(f"    {label} {stamp}  source {manifest.get('source_date', '?')}"
-                      f"  {len(manifest.get('files', []))} file(s)"
+                print(f"    {label} {stamp}  date {manifest.get('date', '?')}"
+                      f"  {count} file(s)  {deleted} deleted"
                       f"  {len(volumes)} volume(s)  {fmt_bytes(size)}")
-                dates.append(manifest.get("source_date"))
+                dates.append(manifest.get("date"))
             _vault_gap_report(dates)
 
     print()
@@ -356,18 +363,27 @@ def action_verify(cfg, args):
             sizes = store.list()
             problems, volumes = [], set()
             for name, manifest in selected:
-                for volume in manifest.get("volumes", []):
+                volume_list = manifest.get("volumes", [])
+                by_name = {volume["name"]: volume for volume in volume_list}
+                for volume in volume_list:
                     volumes.add(volume["name"])
                     if volume["name"] not in sizes:
                         problems.append(f"{name}: missing volume {volume['name']}")
                     elif sizes[volume["name"]] != volume.get("size"):
                         problems.append(f"{name}: size mismatch {volume['name']}")
-                for entry in manifest.get("files", []):
-                    number = entry.get("volume")
-                    if not isinstance(number, int) or not 1 <= number <= len(manifest.get("volumes", [])):
+                    if volume.get("manifest") not in sizes:
+                        problems.append(f"{name}: missing manifest "
+                                        f"{volume.get('manifest')}")
+                try:
+                    entries, _deleted = vault_read_files(store, name, manifest)
+                except (ActionFailed, CommandError, OSError) as exc:
+                    problems.append(f"{name}: {exc}")
+                    continue
+                for volume_name, entry in entries:
+                    volume = by_name.get(volume_name)
+                    if volume is None:
                         problems.append(f"{name}: bad volume for {entry.get('path')}")
                         continue
-                    volume = manifest["volumes"][number - 1]
                     if entry.get("offset", 0) + entry.get("size", 0) > volume.get("size", 0):
                         problems.append(f"{name}: offset out of range for {entry.get('path')}")
             if problems:

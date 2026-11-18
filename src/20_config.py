@@ -37,9 +37,9 @@ SECTIONS = {
                     "initial_day", "snapshot", "retention", "before", "after",
                     "s3-custom-options"},
     "vault": {"enabled", "root", "state_dir", "volume_size", "checksum",
-              "journal", "restore_order", "targets", "before", "after"},
+              "journal", "restore", "targets", "before", "after"},
     "journal": {"type", "period", "path", "keep_done"},
-    "restore_order": {"direction", "priority"},
+    "restore": {"order", "priority", "chown"},
     "notify": {"on", "retries", "retry_delay", "timeout",
                "mail", "webhook", "telegram"},
     "mail": {"to", "from", "smtp_host", "port", "tls", "user_env", "password_env"},
@@ -208,9 +208,10 @@ class JournalCfg:
 
 
 @dataclass
-class RestoreOrderCfg:
-    direction: str = "desc"       # asc | desc
+class RestoreCfg:
+    order: str = "desc"           # asc | desc
     priority: list = field(default_factory=list)
+    chown: bool = False
 
 
 @dataclass
@@ -221,7 +222,7 @@ class VaultCfg:
     volume_size: int = 2 * 1024 ** 3
     checksum: str = "none"        # none | sha256
     journal: JournalCfg | None = None
-    restore_order: RestoreOrderCfg = field(default_factory=RestoreOrderCfg)
+    restore: RestoreCfg = field(default_factory=RestoreCfg)
     targets: list = field(default_factory=list)
     before: list = field(default_factory=list)
     after: list = field(default_factory=list)
@@ -1003,19 +1004,20 @@ def load_config(path, env=None, defaults=None, strict=False):
                                         "not used with type scan")
                 journal = JournalCfg(type="scan")
 
-    ro_raw = vlt.get("restore_order") or {}
-    if not isinstance(ro_raw, dict):
-        errors.append("config.vault.restore_order: expected a mapping")
-        ro_raw = {}
-    _check_keys(ro_raw, "restore_order", "config.vault.restore_order", warnings)
-    direction = (_as_str(ro_raw.get("direction"),
-                         "config.vault.restore_order.direction", errors)
-                 or "desc").lower()
-    if direction not in ("asc", "desc"):
-        errors.append("config.vault.restore_order.direction: expected asc or desc")
-        direction = "desc"
-    priority = _as_list(ro_raw.get("priority"),
-                        "config.vault.restore_order.priority", errors)
+    restore_raw = vlt.get("restore") or {}
+    if not isinstance(restore_raw, dict):
+        errors.append("config.vault.restore: expected a mapping")
+        restore_raw = {}
+    _check_keys(restore_raw, "restore", "config.vault.restore", warnings)
+    order = (_as_str(restore_raw.get("order"),
+                     "config.vault.restore.order", errors) or "desc").lower()
+    if order not in ("asc", "desc"):
+        errors.append("config.vault.restore.order: expected asc or desc")
+        order = "desc"
+    priority = _as_list(restore_raw.get("priority"),
+                        "config.vault.restore.priority", errors)
+    chown = _as_bool(restore_raw.get("chown"), "config.vault.restore.chown",
+                     errors)
 
     state_dir = _as_str(vlt.get("state_dir"), "config.vault.state_dir", errors)
     if not state_dir:
@@ -1027,7 +1029,7 @@ def load_config(path, env=None, defaults=None, strict=False):
         volume_size=volume_size if volume_size is not None else default_volume,
         checksum=checksum,
         journal=journal,
-        restore_order=RestoreOrderCfg(direction=direction, priority=priority),
+        restore=RestoreCfg(order=order, priority=priority, chown=chown),
         targets=_as_targets(vlt.get("targets"), "config.vault.targets", errors,
                             cfg.upstreams, types=("rclone", "rsync")),
         before=_as_list(vlt.get("before"), "config.vault.before", errors),

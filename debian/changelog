@@ -1,3 +1,29 @@
+kwbackup (0.99.72) unstable; urgency=medium
+
+  * feat(vault): per-volume manifests, leaner layers, file progress
+
+    The layer format was reworked while the task is still experimental:
+
+    - <utc>.manifest.json is a small top manifest (base, date, volumes);
+    - each volume is <utc>-part-NNN.tar with its own <utc>-part-NNN.manifest.json,
+      the manifest name is derived by stripping .tar;
+    - deletions live in <utc>-deleted.manifest.json, always written;
+    - the top manifest no longer carries added/modified/deleted, root or format;
+      file status is inside the volume manifest and deleted entries keep only
+      path and size;
+    - volumes always use -part-NNN, even when there is only one.
+
+    With --verbose, tar packing shows bytes/rate and the volume; with --debug the
+    line shows the file currently being packed (redrawn with CR once a second).
+
+    restore_order became restore {order, priority, chown}; chown defaults to false,
+    mode and mtime are always restored.
+
+    tests updated; old test layers must be recreated with --full (no version
+    compatibility, the task is not in production yet).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 14:03:58 +0300
+
 kwbackup (0.99.71) unstable; urgency=medium
 
   * feat(vault): roll back a half-published layer, add an example

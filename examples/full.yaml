@@ -42,8 +42,9 @@ vault:
     period: daily
     path: /var/lib/storage/journal
     keep_done: 7d
-  restore_order:
-    direction: desc
+  restore:
+    order: desc
+    chown: false
     priority: [photos, videos, titles]
   targets: ["s3a:/VAULT"]
 
