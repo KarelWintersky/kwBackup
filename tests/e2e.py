@@ -2031,6 +2031,24 @@ def test_vault_list_and_verify():
         env.cleanup()
 
 
+def test_vault_restore_dry_run():
+    env = Env()
+    try:
+        root, _ = _vault_setup(env)
+        env.run("-c", env.config, "--vault", "--full")
+        (root / "b.txt").write_text("b", encoding="utf-8")
+        env.run("-c", env.config, "--vault")
+        out = env.dir / "dry-restore"
+        res = env.run("-c", env.config, "--restore", "--vault",
+                      "--dry-run", "--to", out)
+        assert "dry-run: vault restore" in res.stderr, res.stderr
+        assert "dry-run: vault restore 2 file(s)" in res.stderr, res.stderr
+        assert "restore: 2 file(s)" in res.stderr, res.stderr
+        assert not out.exists(), "dry-run must not create the destination"
+    finally:
+        env.cleanup()
+
+
 def test_vault_restore_latest():
     env = Env()
     try:
@@ -2565,6 +2583,7 @@ TESTS = [test_database_retention, test_database_disabled, test_storage_sync, tes
          test_vault_full_and_empty_layer,
          test_vault_journal_add_and_delete,
          test_vault_list_and_verify,
+         test_vault_restore_dry_run,
          test_vault_restore_latest,
          test_vault_restore_at,
          test_vault_reconcile_without_journal,

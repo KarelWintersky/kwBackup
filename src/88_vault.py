@@ -365,10 +365,12 @@ class RcloneStore(VaultStore):
             self.rclone.copyto(str(path), f"{self.remote}/{Path(path).name}")
 
     def list(self):
-        return {file.name: file.size for file in self.rclone.lsf(self.remote)}
+        return {file.name: file.size
+                for file in self.rclone.lsf(self.remote, force=True)}
 
     def get(self, name, local):
-        self.rclone.run("copyto", f"{self.remote}/{name}", str(local), check=True)
+        self.rclone.run("copyto", f"{self.remote}/{name}", str(local),
+                        check=True, force=True)
 
     def delete(self, name):
         self.rclone.run("deletefile", f"{self.remote}/{name}", check=False)
@@ -404,7 +406,7 @@ class RsyncStore(VaultStore):
 
     def list(self):
         res = run(["rsync", "--list-only"] + self.options + [self.remote + "/"],
-                  check=False, capture=True)
+                  check=False, capture=True, force=True)
         if res.returncode not in (0, 23, 24):
             raise CommandError(f"rsync --list-only {self.remote}",
                                res.returncode, res.stderr)
@@ -420,7 +422,8 @@ class RsyncStore(VaultStore):
 
     def get(self, name, local):
         Path(local).parent.mkdir(parents=True, exist_ok=True)
-        run(["rsync", "-a"] + self.options + [f"{self.remote}/{name}", str(local)])
+        run(["rsync", "-a"] + self.options + [f"{self.remote}/{name}", str(local)],
+            force=True)
 
     def delete(self, name):
         self._ssh(f"rm -f -- {shlex.quote(self.path + '/' + name)}")
@@ -788,10 +791,12 @@ def vault_restore(cfg, args):
         raise ActionFailed("vault restore: no base layer found"
                            + (f" before {at}" if at else ""))
 
-    stats = {"files": 0, "bytes": sum(item["size"] for _, _, item in state.values())}
+    stats = {"files": len(state),
+             "bytes": sum(item["size"] for _, _, item in state.values())}
     if DRY:
         LOG.info("dry-run: vault restore %d file(s) from %s", len(state), target)
         return stats
+    stats["files"] = 0
 
     destination.mkdir(parents=True, exist_ok=True)
     cfg.temp_dir.mkdir(parents=True, exist_ok=True)

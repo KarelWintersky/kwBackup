@@ -1,3 +1,19 @@
+kwbackup (0.99.76) unstable; urgency=medium
+
+  * fix(vault): dry-run restore must read manifests
+
+    Rclone.lsf() and the generic run() were suppressed by the global DRY flag, so
+    --restore --vault --dry-run printed "no manifests found" even though the layers
+    were there. Read-only vault paths (list/get, lsf) now pass force=True and run
+    even under --dry-run; uploads are still skipped.
+
+    The dry-run summary now reports the planned file count instead of 0.
+
+    tests: dry-run restore finds the chain, counts the files and does not create
+    the destination (88/88 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 15:47:08 +0300
+
 kwbackup (0.99.75) unstable; urgency=medium
 
   * feat(vault): exclude patterns and a guard for state inside root

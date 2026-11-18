@@ -60,20 +60,24 @@ class Rclone:
                 cmd.append(f"--{key}={value}")
         return cmd
 
-    def run(self, *args, check=True, capture=None, banner=False):
+    def run(self, *args, check=True, capture=None, banner=False, force=False):
         """Rclone talks directly to the terminal when --verbose is on,
-        except for commands whose output we have to parse (lsf)."""
+        except for commands whose output we have to parse (lsf).
+
+        force=True keeps read-only commands working under --dry-run.
+        """
         if capture is None:
             capture = not VERBOSE
         return run(self._base() + list(args), env=self.env, check=check,
-                   capture=capture, banner=banner)
+                   capture=capture, banner=banner, force=force)
 
-    def lsf(self, path):
+    def lsf(self, path, force=False):
         """List files under remote:path as RemoteFile objects (empty if missing)."""
-        if DRY:
+        if DRY and not force:
             return []
         res = self.run("lsf", "--files-only", "--format", "pst",
-                       path.rstrip("/") + "/", check=False, capture=True)
+                       path.rstrip("/") + "/", check=False, capture=True,
+                       force=force)
         if res.returncode != 0:
             if "directory not found" in (res.stderr or "").lower():
                 return []

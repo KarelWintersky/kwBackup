@@ -46,7 +46,8 @@ def failure_entries(exc, action):
     return [{"action": action, "reason": failure_reason(exc)}]
 
 
-def run(cmd, env=None, check=True, timeout=None, capture=True, banner=False):
+def run(cmd, env=None, check=True, timeout=None, capture=True, banner=False,
+        force=False):
     """Run one command.
 
     capture=True  - stdout/stderr are collected (needed to parse lsf output).
@@ -54,8 +55,10 @@ def run(cmd, env=None, check=True, timeout=None, capture=True, banner=False):
                     rclone --progress becomes visible under --verbose.
     banner=True   - put an empty line before and after the streamed output,
                     so it does not glue to the script's log lines.
+    force=True    - a read-only command that must run even under --dry-run
+                    (restore reads manifests and volumes).
     """
-    if DRY:
+    if DRY and not force:
         LOG.info("dry-run: %s", _fmt_cmd(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
     LOG.debug("run: %s", _fmt_cmd(cmd))

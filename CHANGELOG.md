@@ -3,6 +3,15 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.76] — 2026-11-18
+
+### Fixed
+
+- `--restore --vault --dry-run` сообщал «no manifests found»: `rclone lsf` и
+  `copyto` глушились глобальным `DRY`. Чтение манифестов и томов теперь
+  выполняется с `force=True`, запись по-прежнему под dry-run.
+- Dry-run восстановления показывает плановое число файлов, а не `0`.
+
 ## [0.99.75] — 2026-11-18
 
 ### Added

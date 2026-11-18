@@ -221,6 +221,10 @@ vault:
 Восстановление:
 
 ```bash
+# пробный прогон: найти цепочку и посчитать файлы, ничего не качать
+kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --dry-run \
+    --to /srv/restore
+
 # последнее состояние
 kwbackup -c /etc/kwbackup/storage.yaml --restore --vault --to /srv/restore
 
