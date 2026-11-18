@@ -319,6 +319,11 @@ notify:
           and not vault_excluded("keep/a.txt", [".state"]),
           "exclude matcher is wrong")
 
+    record = logging.LogRecord("t", logging.INFO, __file__, 1,
+                               "\033[36m42\033[0m files", None, None)
+    check("plain log formatter", _PlainFmt("%(message)s").format(record) == "42 files",
+          _PlainFmt("%(message)s").format(record))
+
     check("current tar file",
           _current_file([("a", 10), ("b", 20)], 5) == "a"
           and _current_file([("a", 10), ("b", 20)], 15) == "b"

@@ -3,6 +3,13 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.99.78] — 2026-11-18
+
+### Added
+
+- Числа и размеры в выводе восстановления подсвечиваются цветом в терминале
+  (`NO_COLOR` и не-tty отключают). Файл лога и syslog очищаются от ANSI.
+
 ## [0.99.77] — 2026-11-18
 
 ### Changed

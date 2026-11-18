@@ -2,6 +2,24 @@
 # LOGGING
 # ============================================================================
 
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def hl(value):
+    """Highlight a number/size in terminal log lines; plain in files."""
+    text = str(value)
+    if os.environ.get("NO_COLOR") is not None or not sys.stderr.isatty():
+        return text
+    return f"\033[36m{text}\033[0m"
+
+
+class _PlainFmt(logging.Formatter):
+    """File and syslog formatter: never keep ANSI escapes in a log line."""
+
+    def format(self, record):
+        return ANSI_RE.sub("", super().format(record))
+
+
 class _Fmt(logging.Formatter):
     COLORS = {logging.DEBUG: "\033[90m", logging.INFO: "",
               logging.WARNING: "\033[33m", logging.ERROR: "\033[31m"}
@@ -104,7 +122,7 @@ def setup_logging(cfg, verbose=False, debug=False, dry_run=False):
             Path(cfg.log_file).parent.mkdir(parents=True, exist_ok=True)
             fh = logging.FileHandler(cfg.log_file, encoding="utf-8")
             fh.setLevel(file_level)
-            fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(message)s"))
+            fh.setFormatter(_PlainFmt("%(asctime)s %(levelname)-7s %(message)s"))
             LOG.addHandler(fh)
         except OSError as exc:
             LOG.warning("log file %s: %s", cfg.log_file, exc)

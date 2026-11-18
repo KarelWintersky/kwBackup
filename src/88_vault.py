@@ -773,7 +773,7 @@ def vault_restore(cfg, args):
     names = vault_layer_names(store)
     if not names:
         raise ActionFailed(f"vault restore: no manifests found in {target}")
-    LOG.info("vault restore: %d manifest(s) in the index", len(names))
+    LOG.info("vault restore: %s manifest(s) in the index", hl(len(names)))
 
     state, layers, seen_base = {}, [], False
     volume_sizes = {}
@@ -804,9 +804,9 @@ def vault_restore(cfg, args):
 
     total_bytes = sum(item["size"] for _, _, item in state.values())
     stats = {"files": len(state), "bytes": total_bytes}
-    LOG.info("vault restore: applying %d layer(s)", len(layers))
-    LOG.info("vault restore: state %s: %d file(s), %s", at or "latest",
-             len(state), fmt_bytes(total_bytes))
+    LOG.info("vault restore: applying %s layer(s)", hl(len(layers)))
+    LOG.info("vault restore: state %s: %s file(s), %s", at or "latest",
+             hl(len(state)), hl(fmt_bytes(total_bytes)))
 
     order = {name: index for index, (name, _manifest) in enumerate(layers)}
     priority = {name: index for index, name in
@@ -833,11 +833,11 @@ def vault_restore(cfg, args):
     sorted_groups = sorted(groups.items(), key=group_key)
     needed_bytes = sum(volume_sizes.get(volume, 0)
                        for (_layer, volume), _entries in sorted_groups)
-    LOG.info("vault restore: sorting %d volume(s)", len(sorted_groups))
+    LOG.info("vault restore: sorting %s volume(s)", hl(len(sorted_groups)))
     if DRY:
-        LOG.info("dry-run: vault restore %d file(s) from %s; would download "
-                 "%d volume(s), %s", len(state), target, len(sorted_groups),
-                 fmt_bytes(needed_bytes))
+        LOG.info("dry-run: vault restore %s file(s) from %s; would download "
+                 "%s volume(s), %s", hl(len(state)), target,
+                 hl(len(sorted_groups)), hl(fmt_bytes(needed_bytes)))
         return stats
 
     stats["files"] = 0
@@ -846,9 +846,9 @@ def vault_restore(cfg, args):
     workdir = Path(tempfile.mkdtemp(prefix="vault-restore-", dir=str(cfg.temp_dir)))
     try:
         for number, ((layer, volume), entries) in enumerate(sorted_groups, 1):
-            LOG.info("vault restore: volume %d/%d %s (%s)", number,
-                     len(sorted_groups), volume,
-                     fmt_bytes(volume_sizes.get(volume, 0)))
+            LOG.info("vault restore: volume %s %s (%s)",
+                     hl(f"{number}/{len(sorted_groups)}"), volume,
+                     hl(fmt_bytes(volume_sizes.get(volume, 0))))
             local = workdir / volume
             store.get(volume, local)
             members = [entry["path"] for entry in entries]
@@ -880,6 +880,6 @@ def vault_restore(cfg, args):
                 stats["files"] += 1
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-    LOG.info("vault restore: done: %d file(s), %s", stats["files"],
-             fmt_bytes(stats["bytes"]))
+    LOG.info("vault restore: done: %s file(s), %s", hl(stats["files"]),
+             hl(fmt_bytes(stats["bytes"])))
     return stats

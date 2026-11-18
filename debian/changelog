@@ -1,3 +1,16 @@
+kwbackup (0.99.78) unstable; urgency=medium
+
+  * feat(log): highlight numbers in restore output
+
+    Numbers and sizes in vault restore lines are printed in cyan on a terminal
+    (disabled by NO_COLOR or a non-tty stderr). The file handler and syslog use a
+    formatter that strips ANSI, so logs stay clean. The final restore summary uses
+    the same highlight.
+
+    tests: the plain formatter strips escapes (70 checks, 88/88 e2e).
+
+ -- Karel Wintersky <karel.wintersky@gmail.com>  Wed, 18 Nov 2026 16:07:59 +0300
+
 kwbackup (0.99.77) unstable; urgency=medium
 
   * feat(vault): explain what restore is doing
